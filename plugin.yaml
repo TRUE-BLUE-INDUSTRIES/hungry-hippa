@@ -1,0 +1,6 @@
+name: living-cortex
+version: 0.1.0
+description: "Living Cortex — hybrid cognitive memory: episodes, temporal knowledge graph, hybrid vector+graph recall, provenance, contradictions, consolidation, forgetting, procedural learning."
+hooks:
+  - on_session_end
+  - on_memory_write
