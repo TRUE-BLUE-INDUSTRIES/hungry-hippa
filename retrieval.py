@@ -126,11 +126,13 @@ class RetrievalRouter:
             if h["kind"] == "episode" and self.episodic is not None:
                 e = self.episodic.get_episode(h["target_id"])
                 if e and e["status"] == "active":
+                    e["_kind"] = "episode"
                     e["vector_score"] = h["score"]
                     add(f"episode:{e['episode_id']}", e)
             elif h["kind"] == "belief" and self.semantic is not None:
                 b = self.semantic.get_belief(h["target_id"])
                 if b and b["status"] == "active":
+                    b["_kind"] = "belief"
                     b["vector_score"] = h["score"]
                     add(f"belief:{b['belief_id']}", b)
         for h in fts_hits:
@@ -141,11 +143,13 @@ class RetrievalRouter:
             if h["target_kind"] == "episode" and self.episodic is not None:
                 e = self.episodic.get_episode(h["target_id"])
                 if e and e["status"] == "active":
+                    e["_kind"] = "episode"
                     e["fts_score"] = h["score"]
                     add(key, e)
             elif h["target_kind"] == "belief" and self.semantic is not None:
                 b = self.semantic.get_belief(h["target_id"])
                 if b and b["status"] == "active":
+                    b["_kind"] = "belief"
                     b["fts_score"] = h["score"]
                     add(key, b)
 
@@ -203,7 +207,7 @@ class RetrievalRouter:
 
         # 8) touch accessed items (reinforcement = retrieval boosts memory)
         for it in items:
-            if it.get("kind") == "episode":
+            if it.get("_kind") == "episode":
                 self.episodic.touch(it["episode_id"], session_id)
 
         context = self.render(items, query)
@@ -220,7 +224,7 @@ class RetrievalRouter:
         for it in items:
             if used >= budget:
                 break
-            kind = it.get("kind", "")
+            kind = it.get("_kind") or it.get("kind", "")
             if kind == "episode":
                 refs = _db.jload(it.get("source_refs"), []) or []
                 block = (
