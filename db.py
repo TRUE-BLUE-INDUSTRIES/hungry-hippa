@@ -97,12 +97,64 @@ class Database:
                         (version, now_iso(), mig["description"], mig["down"]),
                     )
                 conn.commit()
+                self._rebuild_fts_if_empty(conn)
             finally:
                 conn.close()
         except Exception as e:
             self.failures += 1
             logger.error("schema init failed for %s: %s", self.path, e)
             raise
+
+    def _rebuild_fts_if_empty(self, conn: sqlite3.Connection) -> None:
+        """Self-heal: if the FTS index is empty but source tables have rows
+        (e.g. after a schema fix), reindex everything from source."""
+        try:
+            n_fts = conn.execute("SELECT COUNT(*) FROM memory_fts").fetchone()[0]
+            if n_fts > 0:
+                return
+            sources = sum(
+                conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+                for t in ("episodes", "beliefs", "entities", "procedures")
+            )
+            if sources == 0:
+                return
+            for r in conn.execute(
+                "SELECT episode_id, context, user_request, actions_taken, decisions,"
+                " result, project, visual_entities, audio_transcript, participants"
+                " FROM episodes"
+            ):
+                body = " ".join(str(x) for x in (
+                    r["context"], r["user_request"], r["actions_taken"],
+                    r["decisions"], r["result"], r["project"],
+                    r["visual_entities"], r["audio_transcript"], r["participants"],
+                ) if x).strip()
+                if body:
+                    conn.execute(
+                        "INSERT INTO memory_fts(body, target_kind, target_id)"
+                        " VALUES (?,?,?)", (body, "episode", r["episode_id"]))
+            for r in conn.execute("SELECT belief_id, claim FROM beliefs"):
+                if r["claim"]:
+                    conn.execute(
+                        "INSERT INTO memory_fts(body, target_kind, target_id)"
+                        " VALUES (?,?,?)", (r["claim"], "belief", r["belief_id"]))
+            for r in conn.execute("SELECT entity_id, name FROM entities"):
+                if r["name"]:
+                    conn.execute(
+                        "INSERT INTO memory_fts(body, target_kind, target_id)"
+                        " VALUES (?,?,?)", (r["name"], "entity", r["entity_id"]))
+            for r in conn.execute(
+                "SELECT procedure_id, name, description, applicability FROM procedures"
+            ):
+                body = " ".join(str(x) for x in (
+                    r["name"], r["description"], r["applicability"]) if x).strip()
+                if body:
+                    conn.execute(
+                        "INSERT INTO memory_fts(body, target_kind, target_id)"
+                        " VALUES (?,?,?)", (body, "procedure", r["procedure_id"]))
+            conn.commit()
+            logger.info("cortex fts reindexed from source rows")
+        except Exception as e:
+            logger.warning("fts reindex failed: %s", e)
 
     def _run(self, fn, *args, write: bool = False) -> Any:
         try:

@@ -237,7 +237,27 @@ DROP TABLE IF EXISTS episodes;
 DROP TABLE IF EXISTS mutation_log;
 DROP TABLE IF EXISTS counters;
 """,
-    }
+    },
+    2: {
+        "description": "Rebuild memory_fts as a readable (non-contentless) FTS5 table; rows are reindexed from source tables automatically.",
+        "up": """
+DROP TABLE IF EXISTS memory_fts;
+CREATE VIRTUAL TABLE memory_fts USING fts5(
+  body,
+  target_kind UNINDEXED,
+  target_id UNINDEXED
+);
+""",
+        "down": """
+DROP TABLE IF EXISTS memory_fts;
+CREATE VIRTUAL TABLE memory_fts USING fts5(
+  body,
+  target_kind UNINDEXED,
+  target_id UNINDEXED,
+  content=''
+);
+""",
+    },
 }
 
 CURRENT_VERSION = max(MIGRATIONS.keys())

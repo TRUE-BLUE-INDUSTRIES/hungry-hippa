@@ -222,6 +222,7 @@ class RetrievalRouter:
                 break
             kind = it.get("kind", "")
             if kind == "episode":
+                refs = _db.jload(it.get("source_refs"), []) or []
                 block = (
                     f"[EPISODE {it['episode_id']} {it.get('ts_start', '')[:10]}] "
                     f"{it.get('context', '')} — outcome: {it.get('outcome', '?')}"
@@ -230,12 +231,15 @@ class RetrievalRouter:
                     block += f" | result: {it['result'][:200]}"
                 if it.get("project"):
                     block += f" | project: {it['project']}"
-                block += f" | importance {it.get('importance', 0):.2f} (src: {it.get('source_refs', '[]')})"
+                block += f" | importance {it.get('importance', 0):.2f}"
+                if refs:
+                    block += f" (src: {', '.join(str(r) for r in refs[:3])})"
             elif kind == "belief":
+                derived = _db.jload(it.get("derived_from"), []) or []
                 block = (f"[BELIEF {it['belief_id']} {it['kind']}/{it['source_class']} "
                          f"conf {it.get('confidence', 0):.2f}] {it.get('claim', '')}")
-                if it.get("derived_from"):
-                    block += f" | derived_from: {it['derived_from']}"
+                if derived:
+                    block += f" | derived_from: {', '.join(str(d) for d in derived[:4])}"
             elif kind == "relationship":
                 valid = f" {it.get('valid_from', '?')}" + (
                     f"→{it.get('valid_until')}" if it.get("valid_until") else "→present")
