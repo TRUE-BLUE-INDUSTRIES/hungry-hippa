@@ -1,8 +1,8 @@
 # Phase 0 — Installation Inspection Report
 
 Date: 2026-08-16. Hermes Agent v0.20.0 (2026.8.3).
-Source: `C:\Users\TBI-Admin\AppData\Local\hermes\hermes-agent` (git repo, branch `main`).
-HERMES_HOME: `C:\Users\TBI-Admin\AppData\Local\hermes` (profile `default`).
+Source: `~\AppData\Local\hermes\hermes-agent` (git repo, branch `main`).
+HERMES_HOME: `~\AppData\Local\hermes` (profile `default`).
 
 ## 1. What memory architecture already exists
 

@@ -1,8 +1,15 @@
-"""One-time idempotent seed of core entities/beliefs into the Living Cortex.
+"""Example seed script for the Living Cortex — generic placeholder data.
 
-Run:  python seed_initial.py
+Copy this file to seed your own Cortex with the people, projects, devices,
+and durable facts you want available from day one:
+
+    cp scripts/seed_initial.py scripts/seed_initial.local.py
+    # edit the placeholders below
+    python scripts/seed_initial.local.py
+
 Safe to re-run: entities are get_or_create; beliefs are deduped by claim.
-All seeded beliefs carry source_class=user_explicit (facts DJ has stated).
+All seeded beliefs should carry source_class=user_explicit (facts the user
+has stated) so they start at high confidence and carry correct provenance.
 """
 
 import sys
@@ -29,26 +36,15 @@ c.bind_session(session_id="seed", platform="cli")
 
 # ---------------------------------------------------------------- entities
 PEOPLE = {
-    "Dennis Rotherham": "person",
-    "Alexus": "person",
-    "Oaklynn": "person",
-    "Alvin": "person",
+    "Operator": "person",
+    "Client A": "person",
 }
 PROJECTS = {
-    "Voxvil": "project",
-    "AD Audit": "project",
-    "TRUE BLUE INVENTION ENGINE": "project",
-    "engineering-agent": "project",
-    "agent-bridge": "project",
-    "Meat plant enclosure project": "project",
+    "Project One": "project",
+    "Project Two": "project",
 }
 DEVICES = {
-    "Prusa XL": "device",
-    "Xreal One": "device",
-    "Meta Fury glasses": "device",
-    "D's S25 Ultra": "device",
-    "RTX 5070 Ti": "device",
-    "LAFVIN ESP32-S3": "device",
+    "Workstation": "device",
 }
 
 for name, t in {**PEOPLE, **PROJECTS, **DEVICES}.items():
@@ -56,38 +52,16 @@ for name, t in {**PEOPLE, **PROJECTS, **DEVICES}.items():
 
 # ---------------------------------------------------------- relationships
 R = c.relate
-R("Dennis Rotherham", "WORKS_ON", "Voxvil")
-R("Dennis Rotherham", "WORKS_ON", "AD Audit")
-R("Dennis Rotherham", "WORKS_ON", "TRUE BLUE INVENTION ENGINE")
-R("Dennis Rotherham", "WORKS_ON", "engineering-agent")
-R("Dennis Rotherham", "WORKS_ON", "agent-bridge")
-R("Dennis Rotherham", "WORKS_ON", "Meat plant enclosure project")
-R("Alvin", "WORKS_ON", "Meat plant enclosure project")
-R("Alvin", "WORKS_ON", "engineering-agent")
-R("Dennis Rotherham", "OWNS", "Prusa XL")
-R("Dennis Rotherham", "OWNS", "Xreal One")
-R("Dennis Rotherham", "OWNS", "Meta Fury glasses")
-R("Dennis Rotherham", "OWNS", "D's S25 Ultra")
-R("Dennis Rotherham", "OWNS", "RTX 5070 Ti")
-R("Voxvil", "USES", "Prusa XL")
-R("Meat plant enclosure project", "REQUIRES", "sealed wet/cold cabinet")
-R("Alexus", "RELATED_TO", "Dennis Rotherham")
-R("Oaklynn", "RELATED_TO", "Dennis Rotherham")
+R("Operator", "WORKS_ON", "Project One")
+R("Client A", "WORKS_ON", "Project Two")
+R("Operator", "OWNS", "Workstation")
 
 # ---------------------------------------------------------------- beliefs
 FACTS = [
-    ("Dennis prefers OpenSCAD (local) over SolidWorks (cloud).", "preference"),
-    ("Dennis wants Grok and Gemini CLI raw responses shown verbatim, never summarized.", "preference"),
-    ("Dennis prefers autonomous keep-going execution on complex builds over step-by-step check-ins.", "preference"),
-    ("Prusa XL build volume is 360x360x348mm with 2 toolheads.", "fact"),
-    ("Alvin's meat plant cabinet project budget is about $4k; cabinet is 305x450x300mm sealed wet/cold, no louvres.", "fact"),
-    ("UAV arm design (DJ patent): PLA-tube core + TPU clamshell sleeve, 0.5mm air gap + gyroid + nubs.", "fact"),
-    ("Projects must stay strictly separated: Voxvil, AD Audit, TRUE BLUE INVENTION ENGINE. No cross-imports; hallucinated cross-project links are a hard fail.", "fact"),
-    ("ACE TRIDENT, EXOVEX, AFWERX, MCWL, NDAs, Blended Blueprint AI Architecture are sensitive/privileged material.", "fact"),
-    ("Alvin is Discord user 'ep'; Dennis is 'trueblue92' (seen as Truubluu92).", "fact"),
-    ("Hardware: RTX 5070 Ti 16GB GPU, 64GB RAM; Yoga webcam/mic; Xreal One S+Eye+Hub HUD.", "fact"),
-    ("Agent bridge is a Redis task bus at C:\\Users\\TBI-Admin\\agent-bridge (Hermes + OpenClaw + Codex workers, gateway port 18789).", "fact"),
-    ("LAFVIN ESP32-S3 dev board: TFT200C 240x320 V1.3 (likely ST7789, ~8MB OPI PSRAM); TFT pins BLK=IO42 SDA=IO40 CLK=IO41 CS=IO47 DC=IO39; audio on ES8311.", "fact"),
+    ("The operator prefers local tools over cloud services.", "preference"),
+    ("The operator wants results verified before they are claimed.", "preference"),
+    ("Project One depends on Workstation for its build pipeline.", "fact"),
+    # add your own durable facts here; keep source_class=user_explicit
 ]
 
 existing = {b["claim"].strip() for b in c.semantic.list_beliefs(status="active", limit=200)}
@@ -104,6 +78,5 @@ for claim, kind in FACTS:
         created += 1
     existing.add(claim)
 
-print(f"seeded: {created} new beliefs, "
-      f"{len(c.graph.search_entities(''))} entities (see status)")
+print(f"seeded: {created} new beliefs")
 print(c.status()["counts"])

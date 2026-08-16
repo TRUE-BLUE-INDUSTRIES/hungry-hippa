@@ -78,7 +78,7 @@ e3 = c.remember_episode(
 
 # ---- graph --------------------------------------------------------------
 c.graph.get_or_create_entity("Living Cortex", "project", session_id="build")
-c.relate("Dennis Rotherham", "WORKS_ON", "Living Cortex")
+c.relate("Operator", "WORKS_ON", "Living Cortex")
 c.relate("Living Cortex", "USES", "RTX 5070 Ti")
 
 # ---- belief with provenance ----------------------------------------------
