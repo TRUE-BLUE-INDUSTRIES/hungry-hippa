@@ -199,3 +199,94 @@ No Unix socket, no loopback HTTP, no OAuth, no remote transport.
 
 ---
 
+## Phase 5 — security
+
+Objective: practical controls matching the threat model — request/result limits, a
+per-process call budget, audit-log redaction, and documented boundaries. Security is a
+foundation here, not the product's novelty.
+
+Files in scope: `limits.py` (new), `mcp_server.py`, `tools.py`, `db.py`,
+`controller.py`, `episodic.py`, `semantic.py`, `cli.py`, `tests/test_security.py` (new),
+`docs/THREAT_MODEL.md` (new), `docs/SECURITY.md` (new), `SECURITY.md` (new).
+
+Validation commands:
+
+```
+python tests/test_acceptance.py
+python tests/test_migration.py
+python tests/test_memory_architecture.py
+python tests/test_mcp_schema.py
+python tests/test_security.py
+```
+
+Expected evidence: oversized payloads rejected on both surfaces; result and frame caps
+enforced; the call budget stops an abusive loop; no export/SQL/path tool over MCP;
+untrusted recall of quarantined rows denied; purge denied without confirmation plus an
+owner actor; SQL-injection payloads inert; credential-shaped strings redacted in audit
+logs while stored memory is preserved; every tracked file free of credential shapes.
+
+Rollback: the limits live in one new module and are applied at three call sites
+(`tool` dispatch, MCP dispatch, `db.log_mutation`); reverting `limits.py` plus those
+call sites restores the previous behaviour. Docs are additive. Never ship the MCP
+surface without the actor checks.
+
+Status: see the "Phase 5 results" section at the bottom.
+
+---
+
+## Phase 5 results — COMMIT `security: add request limits, threat model, and MCP auth tests`
+
+Files: `limits.py` (new), `tests/test_security.py` (new, 10 checks),
+`docs/THREAT_MODEL.md` (new), `docs/SECURITY.md` (new), `SECURITY.md` (new);
+`mcp_server.py`, `tools.py`, `db.py`, `controller.py`, `episodic.py`, `semantic.py`,
+`cli.py` updated.
+
+Implemented:
+
+- `limits.py`: argument caps (query 8000 / content 32000 / arrays 256 / ids 64),
+  result caps (text 20000, JSON-RPC frame 40000), a thread-safe per-process
+  `CallBudget` (`HUNGRY_HIPPA_MAX_MCP_CALLS`), and credential redaction for audit
+  logs. Limits are enforced on the MCP surface (schema + a second length check),
+  on the Hermes `cortex` tool, and on the returned context text.
+- Redaction is applied where audit copies are written (`db.log_mutation`,
+  `controller.recall`'s `retrieval_log` insert). Stored memory and immutable
+  evidence rows keep exactly what they were given, so a redacted log never
+  contradicts the record it describes.
+- `docs/THREAT_MODEL.md`: twelve threats with the control that addresses each and
+  the residual risk, plus an explicit "not covered" list.
+- `docs/SECURITY.md`: the actor/policy model (stated as policy checks, **not**
+  capability-based security), the control table, encryption-at-rest expectations
+  (OS disk encryption; no SQLCipher dependency), what is not provided, and a
+  safe-running checklist.
+- root `SECURITY.md`: responsible disclosure through GitHub issues/advisories on
+  `TRUE-BLUE-INDUSTRIES/living-cortex` (no invented email address), plus the list
+  of documented limitations that are not vulnerabilities.
+- `cli.py`: `hermes living-cortex recall --quarantined` so an owner can actually
+  review quarantined rows; without the flag they never appear.
+
+Security bug found and fixed by the new tests: an untrusted actor's **semantic**
+write was not quarantined, because the quarantine decision lived only in
+`MemoryController.remember_episode` and the MCP handler calls
+`semantic.add_belief` directly. The decision moved into the write layer
+(`episodic.remember_episode`, `semantic.add_belief`), which every path goes
+through. Also fixed: `set_call_budget()` reset the counter but kept a shrunken
+limit, leaking a test's budget setting into later calls in the same process.
+
+Actual test results (run 2026-09-15, this working tree):
+
+```
+python tests/test_acceptance.py            -> 10/10 passed
+python tests/test_migration.py             ->  6/6 passed
+python tests/test_memory_architecture.py   ->  8/8 passed
+python tests/test_mcp_schema.py            -> 11/11 passed
+python tests/test_security.py              -> 10/10 passed
+```
+
+Not done in this phase: no encryption at rest, no tamper-evident hash chain, no
+per-caller quotas or timeouts, no secret scanning of already-stored memories, no
+authenticated MCP transport (a caller that can start the process can claim any
+`actor_id`). All of these are stated in the docs rather than implied away.
+
+
+---
+

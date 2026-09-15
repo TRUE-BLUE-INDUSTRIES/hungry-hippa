@@ -11,6 +11,8 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, List
 
+from . import limits as _limits
+
 CORTEX_SCHEMA = {
     "name": "cortex",
     "description": (
@@ -118,13 +120,20 @@ def handle(cortex_controller, observability, action: str, args: Dict[str, Any]) 
     """Dispatch a cortex tool call. Returns a JSON string (tool result)."""
     try:
         c = cortex_controller
+        problems = _limits.check_args(args or {})
+        if problems:
+            return json.dumps({"error": "rejected: " + "; ".join(problems)[:300],
+                               "limits": {"max_query_chars": _limits.MAX_QUERY_CHARS,
+                                          "max_content_chars": _limits.MAX_CONTENT_CHARS}},
+                              ensure_ascii=False)
         if action == "recall":
             out = c.recall(args.get("query", ""), project=args.get("project", ""),
                            limit=args.get("limit"),
                            explain=bool(args.get("explain")))
             payload = {
                 "count": out.get("count", 0),
-                "context": out.get("context", ""),
+                "context": _limits.truncate(out.get("context", ""),
+                                            _limits.MAX_RESULT_CHARS),
                 "entities": out.get("entities", []),
                 "sources": out.get("sources", []),
                 "excluded": out.get("excluded", []),

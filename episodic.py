@@ -54,6 +54,9 @@ class EpisodicMemory:
         refs = _db.jdump([r for r in (source_refs or []) if r])
         sens = _policy.normalize_sensitivity(sensitivity)
         actor = _policy.normalize_actor(actor_id)
+        # Quarantine is decided at this layer so no caller can bypass it by
+        # writing episodic memory directly instead of through the controller.
+        quarantined = _policy.write_quarantine(actor, quarantined)
 
         def _insert(conn) -> None:
             conn.execute(

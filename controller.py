@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from . import db as _db
+from . import limits as _limits
 from . import policy as _policy
 from .attention import AttentionScorer
 from .consolidation import Consolidator
@@ -91,10 +92,10 @@ class MemoryController:
             importance = scored["importance"]
             signals = scored["signals"]
         fields["importance"] = importance
-        actor = _policy.normalize_actor(fields.get("actor_id") or self.actor_id)
-        fields["actor_id"] = actor
-        fields["quarantined"] = _policy.write_quarantine(
-            actor, bool(fields.get("quarantined")))
+        # actor_id is forwarded; quarantine is decided by the write layer
+        # (episodic/semantic) so every path obeys the same rule.
+        fields["actor_id"] = _policy.normalize_actor(
+            fields.get("actor_id") or self.actor_id)
         fields["session_id"] = self.session_id
         result = self.episodic.remember_episode(**fields)
         eid = result.get("episode_id")
@@ -128,7 +129,7 @@ class MemoryController:
         def _log(conn) -> None:
             conn.execute(
                 "INSERT INTO retrieval_log(ts, query, recalled, session_id) VALUES (?,?,?,?)",
-                (_db.now_iso(), query[:500],
+                (_db.now_iso(), _limits.redact(query)[:500],
                  _db.jdump([it.get("episode_id") or it.get("belief_id") or it.get("rel_id")
                             for it in out.get("items", [])]),
                  self.session_id),

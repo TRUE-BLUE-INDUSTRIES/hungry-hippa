@@ -41,9 +41,11 @@ def living_cortex_command(args) -> None:
     elif sub == "recall":
         q = getattr(args, "query", "")
         if not q:
-            print("Usage: hermes living-cortex recall '<query>'")
+            print("Usage: hermes living-cortex recall '<query>' [--quarantined]")
             return
-        _print_json(c.recall(q, project=getattr(args, "project", "")))
+        _print_json(c.recall(q, project=getattr(args, "project", ""),
+                             include_quarantined=bool(
+                                 getattr(args, "quarantined", False))))
     elif sub == "episodes":
         _print_json({"episodes": c.episodic.list_episodes(
             project=getattr(args, "project", ""),
@@ -140,6 +142,8 @@ def register_cli(subparser) -> None:
     recall = subs.add_parser("recall", help="Hybrid recall for a query")
     recall.add_argument("query")
     recall.add_argument("--project", default="")
+    recall.add_argument("--quarantined", action="store_true",
+                        help="Owner review: include quarantined memories, clearly labelled")
 
     episodes = subs.add_parser("episodes", help="List episodes")
     episodes.add_argument("--project", default="")

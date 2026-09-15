@@ -69,6 +69,10 @@ class SemanticMemory:
         now = _db.now_iso()
         sens = _policy.normalize_sensitivity(sensitivity)
         actor = _policy.normalize_actor(actor_id)
+        # Quarantine is decided here, at the layer every write path goes
+        # through, so an untrusted caller cannot bypass it by reaching
+        # semantic memory directly instead of the controller.
+        quarantined = _policy.write_quarantine(actor, quarantined)
 
         def _insert(conn) -> None:
             conn.execute(

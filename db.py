@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from . import schema as _schema
+from . import limits as _limits
 
 logger = logging.getLogger("living_cortex.db")
 
@@ -200,11 +201,19 @@ class Database:
 
     def log_mutation(self, action: str, target_kind: str, target_id: str = "",
                      detail: str = "", session_id: str = "") -> None:
+        """Append an audit row.
+
+        The audit *summary* is redacted and length-capped; the stored memory and
+        its immutable evidence rows keep exactly what they were given, so a
+        redacted audit log never contradicts the record it describes.
+        """
+        safe_detail = _limits.redact(detail)[:2000]
+
         def _log(conn: sqlite3.Connection) -> None:
             conn.execute(
                 "INSERT INTO mutation_log(ts, action, target_kind, target_id, detail, session_id)"
                 " VALUES (?,?,?,?,?,?)",
-                (now_iso(), action, target_kind, target_id, detail[:2000], session_id),
+                (now_iso(), action, target_kind, target_id, safe_detail, session_id),
             )
 
         self._run(_log, write=True)

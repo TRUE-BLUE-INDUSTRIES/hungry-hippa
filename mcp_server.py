@@ -70,14 +70,36 @@ def _load_plugin_package(name: str = PLUGIN_PACKAGE):
 
 if __package__:
     # Imported as part of a real package (Hermes or `python -m` from the parent).
+    from . import limits as _limits
     from . import policy as _policy
     from .config import load_config, resolve_db_path
     from .controller import MemoryController
 else:
     _PLUGIN = _load_plugin_package()
+    from livingcortex import limits as _limits
     from livingcortex import policy as _policy
     from livingcortex.config import load_config, resolve_db_path
     from livingcortex.controller import MemoryController
+
+
+# Per-process call budget. A blunt resource guard against a runaway or hostile
+# client loop; it does not identify callers and is not an authorisation
+# mechanism. Override with HUNGRY_HIPPA_MAX_MCP_CALLS for a long-lived session.
+CALL_BUDGET = _limits.CallBudget(_limits.max_calls_from_env())
+
+
+def set_call_budget(max_calls: Optional[int] = None) -> None:
+    """Reset the per-process call budget (tests and operator tuning).
+
+    With no argument the configured/default budget is restored, so a test that
+    shrinks the budget cannot leak that setting into later work.
+    """
+    CALL_BUDGET.reset(max_calls if max_calls is not None
+                      else _limits.max_calls_from_env())
+
+
+def call_budget_summary() -> Dict[str, Any]:
+    return CALL_BUDGET.summary()
 
 
 def server_version() -> str:
@@ -340,7 +362,7 @@ def _t_recall(controller, args: Dict[str, Any], actor_id: str) -> Dict[str, Any]
     )
     payload = _ok(
         count=out.get("count", 0),
-        context=out.get("context", ""),
+        context=_limits.truncate(out.get("context", ""), _limits.MAX_RESULT_CHARS),
         items=[
             {"id": (i.get("episode_id") or i.get("belief_id") or i.get("rel_id")),
              "type": i.get("_kind") or i.get("kind"),
@@ -368,7 +390,7 @@ def _t_build_context(controller, args: Dict[str, Any], actor_id: str) -> Dict[st
                                    limit=args.get("limit"), actor_id=actor_id,
                                    max_context_chars=args.get("max_chars"))
     return _ok(
-        rendering=pkg.get("rendering", ""),
+        rendering=_limits.truncate(pkg.get("rendering", ""), _limits.MAX_RESULT_CHARS),
         item_ids=[(i.get("episode_id") or i.get("belief_id") or i.get("rel_id"))
                   for i in pkg.get("items", [])],
         token_estimate=pkg.get("token_estimate", 0),
@@ -427,6 +449,10 @@ def _t_status(controller, args: Dict[str, Any], actor_id: str) -> Dict[str, Any]
         vectors=st.get("vectors"),
         failures=st.get("failures", 0),
         policy=_policy.policy_summary(),
+        call_budget=CALL_BUDGET.summary(),
+        limits={"max_query_chars": _limits.MAX_QUERY_CHARS,
+                "max_content_chars": _limits.MAX_CONTENT_CHARS,
+                "max_result_chars": _limits.MAX_RESULT_CHARS},
     )
     # the database path is operator information, not for untrusted callers
     if _policy.is_owner(actor_id):
@@ -459,8 +485,13 @@ def call_tool(name: str, arguments: Optional[Dict[str, Any]], controller=None) -
     actor_id = _actor_of(args)
     schema = next((t for t in TOOLS if t["name"] == name), None)
     problems = validate_args(schema, args) if schema else []
+    problems.extend(_limits.check_args(args))
     if problems:
-        return _denied("; ".join(problems)[:400])
+        return _denied("; ".join(dict.fromkeys(problems))[:400])
+    allowed, reason = CALL_BUDGET.check()
+    if not allowed:
+        return _denied(reason, budget=CALL_BUDGET.summary())
+    CALL_BUDGET.record()
     if controller is None:
         return _denied("no memory runtime available")
     try:
@@ -539,10 +570,19 @@ def validate_args(schema: Optional[Dict[str, Any]],
 # --------------------------------------------------------- JSON-RPC layer
 
 def _result(msg_id: Any, payload: Dict[str, Any]) -> Dict[str, Any]:
+    text = json.dumps(payload, ensure_ascii=False, default=str)
+    if len(text) > _limits.MAX_RESULT_JSON_CHARS:
+        # Backstop: a single frame never exceeds the configured cap, whatever a
+        # handler produced. `ok` is preserved so a client can still act on it.
+        text = json.dumps({
+            "ok": payload.get("ok", True),
+            "truncated": True,
+            "original_chars": len(text),
+            "note": "result exceeded the MCP result size cap",
+            "preview": text[:2000],
+        }, ensure_ascii=False)
     return {"jsonrpc": "2.0", "id": msg_id,
-            "result": {"content": [{"type": "text",
-                                    "text": json.dumps(payload, ensure_ascii=False,
-                                                       default=str)}],
+            "result": {"content": [{"type": "text", "text": text}],
                        "isError": not payload.get("ok", True)}}
 
 
