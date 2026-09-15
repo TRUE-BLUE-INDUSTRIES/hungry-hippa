@@ -73,11 +73,16 @@ feeling. Nothing on this list publishes anything by itself.
       `main` at `905167d` ([run 34932877707](https://github.com/TRUE-BLUE-INDUSTRIES/hungry-hippa/actions/runs/34932877707)).
       Check the selected release commit again; see [follow-up](FOLLOWUP.md).
 
-## 8. Publishing (not done, and not to be done without explicit approval)
+## 8. Publishing
+
+Status: the repository is public and both `feat/hungry-hippa` and `main` are pushed, with
+CI green on every pushed commit. The steps below remain the checklist for a *release*
+(a tag or announcement), which has not been done; publishing anything further still needs
+the operator's explicit approval.
 
 - [ ] Decide the release channel and version tag with the operator
-- [ ] Get explicit approval to push and to make the repository public
-- [ ] Push the branch, open the PR or tag, and let CI run on it
+- [ ] Get explicit approval for the release (pushing an ordinary commit is not a release)
+- [ ] Tag or open the PR, and let CI run on it
 - [ ] After publishing: confirm no secrets and no personal memory data are in the public
       history (`git log --all --stat`), and that the README's claims still hold on the
       published commit

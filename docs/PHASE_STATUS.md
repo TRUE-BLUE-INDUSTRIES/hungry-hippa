@@ -7,8 +7,11 @@ statements that nothing was pushed and CI had never run.
 # Hungry Hippa phase status
 
 Operator brief: `/home/djr/Documents/masterP.txt`. Branch: `feat/hungry-hippa`.
-Nothing is pushed. Tests use throwaway temp DBs; the live
-`$HERMES_HOME/living_cortex.db` is never opened by tests or demos.
+The phase entries below were written while the branch was local. It has since been
+pushed (both `feat/hungry-hippa` and `main`, public repository, CI green on every
+pushed commit — see [FOLLOWUP.md](FOLLOWUP.md)), so any "nothing is pushed" line
+inside an individual historical phase entry is superseded. Tests use throwaway temp
+DBs; the live `$HERMES_HOME/living_cortex.db` is never opened by tests or demos.
 
 ---
 
@@ -659,7 +662,7 @@ Committed as `3e3a2b0`, `19eae23`, `72749e3`, `093ed5a`, `898a07a`, `a604ad3`.
 | Ordinary open migrated an old database without a backup | `Database._ensure_schema` writes `*.pre-migration-<UTC>.bak` before pending migrations | `test_migration.py::implicit_open_backs_up_before_upgrading` |
 | Legacy `cortex` export wrote a raw dump for any actor | owner-only + audited (`export` / `export_denied`) | `test_security.py::export_is_operator_only` |
 | No MCP `outputSchema`; `null` accepted; array item bounds unenforced | all six tools advertise `outputSchema`; nulls rejected; per-item `maxLength` enforced | `test_security.py::schema_enforcement` |
-| Real personal identifiers in `tests/test_acceptance.py` | genericised to `Operator`/`Project_V`/`Printer_A` | acceptance suite unchanged and green |
+| Real personal identifiers in `tests/test_acceptance.py` | genericised to `Operator`/`Project_V`/`Printer_A` (identifiers not repeated here) | acceptance suite unchanged and green |
 | Docs claimed the repository was unpushed/unpublished | corrected in COMPARISON, PHASE_STATUS, CHANGELOG, baseline; threats 13/14 added | doc review |
 | Eval results recorded `git_dirty=true` | regenerated at `093ed5a` with a clean tree | `eval/check_results.py` stable |
 

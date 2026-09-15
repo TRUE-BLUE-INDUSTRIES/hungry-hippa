@@ -246,7 +246,7 @@ def check_forget_purge_denied_over_mcp():
                                       "target_kind": "episode", "target_id": eid,
                                       "reason": "security test"}, ctrl)
     assert archived["ok"] and archived["archived"], archived
-    return "purge denied for every unconfirmed/non-owner case; archival is owner-only here"
+    return "purge denied for every unconfirmed/non-owner case; archiving another actor's row is owner-only here"
 
 
 def check_sql_injection_attempts_are_inert():

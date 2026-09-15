@@ -38,9 +38,10 @@ run on every push.
   the owner default) are rejected; string-array items are checked against their
   advertised `maxLength`.
 - **Test fixtures genericised.** `tests/test_acceptance.py` used the operator's real
-  first name and real device/project names in its graph fixtures
-  (`Dennis`/`Voxvil`/`Prusa_XL` → `Operator`/`Project_V`/`Printer_A`). This was
-  pre-existing content that survived the rename; the repository is public.
+  first name and real device/project names in its graph fixtures. Those identifiers are
+  replaced with `Operator`/`Project_V`/`Printer_A`; this was pre-existing content that
+  survived the rename, in a public repository. (The identifiers are deliberately not
+  repeated here.)
 
 ### Added
 

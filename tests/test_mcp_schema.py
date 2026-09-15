@@ -261,7 +261,7 @@ def check_purge_denied_over_mcp():
                                     "confirmation": True}, ctrl)
     assert purged["ok"] and purged["purged"] is True, purged
     assert ctrl.episodic.get_episode(eid) is None
-    return "purge default-denied; archival is owner-only; owner+confirmation purges"
+    return "purge default-denied; archiving another actor's row is owner-only; owner+confirmation purges"
 
 
 def check_status_counts_only():
