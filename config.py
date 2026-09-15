@@ -1,10 +1,14 @@
-"""Living Cortex configuration.
+"""Hungry Hippa (formerly Living Cortex) configuration.
 
 Resolved in this order (highest wins):
   1. config.yaml ``plugins.living-cortex`` section (read via hermes cfg_get when
      running inside Hermes; silently unavailable in standalone use).
-  2. Environment override ``LIVING_CORTEX_DB`` (path only).
-  3. Built-in defaults below.
+  2. Environment override ``HUNGRY_HIPPA_DB`` (path only).
+  3. Deprecated environment override ``LIVING_CORTEX_DB`` (path only; warns).
+  4. Built-in defaults below.
+
+New installs default to ``hungry_hippa.db``. An existing ``living_cortex.db``
+in the same home directory is still discovered so memories are not stranded.
 
 Privacy defaults are conservative (§20): vision/audio episode storage OFF,
 raw media retention minimal, location/face identity memory OFF, no automatic
@@ -14,7 +18,9 @@ purge of structured memory.
 from __future__ import annotations
 
 import os
-from typing import Any, Dict
+import warnings
+from pathlib import Path
+from typing import Any, Dict, Union
 
 DEFAULTS: Dict[str, Any] = {
     # --- storage ---
@@ -140,18 +146,39 @@ def load_config() -> Dict[str, Any]:
     try:  # sidecar written by save_config() (never hand-edit config.yaml)
         from hermes_constants import get_hermes_home
 
-        sidecar = get_hermes_home() / "living_cortex_config.json"
-        if sidecar.exists():
-            import json
+        home = get_hermes_home()
+        for name in ("living_cortex_config.json", "hungry_hippa_config.json"):
+            sidecar = home / name
+            if sidecar.exists():
+                import json
 
-            with open(sidecar, "r", encoding="utf-8") as f:
-                cfg = _deep_merge(cfg, json.load(f) or {})
+                with open(sidecar, "r", encoding="utf-8") as f:
+                    cfg = _deep_merge(cfg, json.load(f) or {})
     except Exception:
         pass
-    env_db = os.environ.get("LIVING_CORTEX_DB")
+    env_old = os.environ.get("LIVING_CORTEX_DB")
+    if env_old:
+        warnings.warn(
+            "LIVING_CORTEX_DB is deprecated; use HUNGRY_HIPPA_DB. "
+            "Hungry Hippa was formerly Living Cortex.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        cfg["db_path"] = env_old
+    env_db = os.environ.get("HUNGRY_HIPPA_DB")
     if env_db:
         cfg["db_path"] = env_db
     return cfg
+
+
+def discover_default_db_path(home: Union[str, Path]) -> str:
+    """Prefer an existing Living Cortex DB; otherwise use hungry_hippa.db."""
+    home_path = Path(home)
+    old = home_path / "living_cortex.db"
+    new = home_path / "hungry_hippa.db"
+    if old.exists() and not new.exists():
+        return str(old)
+    return str(new)
 
 
 def resolve_db_path(cfg: Dict[str, Any]) -> str:
@@ -161,9 +188,9 @@ def resolve_db_path(cfg: Dict[str, Any]) -> str:
     try:
         from hermes_constants import get_hermes_home
 
-        return str(get_hermes_home() / "living_cortex.db")
+        return discover_default_db_path(get_hermes_home())
     except Exception:
-        return os.path.join(os.getcwd(), "living_cortex.db")
+        return discover_default_db_path(os.getcwd())
 
 
 def get(cfg: Dict[str, Any], dotted: str, default: Any = None) -> Any:

@@ -320,3 +320,50 @@ class Database:
             }
 
         return self._run(_h) or {"path": self.path, "counts": {}, "failures": self.failures}
+
+
+def backup_sqlite(src: str, dest: str) -> None:
+    """Consistent SQLite backup (API, not file copy) so WAL is included."""
+    parent = os.path.dirname(os.path.abspath(dest))
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    src_conn = sqlite3.connect(src, timeout=30.0)
+    try:
+        dest_conn = sqlite3.connect(dest, timeout=30.0)
+        try:
+            src_conn.backup(dest_conn)
+            dest_conn.commit()
+        finally:
+            dest_conn.close()
+    finally:
+        src_conn.close()
+
+
+def migrate_database(src: str) -> Dict[str, Any]:
+    """Backup ``src``, apply pending schema migrations, record product meta.
+
+    Existing episode/belief ids are not rewritten. The live production
+    database must not be passed from tests; callers choose the path.
+    """
+    if not src or not os.path.exists(src):
+        return {"error": f"missing database {src}"}
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    backup = src + f".pre-hippa-{ts}.bak"
+    backup_sqlite(src, backup)
+    db = Database(src)
+    health = db.health()
+
+    def _meta(conn: sqlite3.Connection) -> Dict[str, Any]:
+        row = conn.execute(
+            "SELECT product_name, formerly FROM product_meta WHERE id = 1"
+        ).fetchone()
+        return dict(row) if row else {}
+
+    meta = db._run(_meta) or {}
+    return {
+        "backup": backup,
+        "path": src,
+        "product_name": meta.get("product_name") or "Hungry Hippa",
+        "formerly": meta.get("formerly") or "Living Cortex",
+        "counts": health.get("counts", {}),
+    }

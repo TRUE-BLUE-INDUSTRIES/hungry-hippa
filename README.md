@@ -1,4 +1,6 @@
-# Living Cortex
+# Hungry Hippa (formerly Living Cortex)
+
+**A local-first memory runtime for AI agents.** This repository was formerly Living Cortex. Hermes still loads the plugin as `living-cortex` so existing installs keep working.
 
 **A persistent hybrid cognitive memory system for Hermes Agent.**
 

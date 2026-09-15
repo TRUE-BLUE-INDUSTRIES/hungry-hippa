@@ -1,6 +1,6 @@
 name: living-cortex
-version: 0.1.0
-description: "Living Cortex — hybrid cognitive memory: episodes, temporal knowledge graph, hybrid vector+graph recall, provenance, contradictions, consolidation, forgetting, procedural learning."
+version: 0.2.0
+description: "Hungry Hippa (formerly Living Cortex) — local-first memory runtime for AI agents: episodes, temporal knowledge graph, hybrid vector+graph recall, provenance, contradictions, consolidation, forgetting, procedural learning."
 hooks:
   - on_session_end
   - on_memory_write

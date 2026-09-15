@@ -1,4 +1,5 @@
 __pycache__/
 *.pyc
 living_cortex.db*
+hungry_hippa.db*
 scripts/seed_initial.local.py

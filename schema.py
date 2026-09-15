@@ -258,6 +258,22 @@ CREATE VIRTUAL TABLE memory_fts USING fts5(
 );
 """,
     },
+    3: {
+        "description": "Hungry Hippa product metadata (formerly Living Cortex). No table renames; existing memories unchanged.",
+        "up": """
+CREATE TABLE IF NOT EXISTS product_meta (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  product_name TEXT NOT NULL,
+  formerly TEXT NOT NULL,
+  migrated_at TEXT NOT NULL
+);
+INSERT OR IGNORE INTO product_meta(id, product_name, formerly, migrated_at)
+VALUES (1, 'Hungry Hippa', 'Living Cortex', datetime('now'));
+""",
+        "down": """
+DROP TABLE IF EXISTS product_meta;
+""",
+    },
 }
 
 CURRENT_VERSION = max(MIGRATIONS.keys())

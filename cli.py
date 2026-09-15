@@ -1,7 +1,11 @@
 """``hermes living-cortex`` CLI — observability + operations (§21).
 
+Hungry Hippa (formerly Living Cortex). Command name stays ``living-cortex``
+so existing Hermes configs keep working. ``migrate`` backs up and upgrades
+an existing Living Cortex database in place.
+
 Commands: status | recall | episodes | graph | why | consolidate | learned |
-changed | forgotten | export | selftest
+changed | forgotten | export | selftest | migrate
 """
 
 from __future__ import annotations
@@ -28,6 +32,8 @@ def living_cortex_command(args) -> None:
     sub = getattr(args, "living_cortex_command", None) or "status"
     if sub == "selftest":
         return _cmd_selftest(args)
+    if sub == "migrate":
+        return _cmd_migrate(args)
     c = _controller()
     obs = Observability(c.db, c.cfg, controller=c)
     if sub == "status":
@@ -69,7 +75,7 @@ def living_cortex_command(args) -> None:
     else:
         print("Unknown living-cortex command. Available: status, recall, "
               "episodes, graph, why, consolidate, learned, changed, "
-              "forgotten, export, selftest")
+              "forgotten, export, selftest, migrate")
 
 
 def _cmd_selftest(args) -> None:
@@ -98,6 +104,17 @@ def _cmd_selftest(args) -> None:
     sys.exit(0 if passed == len(results) else 1)
 
 
+def _cmd_migrate(args) -> None:
+    """Backup the resolved DB and apply pending Hungry Hippa migrations."""
+    from .db import migrate_database
+
+    path = getattr(args, "db", "") or resolve_db_path(load_config())
+    report = migrate_database(path)
+    _print_json(report)
+    if report.get("error"):
+        sys.exit(1)
+
+
 def register_cli(subparser) -> None:
     """Build the ``hermes living-cortex`` argparse tree.
 
@@ -108,8 +125,17 @@ def register_cli(subparser) -> None:
     subparser.set_defaults(func=living_cortex_command)
     subs = subparser.add_subparsers(dest="living_cortex_command")
 
-    subs.add_parser("status", help="Cortex health and table counts")
+    subs.add_parser("status", help="Hungry Hippa health and table counts")
     subs.add_parser("selftest", help="Run acceptance tests on a throwaway DB")
+    mig = subs.add_parser(
+        "migrate",
+        help="Backup an existing Living Cortex DB and apply Hungry Hippa migrations",
+    )
+    mig.add_argument(
+        "--db",
+        default="",
+        help="Database path (default: resolved config path; never guess a production path silently)",
+    )
 
     recall = subs.add_parser("recall", help="Hybrid recall for a query")
     recall.add_argument("query")

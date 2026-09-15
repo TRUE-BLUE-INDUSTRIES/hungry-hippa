@@ -14,8 +14,9 @@ from typing import Any, Dict, List
 CORTEX_SCHEMA = {
     "name": "cortex",
     "description": (
-        "Living Cortex persistent memory: episodic history, temporal knowledge "
-        "graph, semantic beliefs with provenance, and procedural learning. "
+        "Hungry Hippa (formerly Living Cortex) persistent memory: episodic "
+        "history, temporal knowledge graph, semantic beliefs with provenance, "
+        "and procedural learning. "
         "Use recall() BEFORE answering questions about past work/projects/people "
         "or when the user asks 'do you remember'; use remember_episode() after "
         "significant tasks (problems found, decisions made, things that worked). "

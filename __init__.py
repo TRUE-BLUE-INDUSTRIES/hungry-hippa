@@ -124,14 +124,15 @@ class LivingCortexProvider:
 
     def system_prompt_block(self) -> str:
         return (
-            "Living Cortex persistent memory (⟡) is active. Before answering "
-            "questions about past work, projects, people, devices, or prior "
-            "decisions, call the `cortex` tool with action=recall. After "
-            "significant events (problems found, decisions, outcomes, things "
-            "that worked or failed), call `cortex` with action=remember_episode "
-            "or action=add_belief (with source_class). Use action=why to trace "
-            "a belief to its evidence before asserting it as fact. Keep "
-            "inferred facts as hypothesis with low confidence until reinforced."
+            "Hungry Hippa (formerly Living Cortex) persistent memory (⟡) is "
+            "active. Before answering questions about past work, projects, "
+            "people, devices, or prior decisions, call the `cortex` tool with "
+            "action=recall. After significant events (problems found, decisions, "
+            "outcomes, things that worked or failed), call `cortex` with "
+            "action=remember_episode or action=add_belief (with source_class). "
+            "Use action=why to trace a belief to its evidence before asserting "
+            "it as fact. Keep inferred facts as hypothesis with low confidence "
+            "until reinforced."
         )
 
     # ------------------------------------------------------------- recall
