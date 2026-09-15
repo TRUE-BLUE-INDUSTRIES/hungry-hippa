@@ -28,6 +28,7 @@ from typing import Any, Dict, List, Optional
 
 from .config import load_config, resolve_db_path
 from .controller import MemoryController
+from . import trust as _trust
 from .neural import NeuralMemoryInterface
 from .observability import Observability
 from .tools import CORTEX_SCHEMA, handle as _handle_tool
@@ -105,9 +106,13 @@ class LivingCortexProvider:
         platform = str(kwargs.get("platform", "cli"))
         agent_context = str(kwargs.get("agent_context", "primary"))
         parent = str(kwargs.get("parent_session_id", "") or "")
+        # The Hermes plugin runs inside the operator's own process, so it has
+        # owner identity — but it is the *model*, not the user, so what it writes
+        # carries agent provenance (see trust.py and docs/SECURITY.md).
         self._ctrl.bind_session(session_id=session_id, platform=platform,
                                 agent_context=agent_context,
-                                parent_session_id=parent)
+                                parent_session_id=parent,
+                                trust=_trust.agent_binding())
         self._observability = Observability(self._ctrl.db, cfg, controller=self._ctrl)
         self._vision = VisualEventMemory(self._ctrl.db, cfg, controller=self._ctrl)
         prov = cfg.get("provider", {})

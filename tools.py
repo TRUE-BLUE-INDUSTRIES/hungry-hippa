@@ -265,7 +265,7 @@ def handle(cortex_controller, observability, action: str, args: Dict[str, Any]) 
             # Export is an operator-side maintenance action: it is owner-only and
             # every run is written to the audit log. It is not reachable over MCP
             # (the MCP tool surface deliberately has no export tool).
-            if not _policy.is_owner(c.actor_id):
+            if not c.is_owner:
                 c.db.log_mutation("export_denied", "database", "",
                                   f"actor={c.actor_id} reason=owner-only",
                                   c.session_id)

@@ -31,6 +31,13 @@ DEFAULT_ACTOR = "primary"
 OWNER_ACTORS = frozenset({"primary", "owner"})
 UNTRUSTED_ACTOR = "mcp-untrusted"
 
+# Identity axis. This is decided by the channel (see ``trust.py``), never by a
+# request field: ``identity=None`` keeps the historical name-based behaviour for
+# in-process callers, while an external caller is always resolved to an explicit
+# identity before it reaches these functions.
+IDENTITY_OWNER = "owner"
+IDENTITY_UNTRUSTED = "untrusted"
+
 # Coarse ordering: unclassified < internal < private < restricted.
 SENSITIVITIES = ("unclassified", "internal", "private", "restricted")
 
@@ -67,7 +74,21 @@ def normalize_actor(actor_id: Any) -> str:
     return trimmed
 
 
-def is_owner(actor_id: Any) -> bool:
+def is_owner_identity(identity: Any) -> bool:
+    """True only for an explicitly owner identity."""
+    return str(identity or "").strip().lower() == IDENTITY_OWNER
+
+
+def is_owner(actor_id: Any, identity: Any = None) -> bool:
+    """Is this caller the owner?
+
+    With ``identity`` given (the external path) the identity decides, and the
+    ``actor_id`` label is irrelevant — a caller that names itself ``primary``
+    without the owner token is not the owner. Without ``identity`` the historical
+    name-based check applies, which is only reachable from in-process code.
+    """
+    if identity is not None:
+        return is_owner_identity(identity)
     return normalize_actor(actor_id) in OWNER_ACTORS
 
 
@@ -76,17 +97,23 @@ def normalize_sensitivity(value: Any) -> str:
     return v if v in SENSITIVITIES else "unclassified"
 
 
-def write_quarantine(actor_id: Any, requested: bool = False) -> bool:
+def write_quarantine(actor_id: Any, requested: bool = False,
+                     identity: Any = None) -> bool:
     """Whether a write should be stored quarantined.
 
-    Untrusted actors always write quarantined; the owner may request
-    quarantine explicitly (e.g. reviewing a suspect memory).
+    Untrusted callers always write quarantined; the owner may request quarantine
+    explicitly (e.g. reviewing a suspect memory). With ``identity`` given, the
+    identity decides and the ``actor_id`` label is ignored — naming yourself
+    ``primary`` does not lift quarantine.
     """
+    if identity is not None:
+        return bool(requested) or not is_owner_identity(identity)
     return bool(requested) or not is_owner(actor_id)
 
 
 def may_read(item: Dict[str, Any], actor_id: Any, *,
-             include_quarantined: bool = False) -> Tuple[bool, str]:
+             include_quarantined: bool = False,
+             identity: Any = None) -> Tuple[bool, str]:
     """Return ``(allowed, reason)`` for reading one memory row.
 
     ``item`` is a row dict (episode, belief or relationship). Missing columns
@@ -94,10 +121,16 @@ def may_read(item: Dict[str, Any], actor_id: Any, *,
     rows fetched before the columns existed.
     """
     actor = normalize_actor(actor_id)
-    owner = is_owner(actor)
+    owner = is_owner(actor, identity)
     row_actor = normalize_actor(item.get("actor_id"))
     quarantined = bool(item.get("quarantined", 0))
     sensitivity = normalize_sensitivity(item.get("sensitivity"))
+
+    # An untrusted caller whose label collides with an owner label must not be
+    # able to read the owner's rows as if they were its own. ``trust.py`` remaps
+    # such labels, and this is the second line of defence for any other caller.
+    if not owner and row_actor in OWNER_ACTORS and actor in OWNER_ACTORS:
+        return False, REASON_OTHER_ACTOR
 
     if quarantined:
         if not include_quarantined:
@@ -115,9 +148,9 @@ def may_read(item: Dict[str, Any], actor_id: Any, *,
     return True, ""
 
 
-def may_purge(actor_id: Any) -> bool:
+def may_purge(actor_id: Any, identity: Any = None) -> bool:
     """Irreversible deletion is owner-only. Over MCP it is denied by default."""
-    return is_owner(actor_id)
+    return is_owner(actor_id, identity)
 
 
 def policy_summary() -> Dict[str, Any]:

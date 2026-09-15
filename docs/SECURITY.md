@@ -12,26 +12,56 @@ section below before putting anything sensitive in it.
 
 Hungry Hippa uses **actor + policy checks**. It is deliberately *not* described as
 capability-based security: there are no unforgeable, revocable, time-limited
-capability tokens, and no delegation model. A caller states an `actor_id`; the
-runtime applies fixed rules from `policy.py`:
+capability tokens, and no delegation model.
+
+Identity and provenance are two separate axes, and **neither is read from the
+request payload** (see `trust.py`):
+
+| Axis | Values | What it controls |
+|---|---|---|
+| `identity` | `owner`, `untrusted` | reading protected rows, forgetting, purging |
+| `provenance` | `user`, `agent`, `external` | how much trust a *written* memory earns |
+
+Both are resolved by the server from the **channel** the call arrived on:
+
+| Channel | Identity | Provenance |
+|---|---|---|
+| in-process code — the Hermes plugin, the CLI, `scripts/` | owner | `user` for the CLI (a human at a terminal), `agent` for the plugin (the model) |
+| MCP with a valid owner token | owner | `user` |
+| MCP without it | untrusted | `external` (writes are quarantined) |
+
+`actor_id` is a **label**, not identity. A caller may use it to name itself — an
+untrusted client reading back its own rows — and it never grants owner rights. A
+claim that collides with an owner label (`primary`, `owner`) is remapped to
+`mcp-untrusted`, so an untrusted caller cannot alias the owner's rows.
+
+### The owner token
+
+`$HERMES_HOME/hungry_hippa.owner.token` (override:
+`HUNGRY_HIPPA_OWNER_TOKEN_FILE`), 32 random bytes, mode `0600`, created by
+`hermes living-cortex owner-token`. An MCP caller becomes the owner by presenting
+its contents as `owner_token`. The token is consumed at the boundary: it is never
+echoed in a response, never stored as memory, and never written to the audit log.
+
+What this proves and what it does not: the transport is stdio, so "can read this
+file" means "is the operator or running as them". The token stops a **client**
+from naming itself owner. It cannot and does not stop a process that already holds
+the operator's uid — such a process can read the database directly. That is not a
+claim of authentication over a network, and this server has no network transport.
 
 | Caller | Writes | Reads | Forget (archival) | Purge |
 |---|---|---|---|---|
-| owner (`primary`, `owner`) | normal | everything; quarantined rows only when `include_quarantined` is set | anything | allowed with an explicit confirmation flag |
-| any other actor | stored quarantined | only its own `unclassified`, non-quarantined rows | only rows it may read | always denied |
+| owner (token or in-process) | per its provenance | everything; quarantined rows only when `include_quarantined` is set | anything | allowed with an explicit confirmation flag |
+| any other caller | stored quarantined | only its own `unclassified`, non-quarantined rows | only rows it may read | always denied |
 
-The default actor for the MCP surface is `mcp-untrusted`. `actor_id` is
-caller-supplied: it is a **policy selector, not authentication**. Whoever can start
-this process can claim to be the owner — a known, documented limitation, and the
-reason the MCP transport is stdio-only. Two hardening details follow from it:
+A **whitespace-only** `actor_id` is treated as untrusted. It never falls back to
+the owner actor (`policy.normalize_actor`); only `None` or the empty string means
+"no actor supplied" and resolves to the local owner default.
 
-- Archival is authorized **per record**, using the same read policy: an actor may
-  archive only a record it is allowed to read, so an untrusted caller cannot take
-  another actor's memory out of normal recall. Denials are written to the audit log
-  as `forget_denied`.
-- A **whitespace-only** `actor_id` is treated as untrusted. It never falls back to
-  the owner actor (`policy.normalize_actor`); only `None` or the empty string means
-  "no actor supplied" and resolves to the local owner default.
+Archival is authorized **per record**, using the same read policy: an actor may
+archive only a record it is allowed to read, so an untrusted caller cannot take
+another actor's memory out of normal recall. Denials are written to the audit log
+as `forget_denied`.
 
 Sensitivity (`unclassified`/`internal`/`private`/`restricted`) is a **read-policy
 label stored in plain text**. It is not encryption and not a data-classification

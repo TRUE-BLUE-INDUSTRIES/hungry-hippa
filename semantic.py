@@ -55,6 +55,7 @@ class SemanticMemory:
                    sensitivity: str = "unclassified",
                    quarantined: bool = False,
                    actor_id: str = "",
+                   identity: Optional[str] = None,
                    session_id: str = "") -> Dict[str, Any]:
         claim = (claim or "").strip()
         if not claim:
@@ -71,8 +72,9 @@ class SemanticMemory:
         actor = _policy.normalize_actor(actor_id)
         # Quarantine is decided here, at the layer every write path goes
         # through, so an untrusted caller cannot bypass it by reaching
-        # semantic memory directly instead of the controller.
-        quarantined = _policy.write_quarantine(actor, quarantined)
+        # semantic memory directly instead of the controller. ``identity`` is
+        # the channel-resolved identity; when present it decides.
+        quarantined = _policy.write_quarantine(actor, quarantined, identity)
 
         def _insert(conn) -> None:
             conn.execute(

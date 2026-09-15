@@ -16,12 +16,17 @@ from typing import Any, Dict
 
 from .config import load_config, resolve_db_path
 from .controller import MemoryController
+from . import trust as _trust
 from .observability import Observability
 
 
 def _controller() -> MemoryController:
     cfg = load_config()
-    return MemoryController(cfg, db_path=resolve_db_path(cfg))
+    ctrl = MemoryController(cfg, db_path=resolve_db_path(cfg))
+    # This is the human's own terminal: owner identity, user provenance. It is the
+    # only channel allowed to mint user_explicit provenance without a token.
+    ctrl.bind_session(session_id="cli", platform="cli", trust=_trust.local_binding())
+    return ctrl
 
 
 def _print_json(obj: Any) -> None:
@@ -34,6 +39,8 @@ def living_cortex_command(args) -> None:
         return _cmd_selftest(args)
     if sub == "migrate":
         return _cmd_migrate(args)
+    if sub == "owner-token":
+        return _cmd_owner_token(args)
     c = _controller()
     obs = Observability(c.db, c.cfg, controller=c)
     if sub == "status":
@@ -132,6 +139,31 @@ def _cmd_migrate(args) -> None:
         sys.exit(1)
 
 
+def _cmd_owner_token(args) -> None:
+    """Create (or show) the owner token that lets an MCP client act as owner."""
+    from . import trust
+
+    token = trust.ensure_owner_token()
+    path = trust.token_path()
+    mode = trust.token_file_mode()
+    report = {
+        "token_file": str(path),
+        "mode": oct(mode) if mode is not None else None,
+        "created": True,
+        "how_to_use": ("pass the token as the owner_token argument to an MCP tool "
+                       "call; without it an MCP caller is untrusted"),
+    }
+    if getattr(args, "print_token", False):
+        report["token"] = token
+    else:
+        report["note"] = "add --print to display the token value"
+    if mode is not None and (mode & 0o077):
+        report["warning"] = (
+            f"token file mode {oct(mode)} is readable by other local users; "
+            "run `chmod 600 <file>`")
+    _print_json(report)
+
+
 def register_cli(subparser) -> None:
     """Build the ``hermes living-cortex`` argparse tree.
 
@@ -144,6 +176,12 @@ def register_cli(subparser) -> None:
 
     subs.add_parser("status", help="Hungry Hippa health and table counts")
     subs.add_parser("selftest", help="Run acceptance tests on a throwaway DB")
+    otok = subs.add_parser(
+        "owner-token",
+        help="Show or create the owner token that lets an MCP client act as owner",
+    )
+    otok.add_argument("--print", dest="print_token", action="store_true",
+                      help="Also print the token value (it is a secret: shell history!)")
     mig = subs.add_parser(
         "migrate",
         help="Backup an existing Living Cortex DB and apply Hungry Hippa migrations",

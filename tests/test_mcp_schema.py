@@ -70,7 +70,29 @@ def _fresh(prefix: str = "hh_mcp_"):
     return ctrl, db_path
 
 
-def _call(name: str, args: Dict[str, Any], ctrl) -> Dict[str, Any]:
+# ---------------------------------------------------------------- identity
+
+def _owner_token() -> str:
+    """A temp owner token so a test can act as the owner over MCP.
+
+    Trust is channel-resolved now: an MCP caller is the owner only when it
+    presents a token only the operator's user can read. Tests that mean "the
+    owner is calling" must present one; tests that mean "an untrusted caller is
+    calling" must not.
+    """
+    from livingcortex import trust
+
+    path = os.path.join(tempfile.mkdtemp(prefix="hh_token_"), "owner.token")
+    os.environ["HUNGRY_HIPPA_OWNER_TOKEN_FILE"] = path
+    return trust.ensure_owner_token(path)
+
+
+OWNER_TOKEN = _owner_token()
+
+
+def _call(name: str, args: Dict[str, Any], ctrl, *, owner: bool = False) -> Dict[str, Any]:
+    if owner:
+        args = {**args, "owner_token": OWNER_TOKEN}
     return MCP.call_tool(name, args, ctrl)
 
 
@@ -157,7 +179,7 @@ def check_remember_recall_roundtrip():
         "result": "torqued and witnessed",
         "outcome": "success",
         "project": "press_service",
-    }, ctrl)
+    }, ctrl, owner=True)
     assert written["ok"] and written["episode_id"].startswith("E-"), written
     assert written["quarantined"] is False, written
 
@@ -168,11 +190,11 @@ def check_remember_recall_roundtrip():
         "kind": "fact",
         "confidence": 0.9,
         "source_class": "document",
-    }, ctrl)
+    }, ctrl, owner=True)
     assert belief["ok"] and belief["belief_id"].startswith("B-"), belief
 
     recalled = _call("hippa_recall", {"actor_id": "primary",
-                                      "query": "press guard bolt torque"}, ctrl)
+                                      "query": "press guard bolt torque"}, ctrl, owner=True)
     assert recalled["ok"], recalled
     assert recalled["count"] >= 1, recalled
     assert "45Nm" in recalled["context"], recalled["context"]
@@ -181,7 +203,7 @@ def check_remember_recall_roundtrip():
 
     ctx = _call("hippa_build_context", {"actor_id": "primary",
                                         "query": "press guard bolt torque",
-                                        "max_chars": 500}, ctrl)
+                                        "max_chars": 500}, ctrl, owner=True)
     assert ctx["ok"] and ctx["budget_chars"] == 500, ctx
     assert ctx["chars_used"] <= 500 and ctx["token_estimate"] >= 0, ctx
     assert "45Nm" in ctx["rendering"], ctx["rendering"]
@@ -219,7 +241,7 @@ def check_untrusted_cannot_read_quarantined():
     # the owner can review it, clearly labelled
     owner = _call("hippa_recall", {"actor_id": "primary",
                                    "query": "injected instruction lockout procedure",
-                                   "include_quarantined": True}, ctrl)
+                                   "include_quarantined": True}, ctrl, owner=True)
     assert owner["count"] >= 1, owner
     assert "[QUARANTINED]" in owner["context"], owner["context"]
     assert owner["items"][0]["quarantined"] is True, owner["items"]
@@ -230,11 +252,11 @@ def check_purge_denied_over_mcp():
     ctrl, _db = _fresh("hh_mcp_purge_")
     ep = _call("hippa_remember", {"actor_id": "primary", "memory_type": "episodic",
                                   "content": "temporary note about a hoist cable",
-                                  "outcome": "unknown"}, ctrl)
+                                  "outcome": "unknown"}, ctrl, owner=True)
     eid = ep["episode_id"]
 
     no_flag = _call("hippa_forget", {"actor_id": "primary", "target_kind": "episode",
-                                     "target_id": eid, "mode": "purge"}, ctrl)
+                                     "target_id": eid, "mode": "purge"}, ctrl, owner=True)
     assert no_flag["ok"] is False and "confirmation" in no_flag["error"], no_flag
 
     untrusted = _call("hippa_forget", {"actor_id": "mcp-untrusted",
@@ -252,13 +274,13 @@ def check_purge_denied_over_mcp():
 
     archived = _call("hippa_forget", {"actor_id": "primary",
                                       "target_kind": "episode", "target_id": eid,
-                                      "mode": "archival", "reason": "test"}, ctrl)
+                                      "mode": "archival", "reason": "test"}, ctrl, owner=True)
     assert archived["ok"] and archived["archived"] is True, archived
     assert ctrl.episodic.get_episode(eid)["status"] == "archived"
 
     purged = _call("hippa_forget", {"actor_id": "primary", "target_kind": "episode",
                                     "target_id": eid, "mode": "purge",
-                                    "confirmation": True}, ctrl)
+                                    "confirmation": True}, ctrl, owner=True)
     assert purged["ok"] and purged["purged"] is True, purged
     assert ctrl.episodic.get_episode(eid) is None
     return "purge default-denied; archiving another actor's row is owner-only; owner+confirmation purges"
@@ -268,8 +290,8 @@ def check_status_counts_only():
     ctrl, db_path = _fresh("hh_mcp_status_")
     _call("hippa_remember", {"actor_id": "primary", "memory_type": "semantic",
                              "content": "hoist cables are inspected quarterly",
-                             "source_class": "document"}, ctrl)
-    owner = _call("hippa_status", {"actor_id": "primary"}, ctrl)
+                             "source_class": "document"}, ctrl, owner=True)
+    owner = _call("hippa_status", {"actor_id": "primary"}, ctrl, owner=True)
     assert owner["ok"] and owner["counts"]["beliefs"] >= 1, owner
     assert owner["db_path"] == db_path, owner
     assert "policy" in owner and owner["policy"]["purge_owner_only"] is True, owner
@@ -313,11 +335,13 @@ def check_stdio_jsonrpc_loop():
         {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
         {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
          "params": {"name": "hippa_remember", "arguments": {
-             "actor_id": "primary", "memory_type": "semantic",
+             "actor_id": "primary", "owner_token": OWNER_TOKEN,
+             "memory_type": "semantic",
              "content": "the jig alignment pin is 8mm", "source_class": "document"}}},
         {"jsonrpc": "2.0", "id": 4, "method": "tools/call",
          "params": {"name": "hippa_recall",
                     "arguments": {"actor_id": "primary",
+                                  "owner_token": OWNER_TOKEN,
                                   "query": "jig alignment pin"}}},
         {"jsonrpc": "2.0", "id": 5, "method": "nope/nope"},
         {"jsonrpc": "2.0", "id": 6, "method": "tools/call",
@@ -353,11 +377,11 @@ def check_record_outcome_tool():
     p = ctrl.create_procedure("verify guard bolts", confidence=0.5)
     out = _call("hippa_record_outcome",
                 {"actor_id": "primary", "procedure_id": p["procedure_id"],
-                 "success": True}, ctrl)
+                 "success": True}, ctrl, owner=True)
     assert out["ok"] and out["success_count"] == 1, out
     missing = _call("hippa_record_outcome",
                     {"actor_id": "primary", "procedure_id": "P-9999",
-                     "success": True}, ctrl)
+                     "success": True}, ctrl, owner=True)
     assert missing["ok"] is False and "unknown procedure" in missing["error"], missing
     return "hippa_record_outcome updates procedure counters"
 

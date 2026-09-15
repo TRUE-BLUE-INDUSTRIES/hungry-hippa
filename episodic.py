@@ -38,6 +38,7 @@ class EpisodicMemory:
                          sensitivity: str = "unclassified",
                          quarantined: bool = False,
                          actor_id: str = "",
+                         identity: Optional[str] = None,
                          session_id: str = "") -> Dict[str, Any]:
         if outcome not in VALID_OUTCOMES:
             outcome = "unknown"
@@ -56,7 +57,9 @@ class EpisodicMemory:
         actor = _policy.normalize_actor(actor_id)
         # Quarantine is decided at this layer so no caller can bypass it by
         # writing episodic memory directly instead of through the controller.
-        quarantined = _policy.write_quarantine(actor, quarantined)
+        # ``identity`` is the channel-resolved identity; when present it decides,
+        # so the actor label cannot lift quarantine.
+        quarantined = _policy.write_quarantine(actor, quarantined, identity)
 
         def _insert(conn) -> None:
             conn.execute(

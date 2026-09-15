@@ -47,6 +47,8 @@ jobs:
 
       - name: MCP schema and policy suite
         run: python tests/test_mcp_schema.py
+      - name: Identity binding
+        run: python tests/test_trust_boundary.py
 
       - name: Security suite
         run: python tests/test_security.py

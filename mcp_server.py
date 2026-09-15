@@ -72,12 +72,14 @@ if __package__:
     # Imported as part of a real package (Hermes or `python -m` from the parent).
     from . import limits as _limits
     from . import policy as _policy
+    from . import trust as _trust
     from .config import load_config, resolve_db_path
     from .controller import MemoryController
 else:
     _PLUGIN = _load_plugin_package()
     from livingcortex import limits as _limits
     from livingcortex import policy as _policy
+    from livingcortex import trust as _trust
     from livingcortex.config import load_config, resolve_db_path
     from livingcortex.controller import MemoryController
 
@@ -118,9 +120,16 @@ def server_version() -> str:
 
 _ACTOR = {
     "type": "string",
-    "description": ("Caller identity. Defaults to 'mcp-untrusted': untrusted "
-                    "actors write quarantined memories and read only their own "
-                    "unclassified, non-quarantined rows."),
+    "description": ("Caller label, NOT identity. It names the caller for its own "
+                    "rows; it never grants owner rights. Owner identity requires "
+                    "owner_token. Defaults to 'mcp-untrusted'."),
+    "maxLength": 128,
+}
+_OWNER_TOKEN = {
+    "type": "string",
+    "description": ("Contents of the operator's owner-token file "
+                    "($HERMES_HOME/hungry_hippa.owner.token, mode 0600). Present "
+                    "it to act as the owner. Never logged; never echoed."),
     "maxLength": 128,
 }
 _OUTCOME = {"type": "string",
@@ -194,6 +203,7 @@ def tool_schemas() -> List[Dict[str, Any]]:
                     "related_entities": {"type": "array", "maxItems": 32,
                                          "items": {"type": "string", "maxLength": 256}},
                     "actor_id": _ACTOR,
+                    "owner_token": _OWNER_TOKEN,
                 },
             },
             "outputSchema": _out(
@@ -227,6 +237,7 @@ def tool_schemas() -> List[Dict[str, Any]]:
                         "type": "boolean", "default": False,
                         "description": "Owner-review only; ignored for untrusted actors."},
                     "actor_id": _ACTOR,
+                    "owner_token": _OWNER_TOKEN,
                 },
             },
             "outputSchema": _out(
@@ -260,6 +271,7 @@ def tool_schemas() -> List[Dict[str, Any]]:
                     "limit": {"type": "integer", "minimum": 1, "maximum": 50},
                     "max_chars": {"type": "integer", "minimum": 100, "maximum": 20000},
                     "actor_id": _ACTOR,
+                    "owner_token": _OWNER_TOKEN,
                 },
             },
             "outputSchema": _out(
@@ -288,6 +300,7 @@ def tool_schemas() -> List[Dict[str, Any]]:
                     "procedure_id": {"type": "string", "maxLength": 64},
                     "success": {"type": "boolean"},
                     "actor_id": _ACTOR,
+                    "owner_token": _OWNER_TOKEN,
                 },
             },
             "outputSchema": _out(
@@ -319,6 +332,7 @@ def tool_schemas() -> List[Dict[str, Any]]:
                                      "description": "Required for purge."},
                     "reason": {"type": "string", "maxLength": 512},
                     "actor_id": _ACTOR,
+                    "owner_token": _OWNER_TOKEN,
                 },
             },
             "outputSchema": _out(
@@ -340,12 +354,15 @@ def tool_schemas() -> List[Dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "additionalProperties": False,
-                "properties": {"actor_id": _ACTOR},
+                "properties": {"actor_id": _ACTOR, "owner_token": _OWNER_TOKEN},
             },
             "outputSchema": _out(
                 product={"type": "string"},
                 server_version={"type": "string"},
                 actor_id={"type": "string"},
+                identity={"type": "string", "enum": ["owner", "untrusted"],
+                          "description": "Server-resolved identity, not the label."},
+                provenance={"type": "string", "enum": ["user", "agent", "external"]},
                 counts={"type": "object"},
                 vectors={"type": "object"},
                 failures={"type": "integer"},
@@ -365,21 +382,33 @@ TOOL_NAMES = tuple(t["name"] for t in TOOLS)
 
 # ----------------------------------------------------------------- handlers
 
+def _binding_of(args: Dict[str, Any]) -> "_trust.Binding":
+    """Resolve the caller's binding for this request.
+
+    ``actor_id`` is a *claim*, not identity. Owner identity requires the owner
+    token; a claim that names an owner actor without it is remapped, so the
+    label can never alias the owner's rows.
+    """
+    return _trust.external_binding(args.get("actor_id"), args.get("owner_token"))
+
+
 def _actor_of(args: Dict[str, Any]) -> str:
-    return _policy.normalize_actor(args.get("actor_id") or DEFAULT_MCP_ACTOR)
+    """The caller's label (kept for logging/echo; never a privilege decision)."""
+    return _binding_of(args).actor_id
 
 
-def _bind(controller, actor_id: str):
-    """Bind the controller to this MCP call.
+def _bind(controller, binding):
+    """Bind the controller to this MCP call using the server-resolved binding.
 
     The MCP server runs the controller in a primary agent context so writes are
-    permitted, but the *actor* is the caller: policy.py forces every untrusted
-    write to be quarantined and restricts untrusted reads.
+    permitted, but identity and provenance come from ``trust.py``: an MCP caller
+    without the owner token is untrusted, and everything it writes is
+    quarantined, whatever ``actor_id`` it sent.
     """
     controller.bind_session(session_id="mcp",
                             platform="mcp",
                             agent_context="primary",
-                            actor_id=actor_id)
+                            trust=binding)
     return controller
 
 
@@ -400,7 +429,7 @@ def _t_remember(controller, args: Dict[str, Any], actor_id: str) -> Dict[str, An
         return _denied("content is required")
     sensitivity = args.get("sensitivity") or "unclassified"
     # untrusted callers cannot label their own memory as trusted-only
-    if not _policy.is_owner(actor_id) and sensitivity != "unclassified":
+    if not controller.is_owner and sensitivity != "unclassified":
         sensitivity = "unclassified"
 
     if mtype == "semantic":
@@ -412,6 +441,7 @@ def _t_remember(controller, args: Dict[str, Any], actor_id: str) -> Dict[str, An
             related_entities=args.get("related_entities"),
             sensitivity=sensitivity,
             actor_id=actor_id,
+            identity=controller.identity,
             session_id="mcp",
         )
         if r.get("error"):
@@ -516,7 +546,7 @@ def _t_forget(controller, args: Dict[str, Any], actor_id: str) -> Dict[str, Any]
         # Default deny over MCP: an explicit confirmation flag AND an owner actor.
         if not bool(args.get("confirmation")):
             return _denied("purge requires confirmation=true; archival is the default")
-        if not _policy.may_purge(actor_id):
+        if not controller.is_owner:
             return _denied("purge denied for this actor", actor_id=actor_id)
     r = controller.forget(kind, target, mode=mode, reason=args.get("reason", ""))
     if r.get("error"):
@@ -532,6 +562,8 @@ def _t_status(controller, args: Dict[str, Any], actor_id: str) -> Dict[str, Any]
         product="Hungry Hippa",
         server_version=server_version(),
         actor_id=actor_id,
+        identity=controller.identity,
+        provenance=controller.provenance,
         counts=st.get("counts", {}),
         vectors=st.get("vectors"),
         failures=st.get("failures", 0),
@@ -542,7 +574,7 @@ def _t_status(controller, args: Dict[str, Any], actor_id: str) -> Dict[str, Any]
                 "max_result_chars": _limits.MAX_RESULT_CHARS},
     )
     # the database path is operator information, not for untrusted callers
-    if _policy.is_owner(actor_id):
+    if controller.is_owner:
         payload["db_path"] = st.get("path")
     return payload
 
@@ -569,7 +601,11 @@ def call_tool(name: str, arguments: Optional[Dict[str, Any]], controller=None) -
     args = dict(arguments or {})
     if not isinstance(args, dict):
         return _denied("arguments must be an object")
-    actor_id = _actor_of(args)
+    binding = _binding_of(args)
+    actor_id = binding.actor_id
+    # The token is consumed by the boundary and never travels further: handlers
+    # cannot echo it, store it as memory content, or write it to the audit log.
+    args.pop("owner_token", None)
     schema = next((t for t in TOOLS if t["name"] == name), None)
     problems = validate_args(schema, args) if schema else []
     problems.extend(_limits.check_args(args))
@@ -582,7 +618,7 @@ def call_tool(name: str, arguments: Optional[Dict[str, Any]], controller=None) -
     if controller is None:
         return _denied("no memory runtime available")
     try:
-        return _HANDLERS[name](_bind(controller, actor_id), args, actor_id)
+        return _HANDLERS[name](_bind(controller, binding), args, actor_id)
     except Exception as e:  # never raise into the protocol loop
         return _denied(f"{type(e).__name__}: {e}"[:400])
 

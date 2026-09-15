@@ -1,6 +1,6 @@
 Hungry Hippa demo — local-first memory runtime for AI agents
 ========================================================================
-demo database: /home/djr/Work/living-cortex/demo/.demo_db/hungry_hippa.db
+demo database: /tmp/hh_demo_lycie1o7/hungry_hippa.db
 (throwaway; the production database is never opened)
 
 STEP 1 — an agent starts work on a small project
@@ -67,13 +67,13 @@ STEP 8 — the operator can inspect, correct and forget a memory
 
 STEP 8b — the audit trail explains what happened
 ------------------------------------------------------------------------
-  2026-09-15T05:20:11Z  forget             belief   B-0003   action=archival reason=operator asked to forget
-  2026-09-15T05:20:11Z  add_belief         belief   B-0003   [fact|user_explicit|c=0.95] Project A chose method B over me
-  2026-09-15T05:20:11Z  supersede_belief   belief   B-0002   operator correction during the demo: Project A chose method 
-  2026-09-15T05:20:11Z  remember_episode   episode  E-0004   importance=0.85 outcome=success project=Project A actor=prim
-  2026-09-15T05:20:11Z  remember_episode   episode  E-0003   importance=0.90 outcome=failure project=Project A actor=prim
-  2026-09-15T05:20:11Z  add_belief         belief   B-0002   [fact|user_explicit|c=0.90] Project A chose method B over me
+  2026-09-15T14:03:51Z  forget             belief   B-0003   action=archival reason=operator asked to forget
+  2026-09-15T14:03:51Z  add_belief         belief   B-0003   [fact|user_explicit|c=0.95] Project A chose method B over me
+  2026-09-15T14:03:51Z  supersede_belief   belief   B-0002   operator correction during the demo: Project A chose method 
+  2026-09-15T14:03:51Z  remember_episode   episode  E-0004   importance=0.85 outcome=success project=Project A actor=prim
+  2026-09-15T14:03:51Z  remember_episode   episode  E-0003   importance=0.90 outcome=failure project=Project A actor=prim
+  2026-09-15T14:03:51Z  add_belief         belief   B-0002   [fact|user_explicit|c=0.90] Project A chose method B over me
 
 ========================================================================
 demo complete. Nothing was sent anywhere; the database above is a throwaway.
-Reset it with: python demo/demo.py --reset
+This run used a temporary database (--tmp) and leaves nothing behind.

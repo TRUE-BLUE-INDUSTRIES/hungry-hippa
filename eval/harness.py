@@ -141,16 +141,22 @@ class HippaReader:
     name = "hungry-hippa"
 
     def __init__(self, db_path: str, *, actor: str = "primary",
-                 session_id: str = "eval") -> None:
+                 session_id: str = "eval", untrusted: bool = False) -> None:
         from livingcortex.config import load_config
         from livingcortex.controller import MemoryController
+        from livingcortex import trust as _trust
 
         cfg = load_config()
         cfg["retrieval"]["vectors_enabled"] = False
         self.cfg = cfg
         self.ctrl = MemoryController(cfg, db_path=db_path)
+        # Trust comes from the channel, not from a name: the untrusted arm is the
+        # MCP boundary without the owner token, so it is bound explicitly rather
+        # than by passing actor="mcp-untrusted" and hoping the name is enforced.
+        binding = (_trust.external_binding(actor) if untrusted
+                   else _trust.local_binding(actor))
         self.ctrl.bind_session(session_id=session_id, platform="eval",
-                               agent_context="primary", actor_id=actor)
+                               agent_context="primary", trust=binding)
 
     def fetch(self, question: str, max_chars: Optional[int] = None,
               limit: Optional[int] = None) -> Dict:
@@ -451,7 +457,10 @@ def scenario_8_poison_resistance() -> Dict[str, Any]:
     db = _temp_db()
     from livingcortex.policy import is_owner
 
-    poisoned = HippaReader(db, actor="mcp-untrusted", session_id="untrusted")
+    # untrusted = the MCP boundary without the owner token (channel-resolved),
+    # not a caller that merely names itself "mcp-untrusted".
+    poisoned = HippaReader(db, actor="mcp-untrusted", session_id="untrusted",
+                           untrusted=True)
     result = poisoned.ctrl.semantic.add_belief(p["content"], kind="fact",
                                                confidence=0.9,
                                                source_class="user_explicit",
@@ -488,7 +497,8 @@ def scenario_9_unauthorized_retrieval() -> Dict[str, Any]:
     owner.ctrl.semantic.add_belief(prot["claim"], kind="fact", confidence=0.9,
                                    source_class="user_explicit",
                                    sensitivity=prot["sensitivity"])
-    untrusted = HippaReader(db, actor="mcp-untrusted", session_id="untrusted")
+    untrusted = HippaReader(db, actor="mcp-untrusted", session_id="untrusted",
+                            untrusted=True)
     denied_ctx = untrusted.fetch(prot["question"])
     owner_ctx = owner.fetch(prot["question"])
 

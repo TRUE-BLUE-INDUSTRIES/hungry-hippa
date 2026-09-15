@@ -69,7 +69,29 @@ def _fresh(prefix: str = "hh_sec_"):
     return ctrl, db_path
 
 
-def _call(name: str, args: Dict[str, Any], ctrl) -> Dict[str, Any]:
+# ---------------------------------------------------------------- identity
+
+def _owner_token() -> str:
+    """A temp owner token so a test can act as the owner over MCP.
+
+    Trust is channel-resolved now: an MCP caller is the owner only when it
+    presents a token only the operator's user can read. Tests that mean "the
+    owner is calling" must present one; tests that mean "an untrusted caller is
+    calling" must not.
+    """
+    from livingcortex import trust
+
+    path = os.path.join(tempfile.mkdtemp(prefix="hh_token_"), "owner.token")
+    os.environ["HUNGRY_HIPPA_OWNER_TOKEN_FILE"] = path
+    return trust.ensure_owner_token(path)
+
+
+OWNER_TOKEN = _owner_token()
+
+
+def _call(name: str, args: Dict[str, Any], ctrl, *, owner: bool = False) -> Dict[str, Any]:
+    if owner:
+        args = {**args, "owner_token": OWNER_TOKEN}
     return MCP.call_tool(name, args, ctrl)
 
 
@@ -111,7 +133,7 @@ def check_oversized_payload_rejected():
 
     # exactly at the cap is still accepted
     ok = _call("hippa_recall", {"actor_id": "primary",
-                                "query": "q" * limits.MAX_QUERY_CHARS}, ctrl)
+                                "query": "q" * limits.MAX_QUERY_CHARS}, ctrl, owner=True)
     assert ok["ok"] is True, ok
     assert limits.MAX_QUERY_CHARS == 8000 and limits.MAX_CONTENT_CHARS == 32000, \
         (limits.MAX_QUERY_CHARS, limits.MAX_CONTENT_CHARS)
@@ -126,9 +148,9 @@ def check_result_caps():
         _call("hippa_remember",
               {"actor_id": "primary", "memory_type": "episodic",
                "content": f"bulk record {i} " + ("z" * 1800),
-               "outcome": "unknown"}, ctrl)
+               "outcome": "unknown"}, ctrl, owner=True)
     big = _call("hippa_build_context", {"actor_id": "primary", "query": "bulk record",
-                                        "max_chars": 20000, "limit": 50}, ctrl)
+                                        "max_chars": 20000, "limit": 50}, ctrl, owner=True)
     assert big["ok"], big
     assert len(big["rendering"]) <= limits.MAX_RESULT_CHARS, len(big["rendering"])
 
@@ -149,9 +171,9 @@ def check_call_budget():
     MCP.set_call_budget(3)
     try:
         for i in range(3):
-            out = _call("hippa_status", {"actor_id": "primary"}, ctrl)
+            out = _call("hippa_status", {"actor_id": "primary"}, ctrl, owner=True)
             assert out["ok"], (i, out)
-        exhausted = _call("hippa_status", {"actor_id": "primary"}, ctrl)
+        exhausted = _call("hippa_status", {"actor_id": "primary"}, ctrl, owner=True)
         assert exhausted["ok"] is False, exhausted
         assert "call budget exhausted" in exhausted["error"], exhausted
         assert exhausted["budget"]["max_calls"] == 3, exhausted
@@ -208,7 +230,7 @@ def check_untrusted_recall_of_quarantined_denied():
         assert planted not in json.dumps(out, default=str), actor
 
     owner = _call("hippa_recall", {"actor_id": "primary", "query": "lockout procedure",
-                                   "include_quarantined": True}, ctrl)
+                                   "include_quarantined": True}, ctrl, owner=True)
     assert owner["count"] >= 1 and "[QUARANTINED]" in owner["context"], owner
 
     # the cortex tool path obeys the same policy through the controller
@@ -223,7 +245,7 @@ def check_forget_purge_denied_over_mcp():
     ctrl, _db = _fresh("hh_sec_purge_")
     ep = _call("hippa_remember", {"actor_id": "primary", "memory_type": "episodic",
                                   "content": "temporary security test record",
-                                  "outcome": "unknown"}, ctrl)
+                                  "outcome": "unknown"}, ctrl, owner=True)
     eid = ep["episode_id"]
     for actor, confirm, expect in (
         ("mcp-untrusted", False, "confirmation"),
@@ -244,7 +266,7 @@ def check_forget_purge_denied_over_mcp():
     assert ctrl.episodic.get_episode(eid)["status"] != "archived", "row was archived"
     archived = _call("hippa_forget", {"actor_id": "primary",
                                       "target_kind": "episode", "target_id": eid,
-                                      "reason": "security test"}, ctrl)
+                                      "reason": "security test"}, ctrl, owner=True)
     assert archived["ok"] and archived["archived"], archived
     return "purge denied for every unconfirmed/non-owner case; archiving another actor's row is owner-only here"
 
@@ -267,14 +289,14 @@ def check_sql_injection_attempts_are_inert():
         "100%' OR '1'='1",
     ]
     for payload in payloads:
-        r = _call("hippa_recall", {"actor_id": "primary", "query": payload}, ctrl)
+        r = _call("hippa_recall", {"actor_id": "primary", "query": payload}, ctrl, owner=True)
         assert r["ok"] is True, (payload, r)
         m = _call("hippa_remember", {"actor_id": "primary", "memory_type": "semantic",
                                      "content": f"note about {payload}",
-                                     "source_class": "document"}, ctrl)
+                                     "source_class": "document"}, ctrl, owner=True)
         assert m["ok"] is True, (payload, m)
         f = _call("hippa_forget", {"actor_id": "primary", "target_kind": "episode",
-                                   "target_id": payload, "mode": "archival"}, ctrl)
+                                   "target_id": payload, "mode": "archival"}, ctrl, owner=True)
         assert "error" not in json.dumps(f).lower() or f["ok"] is not None, (payload, f)
 
     conn = sqlite3.connect(db_path)
@@ -322,10 +344,10 @@ def check_secrets_redacted_in_audit_logs():
     ctrl, db_path = _fresh("hh_sec_redact_")
     claim = f"deploy key is {fake['openai']}"
     b = _call("hippa_remember", {"actor_id": "primary", "memory_type": "semantic",
-                                 "content": claim, "source_class": "document"}, ctrl)
+                                 "content": claim, "source_class": "document"}, ctrl, owner=True)
     assert b["ok"], b
     _call("hippa_recall", {"actor_id": "primary",
-                           "query": f"deploy key {fake['github']}"}, ctrl)
+                           "query": f"deploy key {fake['github']}"}, ctrl, owner=True)
 
     conn = sqlite3.connect(db_path)
     try:
@@ -457,7 +479,7 @@ def check_untrusted_archival_denied_per_record():
     # the owner still can
     ok = _call("hippa_forget", {"actor_id": "owner", "target_kind": "belief",
                                 "target_id": bid, "mode": "archival",
-                                "reason": "regression test"}, ctrl)
+                                "reason": "regression test"}, ctrl, owner=True)
     assert ok["ok"] is True and ok["archived"] is True, ok
 
     # an untrusted actor may still archive its own quarantined row
@@ -470,7 +492,7 @@ def check_untrusted_archival_denied_per_record():
 
     # a nonexistent target is reported, not silently "archived"
     missing = _call("hippa_forget", {"actor_id": "owner", "target_kind": "belief",
-                                     "target_id": "B-9999", "mode": "archival"}, ctrl)
+                                     "target_id": "B-9999", "mode": "archival"}, ctrl, owner=True)
     assert missing["ok"] is False and missing["policy_reason"] == "belief B-9999 not found", missing
     return "archival is authorized per record; untrusted denial is audited"
 
@@ -519,15 +541,15 @@ def check_schema_enforcement():
     # array items over their advertised maxLength are refused
     long_item = _call("hippa_remember", {"actor_id": "primary", "memory_type": "semantic",
                                          "content": "array bound check",
-                                         "related_entities": ["x" * 257]}, ctrl)
+                                         "related_entities": ["x" * 257]}, ctrl, owner=True)
     assert long_item["ok"] is False, long_item
     assert "exceed" in long_item["error"], long_item
     at_bound = _call("hippa_remember", {"actor_id": "primary", "memory_type": "semantic",
                                         "content": "array bound check ok",
-                                        "related_entities": ["x" * 256]}, ctrl)
+                                        "related_entities": ["x" * 256]}, ctrl, owner=True)
     assert at_bound["ok"] is True, at_bound
     # unknown fields are still refused
-    unknown = _call("hippa_status", {"actor_id": "primary", "sql": "SELECT 1"}, ctrl)
+    unknown = _call("hippa_status", {"actor_id": "primary", "sql": "SELECT 1"}, ctrl, owner=True)
     assert unknown["ok"] is False and "unknown field" in unknown["error"], unknown
     return "outputSchema on all six tools; null and item-length bounds enforced"
 
@@ -540,15 +562,20 @@ def check_export_is_operator_only():
     ctrl, _db = _fresh("hh_sec_export_")
     obs = Observability(ctrl.db, ctrl.cfg, controller=ctrl)
 
+    # "untrusted" is now a channel fact, not a label: bind an external binding
+    # (the MCP boundary without the owner token) rather than naming the caller.
+    from livingcortex import trust as _trust
+
+    forbidden = os.path.join(tempfile.mkdtemp(prefix="hh_export_denied_"), "out.json")
     ctrl.bind_session(session_id="s", platform="cli", agent_context="primary",
-                      actor_id="mcp-untrusted")
+                      trust=_trust.external_binding("mcp-untrusted"))
     out = json.loads(handle(ctrl, obs, "export", {"action": "export",
-                                                  "path": "/tmp/hh_should_not_exist.json"}))
+                                                  "path": forbidden}))
     assert "error" in out and "operator-only" in out["error"], out
-    assert not os.path.exists("/tmp/hh_should_not_exist.json"), "untrusted export wrote a file"
+    assert not os.path.exists(forbidden), "untrusted export wrote a file"
 
     ctrl.bind_session(session_id="s", platform="cli", agent_context="primary",
-                      actor_id="primary")
+                      trust=_trust.local_binding("primary"))
     dest = os.path.join(tempfile.mkdtemp(prefix="hh_export_"), "out.json")
     ok = json.loads(handle(ctrl, obs, "export", {"action": "export", "path": dest,
                                                  "export_kind": "beliefs"}))

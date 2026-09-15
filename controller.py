@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from . import db as _db
 from . import limits as _limits
 from . import policy as _policy
+from . import trust as _trust
 from .attention import AttentionScorer
 from .consolidation import Consolidator
 from .episodic import EpisodicMemory
@@ -54,6 +55,13 @@ class MemoryController:
         self.platform = ""
         self.agent_context = "primary"
         self.actor_id = _policy.DEFAULT_ACTOR
+        # Identity/provenance come from the channel (see trust.py), never from a
+        # request field. An unbound controller is in-process code, i.e. the
+        # operator's own, so it starts as owner/user.
+        self.identity = _trust.OWNER
+        self.provenance = _trust.PROVENANCE_USER
+        self.channel = _trust.CHANNEL_LOCAL
+        self._binding_explicit = False
         self.writes_enabled = True
 
     def _resolve_db(self) -> str:
@@ -66,15 +74,55 @@ class MemoryController:
     def bind_session(self, session_id: str = "", platform: str = "",
                      agent_context: str = "primary",
                      parent_session_id: str = "",
-                     actor_id: str = "") -> None:
+                     actor_id: str = "",
+                     trust: Any = None) -> None:
+        """Bind a session, and with it the caller's identity and provenance.
+
+        ``trust`` is a :class:`trust.Binding` resolved by the *server* for the
+        channel the call arrived on. When it is omitted the binding is derived
+        once, from the channel: an MCP platform is untrusted (the MCP server
+        always passes an explicit binding anyway), anything in-process is the
+        operator's own code. A later rebind that carries no binding keeps the
+        existing one, so a session switch cannot silently change trust.
+        """
         self.session_id = session_id
         self.platform = platform
         self.agent_context = agent_context or "primary"
-        self.actor_id = _policy.normalize_actor(actor_id or self.agent_context)
+        if trust is not None:
+            self.identity = _trust.normalize_identity(getattr(trust, "identity", None))
+            self.provenance = _trust.normalize_provenance(
+                getattr(trust, "provenance", None))
+            self.channel = str(getattr(trust, "channel", "") or _trust.CHANNEL_LOCAL)
+            self.actor_id = _policy.normalize_actor(
+                getattr(trust, "actor_id", "") or actor_id or self.agent_context)
+            self._binding_explicit = True
+        elif not self._binding_explicit:
+            if str(platform or "").strip().lower() == _trust.CHANNEL_MCP:
+                self.identity = _trust.UNTRUSTED
+                self.provenance = _trust.PROVENANCE_EXTERNAL
+                self.channel = _trust.CHANNEL_MCP
+            else:
+                self.identity = _trust.OWNER
+                self.provenance = _trust.PROVENANCE_USER
+                self.channel = _trust.CHANNEL_LOCAL
+            self.actor_id = _policy.normalize_actor(actor_id or self.agent_context)
+            if (self.identity != _trust.OWNER
+                    and self.actor_id in _policy.OWNER_ACTORS):
+                self.actor_id = _policy.UNTRUSTED_ACTOR
+        elif actor_id:
+            self.actor_id = _policy.normalize_actor(actor_id)
         self.writes_enabled = (
             self.agent_context == "primary" and not parent_session_id
         )
 
+    @property
+    def is_owner(self) -> bool:
+        """Owner identity, decided by the channel — not by the actor label."""
+        return _policy.is_owner_identity(self.identity)
+
+    def binding(self) -> Dict[str, Any]:
+        return {"actor_id": self.actor_id, "identity": self.identity,
+                "provenance": self.provenance, "channel": self.channel}
     # ------------------------------------------------------------- §14 API
 
     def remember_episode(self, *, embed: bool = True, **fields: Any) -> Dict[str, Any]:
@@ -93,9 +141,12 @@ class MemoryController:
             signals = scored["signals"]
         fields["importance"] = importance
         # actor_id is forwarded; quarantine is decided by the write layer
-        # (episodic/semantic) so every path obeys the same rule.
+        # (episodic/semantic) so every path obeys the same rule. The *identity*
+        # travels with the call: a caller cannot lift quarantine by naming
+        # itself "primary".
         fields["actor_id"] = _policy.normalize_actor(
             fields.get("actor_id") or self.actor_id)
+        fields["identity"] = self.identity
         fields["session_id"] = self.session_id
         result = self.episodic.remember_episode(**fields)
         eid = result.get("episode_id")

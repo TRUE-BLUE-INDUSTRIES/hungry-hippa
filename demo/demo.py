@@ -102,6 +102,20 @@ def demo_db_path(use_tmp: bool) -> str:
     return str(DEFAULT_DB_DIR / "hungry_hippa.db")
 
 
+def demo_owner_token(db_path: str) -> str:
+    """A demo-scoped owner token, never the operator's real one.
+
+    The demo shows the identity boundary honestly: the owner client presents a
+    token that an untrusted client cannot read, instead of typing actor_id
+    "primary" and being believed.
+    """
+    from livingcortex import trust
+
+    path = os.path.join(os.path.dirname(os.path.abspath(db_path)), "owner.token")
+    os.environ["HUNGRY_HIPPA_OWNER_TOKEN_FILE"] = path
+    return trust.ensure_owner_token(path)
+
+
 def fresh_controller(db_path: str, session_id: str, actor: str = "primary"):
     from livingcortex.config import load_config
     from livingcortex.controller import MemoryController
@@ -281,6 +295,9 @@ def run_demo(db_path: str, use_tmp: bool) -> Transcript:
     # ---------------------------------------------------------------- step 7
     t.emit("STEP 7 — a second compatible agent gets only what it is authorized to read")
     t.emit("-" * 72)
+    # The token file must exist (and be exported) before the client process
+    # starts, because the server reads the same environment.
+    owner_token = demo_owner_token(db_path)
     client = McpClient(db_path)
     try:
         t.emit("  starting a separate MCP client process (stdio, local only)...")
@@ -294,7 +311,9 @@ def run_demo(db_path: str, use_tmp: bool) -> Transcript:
                f"items={len(untrusted.get('items', []))} "
                f"denied={len(untrusted.get('excluded', []))} by={reasons}")
         owner = client.call_tool("hippa_recall",
-                                {"actor_id": "primary", "query": q["decision"]})
+                                {"actor_id": "primary",
+                                 "owner_token": owner_token,
+                                 "query": q["decision"]})
         t.emit(f"  owner-authorized   -> count={owner.get('count')} "
                f"items={[(i['id'], i['type']) for i in owner.get('items', [])]}")
         status = client.call_tool("hippa_status", {"actor_id": "mcp-untrusted"})
