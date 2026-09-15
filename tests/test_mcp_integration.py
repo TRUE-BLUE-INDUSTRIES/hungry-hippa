@@ -227,11 +227,13 @@ def check_stdout_is_protocol_only():
     proc = subprocess.Popen([sys.executable, str(H.REPO / "mcp_server.py")],
                             cwd=str(H.REPO), env=env, stdin=subprocess.PIPE,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    proc.stdin.close()                      # EOF: the SDK shuts down cleanly
+    # communicate(input="") closes stdin (EOF) and collects the streams; closing
+    # stdin by hand first raises on some CPython versions
     try:
-        stdout, stderr = proc.communicate(timeout=30)
+        stdout, stderr = proc.communicate(input="", timeout=30)
     except subprocess.TimeoutExpired:
         proc.kill()
+        proc.communicate()
         raise AssertionError("server did not exit on EOF")
     lines = [ln for ln in stdout.splitlines() if ln.strip()]
     for line in lines:
@@ -252,11 +254,11 @@ def check_malformed_line_does_not_pollute_stdout():
     proc.stdin.write("this is not json\n")
     proc.stdin.flush()
     time.sleep(0.5)
-    proc.stdin.close()
     try:
-        stdout, stderr = proc.communicate(timeout=30)
+        stdout, stderr = proc.communicate(timeout=30)   # closes stdin, then collects
     except subprocess.TimeoutExpired:
         proc.kill()
+        proc.communicate()
         raise AssertionError("server did not exit after malformed input")
     for line in [ln for ln in stdout.splitlines() if ln.strip()]:
         json.loads(line)
