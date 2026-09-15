@@ -6,17 +6,23 @@ Hungry Hippa gives AI a memory you own. It keeps useful memory on your machine a
 lets connected AI tools remember it later. The model can change. The provider can
 change. The memory layer stays yours.
 
+Your AI can change. Your memory doesn't have to.
+
 Hungry Hippa is **not** an AI model. It is the memory layer *underneath* AI models and
 agents — a local database plus the runtime that reads and writes it:
 
 - Different MCP-capable AI clients can use the **same** locally controlled memory.
-- **You** own and control the store. It is one SQLite file on your disk; deleting it
-  deletes the memory, and nothing is uploaded anywhere.
+- **You** own and control the store. The primary memory store is a local SQLite
+  database on your machine; Hungry Hippa does not upload that database to a model
+  provider.
 - Switching models or providers does not inherently require abandoning the memory
   layer, because the memory is not stored inside the model.
 - **MCP** (Model Context Protocol) is the interoperability mechanism today. Clients
   that do not speak MCP are out of scope for now, and this README says so rather than
   implying otherwise.
+
+Connected AI clients may transmit recalled context according to their own configuration
+and privacy policies.
 
 Not a vector database, not chat-history search, not a bigger `MEMORY.md`.
 
