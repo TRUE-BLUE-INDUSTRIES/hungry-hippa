@@ -1,0 +1,16 @@
+{
+  "operator": "Operator",
+  "project": "Project A",
+  "fact": "Project A packaging uses the amber crate.",
+  "decision": {
+    "context": "Project A transport decision: use a queue because bursts exceed worker capacity.",
+    "decisions": "Use a queue because bursts exceed worker capacity.",
+    "outcome": "success"
+  },
+  "failure": {
+    "context": "Project A timeout repair: increasing retries failed.",
+    "actions_taken": "Increase retries from two to eight.",
+    "result": "Duplicate requests increased; use request deduplication next.",
+    "outcome": "failure"
+  }
+}

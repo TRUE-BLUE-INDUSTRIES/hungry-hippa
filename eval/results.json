@@ -1,0 +1,238 @@
+{
+  "product": "Hungry Hippa",
+  "generated_at": "2026-09-15T05:10:06.434657+00:00",
+  "revision": "6574bc65913313d84fd850105f6d86b54e1b0230",
+  "python": "3.14.7",
+  "sqlite": "3.53.4",
+  "platform": "Linux-7.1.9-arch1-2-x86_64-with-glibc2.44",
+  "seed_sha256": "0b6726180f8a313cd40180eda875edf44725d8ebeb6e22182f95be9a3648a0ad",
+  "vectors_enabled": false,
+  "scenarios": [
+    {
+      "id": 1,
+      "name": "Cross-session factual recall",
+      "status": "pass",
+      "measurements": {
+        "with_memory": {
+          "precision": 1.0,
+          "recall_rate": 1.0,
+          "incorrect_memory_rate": 0.0,
+          "context_chars": 86,
+          "latency_ms": 1.935079
+        },
+        "without_memory": {
+          "precision": null,
+          "recall_rate": 0.0,
+          "incorrect_memory_rate": null,
+          "context_chars": 0,
+          "latency_ms": 0.544759
+        },
+        "baseline": "Empty controller DB; no conversation or model",
+        "scope": "Structured recall, not proof of an agent choosing an action"
+      }
+    },
+    {
+      "id": 2,
+      "name": "Decision and rationale",
+      "status": "pass",
+      "measurements": {
+        "with_memory": {
+          "precision": 1.0,
+          "recall_rate": 1.0,
+          "incorrect_memory_rate": 0.0,
+          "context_chars": 166,
+          "latency_ms": 0.887999
+        },
+        "without_memory": {
+          "precision": null,
+          "recall_rate": 0.0,
+          "incorrect_memory_rate": null,
+          "context_chars": 0,
+          "latency_ms": 0.50958
+        },
+        "baseline": "Empty controller DB; no conversation or model",
+        "scope": "Structured recall, not proof of an agent choosing an action"
+      }
+    },
+    {
+      "id": 3,
+      "name": "Previously failed solution context",
+      "status": "pass",
+      "measurements": {
+        "with_memory": {
+          "precision": 1.0,
+          "recall_rate": 1.0,
+          "incorrect_memory_rate": 0.0,
+          "context_chars": 210,
+          "latency_ms": 0.857059
+        },
+        "without_memory": {
+          "precision": null,
+          "recall_rate": 0.0,
+          "incorrect_memory_rate": null,
+          "context_chars": 0,
+          "latency_ms": 0.5076
+        },
+        "baseline": "Empty controller DB; no conversation or model",
+        "scope": "Structured recall, not proof of an agent choosing an action"
+      }
+    },
+    {
+      "id": 4,
+      "name": "Superseded information",
+      "status": "pass",
+      "measurements": {
+        "precision": 1.0,
+        "recall_rate": 1.0,
+        "incorrect_memory_rate": 0.0,
+        "context_chars": 117,
+        "latency_ms": 0.824399
+      }
+    },
+    {
+      "id": 5,
+      "name": "Fixed character budget",
+      "status": "fail",
+      "measurements": {
+        "budget_chars": 120,
+        "actual_chars": 1377,
+        "within_budget": false,
+        "structured_items_capped": false
+      },
+      "reason": "Renderer accepts an oversized first item; structured items are also uncapped by chars."
+    },
+    {
+      "id": 6,
+      "name": "Cross-agent authorized portability",
+      "status": "unsupported",
+      "reason": "Session IDs share a DB, but no actor ACL exists. Scenario 1 tests session persistence only."
+    },
+    {
+      "id": 7,
+      "name": "User-directed forgetting",
+      "status": "pass",
+      "measurements": {
+        "excluded_from_recall": true,
+        "retained_as_archive": true,
+        "secure_erasure_tested": false
+      }
+    },
+    {
+      "id": 8,
+      "name": "Poisoned memory resistance",
+      "status": "unsupported",
+      "reason": "No quarantine API or enforcement in this baseline; no LLM injection-resistance test performed."
+    },
+    {
+      "id": 9,
+      "name": "Unauthorized retrieval",
+      "status": "unsupported",
+      "reason": "No caller permission checks on recall; denial accuracy cannot be measured."
+    },
+    {
+      "id": 10,
+      "name": "Performance as DB grows",
+      "status": "pass",
+      "measurements": {
+        "samples": [
+          {
+            "episodes": 10,
+            "repeats": 15,
+            "median_ms": 2.677999,
+            "min_ms": 2.634268,
+            "max_ms": 2.744858,
+            "samples_ms": [
+              2.685989,
+              2.722719,
+              2.744858,
+              2.655159,
+              2.677999,
+              2.676629,
+              2.649219,
+              2.685088,
+              2.710229,
+              2.641729,
+              2.675769,
+              2.699889,
+              2.634268,
+              2.675619,
+              2.712679
+            ],
+            "storage_bytes": 217088,
+            "file_bytes": {
+              "db": 217088
+            }
+          },
+          {
+            "episodes": 100,
+            "repeats": 15,
+            "median_ms": 2.991859,
+            "min_ms": 2.960209,
+            "max_ms": 3.099588,
+            "samples_ms": [
+              3.013039,
+              3.065008,
+              3.004469,
+              2.960209,
+              2.977738,
+              3.009419,
+              2.966699,
+              3.099588,
+              3.004829,
+              2.970289,
+              2.994768,
+              2.986179,
+              2.991859,
+              2.969438,
+              2.991369
+            ],
+            "storage_bytes": 262144,
+            "file_bytes": {
+              "db": 262144
+            }
+          },
+          {
+            "episodes": 1000,
+            "repeats": 15,
+            "median_ms": 3.603608,
+            "min_ms": 3.551858,
+            "max_ms": 3.633729,
+            "samples_ms": [
+              3.600839,
+              3.589908,
+              3.593899,
+              3.598038,
+              3.633729,
+              3.612688,
+              3.551858,
+              3.598499,
+              3.616048,
+              3.610748,
+              3.613869,
+              3.605708,
+              3.576018,
+              3.611779,
+              3.603608
+            ],
+            "storage_bytes": 724992,
+            "file_bytes": {
+              "db": 724992
+            }
+          }
+        ],
+        "workload": "All rows match; top six; one warm-up; sequential calls including reinforcement and retrieval logging"
+      }
+    }
+  ],
+  "unsupported_metrics": {
+    "context_tokens": "No tokenizer/model; exact characters measured instead.",
+    "repeated_failure_avoidance": "Stored failure context tested; no acting agent or LLM judge.",
+    "permission_denial_accuracy": "No actor ACL.",
+    "agent_quality_delta": "Empty-DB comparison is a retrieval control, not an agent benchmark."
+  },
+  "summary": {
+    "pass": 6,
+    "fail": 1,
+    "unsupported": 3
+  }
+}
