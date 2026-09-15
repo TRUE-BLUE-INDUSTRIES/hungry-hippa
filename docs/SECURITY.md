@@ -15,14 +15,23 @@ capability-based security: there are no unforgeable, revocable, time-limited
 capability tokens, and no delegation model. A caller states an `actor_id`; the
 runtime applies fixed rules from `policy.py`:
 
-| Caller | Writes | Reads | Purge |
-|---|---|---|---|
-| owner (`primary`, `owner`) | normal | everything; quarantined rows only when `include_quarantined` is set | allowed with an explicit confirmation flag |
-| any other actor | stored quarantined | only its own `unclassified`, non-quarantined rows | always denied |
+| Caller | Writes | Reads | Forget (archival) | Purge |
+|---|---|---|---|---|
+| owner (`primary`, `owner`) | normal | everything; quarantined rows only when `include_quarantined` is set | anything | allowed with an explicit confirmation flag |
+| any other actor | stored quarantined | only its own `unclassified`, non-quarantined rows | only rows it may read | always denied |
 
 The default actor for the MCP surface is `mcp-untrusted`. `actor_id` is
-caller-supplied, so "whoever can start this process can claim to be the owner" is
-a known, documented limitation — the reason the MCP transport is stdio-only.
+caller-supplied: it is a **policy selector, not authentication**. Whoever can start
+this process can claim to be the owner — a known, documented limitation, and the
+reason the MCP transport is stdio-only. Two hardening details follow from it:
+
+- Archival is authorized **per record**, using the same read policy: an actor may
+  archive only a record it is allowed to read, so an untrusted caller cannot take
+  another actor's memory out of normal recall. Denials are written to the audit log
+  as `forget_denied`.
+- A **whitespace-only** `actor_id` is treated as untrusted. It never falls back to
+  the owner actor (`policy.normalize_actor`); only `None` or the empty string means
+  "no actor supplied" and resolves to the local owner default.
 
 Sensitivity (`unclassified`/`internal`/`private`/`restricted`) is a **read-policy
 label stored in plain text**. It is not encryption and not a data-classification
@@ -55,11 +64,22 @@ identify or authorize callers.
 - Every SQL statement is parameterized. String interpolation is only used with
   fixed internal table/column names chosen from literal tuples.
 - No MCP tool accepts SQL, a file path or a database path.
-- There is no MCP export, dump or schema tool. `hermes living-cortex export` is a
-  local CLI command a human runs.
+- There is no MCP export, dump or schema tool. The legacy surfaces that do export
+  (`cortex` action `export` and `hermes living-cortex export`) are **owner-only and
+  audited**: a non-owner actor gets `{"error": "export is operator-only; ..."}`, the
+  denial is recorded in `mutation_log` as `export_denied`, and every successful
+  export is recorded as `export`. Export writes `SELECT *` output to a
+  caller-specified path, so it stays an operator-side maintenance action and is not
+  part of the agent-facing contract.
 - Evidence rows are insert-only; `add_evidence` never updates in place.
-- Forgetting defaults to reversible archival; purge is owner-only and, over MCP,
-  requires `confirmation: true` as well.
+- Forgetting defaults to reversible archival; archival is authorized per record
+  (see above) and purge is owner-only and, over MCP, requires `confirmation: true`
+  as well.
+- **Migration safety:** applying pending schema migrations to an existing database
+  always writes a `*.pre-migration-<UTC>.bak` copy first — including the implicit
+  upgrade performed by an ordinary open (status, plugin start, MCP server startup),
+  not just `hermes living-cortex migrate`. Brand-new databases and already-current
+  databases are not backed up.
 
 ### Quarantine
 

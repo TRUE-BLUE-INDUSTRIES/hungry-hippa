@@ -110,4 +110,6 @@ comparison against another implementation was run.
   deployment, no adversarial robustness evaluation, no cross-model interoperability test.
 - No model training, fine-tuning or weight update of any kind. `neural.py` is an interface
   stub.
-- Nothing in this repository has been pushed, published or deployed.
+- This repository is public and its branches (`main`, `feat/hungry-hippa`) are pushed to
+  GitHub; CI runs on every push. See [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) and the
+  repository URL in the README.

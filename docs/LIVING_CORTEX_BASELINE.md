@@ -4,7 +4,9 @@ Date: 2026-09-14.
 Repository: `/home/djr/Work/living-cortex`
 Branch at audit: `main` @ `3886aa6da8340764ad6a84140a8e8940623e736c`
 Audit branch: `feat/hungry-hippa`
-Remote: `https://github.com/TRUE-BLUE-INDUSTRIES/living-cortex.git` (not pushed from this work)
+Remote at audit time: `https://github.com/TRUE-BLUE-INDUSTRIES/living-cortex.git`;
+the repository was later renamed and now pushes to
+`https://github.com/TRUE-BLUE-INDUSTRIES/hungry-hippa.git`.
 
 This document records what the existing Living Cortex system actually does, what is only documented, and the measurements taken before any Hungry Hippa restructuring. Hungry Hippa is spelled exactly this way. This is an agent-memory and context-engineering system, not model training.
 

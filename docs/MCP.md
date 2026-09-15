@@ -50,11 +50,24 @@ cannot point the server at an arbitrary path.
 | `hippa_recall` | `query` | keyword + graph (+ optional local vectors); `explain: true` returns score parts without contents |
 | `hippa_build_context` | `query` | returns `{rendering, item_ids, token_estimate, chars_used, budget_chars, excluded}` inside an explicit character budget |
 | `hippa_record_outcome` | `procedure_id`, `success` | updates procedure counters and re-evaluates confidence |
-| `hippa_forget` | `target_kind`, `target_id` | `mode: archival` (default, reversible); `mode: purge` needs `confirmation: true` **and** an owner actor |
+| `hippa_forget` | `target_kind`, `target_id` | `mode: archival` (default, reversible); `mode: purge` needs `confirmation: true` **and** an owner actor. Archival is authorized per record: a caller may archive only a row it is allowed to read, so an untrusted client cannot remove another actor's memory. Denials return `policy_reason` and are logged as `forget_denied`. |
 | `hippa_status` | – | table counts, quarantine counts, vector availability, active policy. Counts only, never row contents |
 
 There is deliberately **no** `export` tool: raw database extraction stays on the
-local CLI (`hermes living-cortex export`), which a human runs on their own machine.
+local CLI (`hermes living-cortex export`), which a human runs on their own machine, and
+on the legacy `cortex` agent tool's `export` action — both are owner-only and audited
+(see `docs/SECURITY.md`).
+
+## Output schemas
+
+Every tool also advertises an `outputSchema` describing the JSON object it returns:
+the shared envelope is `{ok, error}` plus tool-specific fields (ids, counts, the
+compiled context, exclusion reasons and so on). `additionalProperties` is true there,
+because a result that hits the frame cap gains a `truncated`/`original_chars` notice;
+the schemas describe what the server returns rather than promising a closed shape.
+Arguments are checked against `inputSchema` before dispatch, including `null`
+rejection (`actor_id: null` is refused rather than silently becoming the owner) and
+per-item `maxLength` bounds on string arrays.
 
 `token_estimate` is `ceil(characters / 4)`. It is a cheap estimate so the runtime
 needs no tokenizer dependency, not a tokenizer measurement.

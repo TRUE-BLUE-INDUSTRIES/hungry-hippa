@@ -198,6 +198,39 @@ compiler unless an owner explicitly reviews them.
 `relate()` is not exposed over MCP, and graph writes still come from the primary
 process only.
 
+### 13. Denial of recall by archival (memory integrity)
+
+*Threat:* a caller that cannot read a private memory still removes it from normal
+recall by archiving it, silently degrading the operator's history.
+
+*Implemented:* `Controller.forget` applies the read policy to the target row before
+archiving (`Controller._may_forget`, via `policy.may_read`), so an actor may archive
+only a record it is allowed to read; the denial is returned as
+`{"error": "forget denied for this actor", "policy_reason": ...}` and written to
+`mutation_log` as `forget_denied`. `test_security.py`
+(`untrusted_archival_denied_per_record`) and `test_mcp_schema.py`
+(`purge_denied_over_mcp`) cover the untrusted and owner paths.
+
+*Residual:* this is a policy check on a caller-supplied `actor_id`, so the
+impersonation limitation of threat 5 applies unchanged; archival remains reversible
+and audited.
+
+### 14. Silent schema upgrade of an existing database
+
+*Threat:* a routine open of an older database (status, plugin start, MCP startup)
+applies migrations in place, leaving no pre-upgrade copy to roll back to.
+
+*Implemented:* any pending migration against a pre-existing, non-empty database
+writes `*.pre-migration-<UTC>.bak` through the SQLite backup API before the first
+migration script runs (`db.Database._ensure_schema`, exposed as `db.last_backup`).
+Brand-new and already-current databases are not backed up.
+`test_migration.py::implicit_open_backs_up_before_upgrading` asserts the backup
+contents equal the pre-migration state.
+
+*Residual:* the backup is a plaintext copy next to the database — it inherits the
+same file permissions and is not encrypted at rest. Automated retention/pruning of
+old backups is not implemented.
+
 ## Explicitly not covered
 
 - Encryption at rest, key management, per-field encryption. See

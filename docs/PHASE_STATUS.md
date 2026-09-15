@@ -524,7 +524,8 @@ What was produced:
   machine-independent aggregate metrics against the committed `results.json`, so CI can
   detect drift without failing on timestamps or latencies.
 
-Verification actually performed (not CI — nothing is pushed):
+Verification actually performed at the time (before the branch was pushed; CI has since
+run green on every pushed commit):
 
 ```
 python scripts/check_all.py --quiet                       -> all 7 steps passed
@@ -626,8 +627,9 @@ Outstanding, deliberately not done (each is stated in the relevant document rath
 implied away): no encryption at rest; no tamper-evident audit chain; no per-caller quotas
 or timeouts; no authenticated MCP transport; no external MCP client (including Grok CLI)
 has been run against the server; no LLM-judged eval metrics; no video recorded for the
-demo; the GitHub Actions matrix has never executed; and nothing has been pushed,
-published or deployed.
+demo. (Superseded since this entry was written: the repository is now public and pushed,
+and the GitHub Actions matrix has run green on every pushed commit — see
+[FOLLOWUP.md](FOLLOWUP.md).)
 
 Concurrent-work note: `docs/AGENT_COORDINATION.md` appeared in this working tree during
 Phase 8 (written by a peer coordinator agent, not by this session) and was included in the

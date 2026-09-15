@@ -8,8 +8,37 @@ the `version:` field in `plugin.yaml`.
 
 ## [Unreleased]
 
-Hungry Hippa migration, phased. Nothing has been pushed or published; all entries below
-exist on the local `feat/hungry-hippa` branch.
+Hungry Hippa migration, phased. All entries below exist on `feat/hungry-hippa`;
+the repository is public and both `feat/hungry-hippa` and `main` are pushed, with CI
+run on every push.
+
+### Security (post-audit hardening)
+
+- **Per-record authorization on archival.** `forget` in archival mode now applies the
+  read policy to the target row, so a caller can only archive a memory it is allowed
+  to read. Previously an untrusted MCP client could remove another actor's private row
+  from normal recall without being able to read it. Denials are audited as
+  `forget_denied`. **Behaviour change:** the old behaviour was asserted by
+  `test_security.py` and `test_mcp_schema.py`; both tests were corrected.
+- **Whitespace `actor_id` no longer elevates.** `policy.normalize_actor("  ")` returned
+  the owner actor `primary` (and `hippa_status` then exposed the database path). A
+  whitespace-only identity is now treated as untrusted; only `None`/`""` mean "no actor
+  supplied".
+- **Implicit migration backs up first.** An ordinary open of an older database
+  (`Database()`, i.e. status, plugin start, MCP startup) applied pending migrations with
+  no backup; only the explicit `migrate` command backed up. Any pending migration on a
+  pre-existing database now writes `*.pre-migration-<UTC>.bak` before it runs.
+- **Legacy export is owner-only and audited.** The `cortex` tool's `export` action could
+  write a full `SELECT *` dump to any path for any actor. It now requires an owner actor
+  and records both the denial (`export_denied`) and each successful export.
+- **MCP schemas: outputs described, inputs actually enforced.** All six tools now
+  advertise an `outputSchema`; `null` values (`actor_id: null` used to fall through to
+  the owner default) are rejected; string-array items are checked against their
+  advertised `maxLength`.
+- **Test fixtures genericised.** `tests/test_acceptance.py` used the operator's real
+  first name and real device/project names in its graph fixtures
+  (`Dennis`/`Voxvil`/`Prusa_XL` → `Operator`/`Project_V`/`Printer_A`). This was
+  pre-existing content that survived the rename; the repository is public.
 
 ### Added
 

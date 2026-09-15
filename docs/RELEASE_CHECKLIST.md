@@ -6,10 +6,10 @@ feeling. Nothing on this list publishes anything by itself.
 ## 1. Tests and evidence
 
 - [ ] `python tests/test_acceptance.py` → 10/10
-- [ ] `python tests/test_migration.py` → 6/6
+- [ ] `python tests/test_migration.py` → 7/7
 - [ ] `python tests/test_memory_architecture.py` → 8/8
 - [ ] `python tests/test_mcp_schema.py` → 11/11
-- [ ] `python tests/test_security.py` → 10/10
+- [ ] `python tests/test_security.py` → 14/14
 - [ ] `python demo/demo.py --check` → "transcript matches expected_output.txt"
 - [ ] `python demo/demo.py --tmp --check` → same (proves it runs against a temp DB)
 - [ ] `python eval/harness.py` → completes and rewrites `eval/results.json` +
