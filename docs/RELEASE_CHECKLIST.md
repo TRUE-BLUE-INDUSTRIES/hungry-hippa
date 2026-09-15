@@ -69,9 +69,9 @@ feeling. Nothing on this list publishes anything by itself.
 ## 7. Continuous integration
 
 - [ ] `.github/workflows/test.yml` runs every test file plus the demo check
-- [ ] CI has actually run green on the release commit. **This has not happened yet for
-      this project** — the workflow file is committed but nothing has been pushed, so the
-      matrix is unverified configuration. Do not describe CI as passing until it has run.
+- [ ] CI has actually run green on the release commit. Python 3.12/3.13 passed on
+      `main` at `905167d` ([run 34932877707](https://github.com/TRUE-BLUE-INDUSTRIES/hungry-hippa/actions/runs/34932877707)).
+      Check the selected release commit again; see [follow-up](FOLLOWUP.md).
 
 ## 8. Publishing (not done, and not to be done without explicit approval)
 

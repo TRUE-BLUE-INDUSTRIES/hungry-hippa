@@ -1,3 +1,9 @@
+# Follow-up status
+
+The phase entries below are historical. Installation and subsequent CI verification
+are recorded in [FOLLOWUP.md](FOLLOWUP.md); its results supersede the earlier
+statements that nothing was pushed and CI had never run.
+
 # Hungry Hippa phase status
 
 Operator brief: `/home/djr/Documents/masterP.txt`. Branch: `feat/hungry-hippa`.

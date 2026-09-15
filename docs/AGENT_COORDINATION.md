@@ -1,3 +1,10 @@
+# Current follow-up ownership
+
+Codex owns the remaining follow-up under the operator’s latest instruction.
+Phases 1–9 are already on main. Pushing follow-up fixes to `feat/hungry-hippa`
+and fast-forwarding `main` is explicitly authorized. Do not ask Grok to implement.
+See [FOLLOWUP.md](FOLLOWUP.md) for verified results. The handoff below is historical.
+
 # Agent coordination (Hungry Hippa)
 
 Read this before creating `eval/`, `demo/`, or `docs/COMPARISON.md`.
