@@ -144,7 +144,10 @@ class MemoryController:
         ``{items, rendering, token_estimate, excluded}`` plus the recall
         metadata. Kept separate from ``recall`` so callers that only want the
         package (MCP ``hippa_build_context``) do not have to unpack a recall.
+        ``max_chars`` is accepted as an alias for ``max_context_chars``.
         """
+        if "max_chars" in kwargs and "max_context_chars" not in kwargs:
+            kwargs["max_context_chars"] = kwargs.pop("max_chars")
         out = self.recall(query, **kwargs)
         pkg = dict(out.get("context_package") or {})
         pkg["sources"] = out.get("sources", [])

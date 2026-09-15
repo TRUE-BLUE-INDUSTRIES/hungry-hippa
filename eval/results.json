@@ -1,0 +1,578 @@
+{
+  "harness": "hungry-hippa-memory-challenge",
+  "harness_version": "1.0",
+  "generated_at": "2026-09-15T05:18:19Z",
+  "git_rev": "1920c3e646e2080ffaab5a03361cc70907fe5f2a",
+  "git_dirty": true,
+  "python": "3.14.7",
+  "platform": "Linux 7.1.9-arch1-2",
+  "controller": "deterministic Python controller (no LLM judge)",
+  "embedding": "disabled (offline, repeatable)",
+  "baseline": "session-transcript-only agent (no memory runtime)",
+  "fixtures": "eval/fixtures.json",
+  "wall_ms": 1791.7,
+  "unsupported": [
+    {
+      "metric": "natural-language answer quality",
+      "reason": "grading here is exact token matching on the assembled context; judging whether an answer is well phrased or subtly correct needs a model to judge, which would make the harness non-deterministic and network-dependent"
+    },
+    {
+      "metric": "semantic-equivalence recall (paraphrase matching)",
+      "reason": "would need an embedding model or an LLM judge; vectors are disabled so the run stays offline and repeatable"
+    },
+    {
+      "metric": "embedding/vector recall quality",
+      "reason": "local embeddings require an Ollama server; enabling them would make results depend on a model version, so the harness pins vectors off and reports keyword+graph recall only"
+    },
+    {
+      "metric": "baseline poison resistance (scenario 8, without arm)",
+      "reason": "the baseline has no persistent store, so it cannot be poisoned and there is no comparable result \u2014 scored unsupported, not zero"
+    },
+    {
+      "metric": "baseline permission-denial accuracy (scenario 9, without arm)",
+      "reason": "the baseline has no access control, so denial accuracy is undefined for it \u2014 scored unsupported, not zero"
+    },
+    {
+      "metric": "multi-user / cross-tenant isolation",
+      "reason": "not implemented in the runtime, so there is nothing to measure"
+    }
+  ],
+  "scenarios": [
+    {
+      "id": 1,
+      "name": "cross_session_factual_recall",
+      "question": "what is the fixture jig torque value?",
+      "with": {
+        "context_chars": 76,
+        "context_token_estimate": 19,
+        "items": 1,
+        "excluded": 0,
+        "latency_ms": 2.043,
+        "budget_chars": 1500,
+        "answered": true,
+        "answer": "45Nm",
+        "correct": true,
+        "incorrect_memory": false,
+        "forbidden_in_context": []
+      },
+      "without": {
+        "context_chars": 0,
+        "context_token_estimate": 0,
+        "items": 0,
+        "excluded": 0,
+        "latency_ms": 0.0,
+        "budget_chars": null,
+        "answered": false,
+        "answer": "",
+        "correct": false,
+        "incorrect_memory": false,
+        "forbidden_in_context": []
+      },
+      "metrics": {},
+      "notes": "Same deterministic reader; the only difference is that the with-arm reopens the store in a new session.",
+      "wall_ms": 5.2
+    },
+    {
+      "id": 2,
+      "name": "decision_and_rationale_recall",
+      "question": "why did Project A choose method B?",
+      "with": {
+        "context_chars": 244,
+        "context_token_estimate": 61,
+        "items": 2,
+        "excluded": 0,
+        "latency_ms": 1.187,
+        "budget_chars": 1500,
+        "answered": true,
+        "answer": "warped",
+        "correct": true,
+        "incorrect_memory": false,
+        "forbidden_in_context": []
+      },
+      "without": {
+        "context_chars": 0,
+        "context_token_estimate": 0,
+        "items": 0,
+        "excluded": 0,
+        "latency_ms": 0.0,
+        "budget_chars": null,
+        "answered": false,
+        "answer": "",
+        "correct": false,
+        "incorrect_memory": false,
+        "forbidden_in_context": []
+      },
+      "metrics": {},
+      "notes": "Measures whether the rationale, not just the decision, comes back.",
+      "wall_ms": 5.0
+    },
+    {
+      "id": 3,
+      "name": "avoid_previously_failed_solution",
+      "question": "should we use solvent X to free the seized housing?",
+      "with": {
+        "context_chars": 167,
+        "context_token_estimate": 42,
+        "items": 1,
+        "excluded": 0,
+        "latency_ms": 0.963,
+        "budget_chars": 1500,
+        "answered": true,
+        "answer": "cracked",
+        "correct": true,
+        "incorrect_memory": false,
+        "forbidden_in_context": [],
+        "aware_of_failure": true,
+        "repeated_failed_attempt": false
+      },
+      "without": {
+        "context_chars": 0,
+        "context_token_estimate": 0,
+        "items": 0,
+        "excluded": 0,
+        "latency_ms": 0.0,
+        "budget_chars": null,
+        "answered": false,
+        "answer": "",
+        "correct": false,
+        "incorrect_memory": false,
+        "forbidden_in_context": [],
+        "aware_of_failure": false,
+        "repeated_failed_attempt": true
+      },
+      "metrics": {},
+      "notes": "'repeated_failed_attempt' is derived: the prior failure is absent from the context, so the agent has nothing to stop it.",
+      "wall_ms": 3.6
+    },
+    {
+      "id": 4,
+      "name": "resolve_superseded_information",
+      "question": "what material is the fixture jig plate?",
+      "with": {
+        "context_chars": 109,
+        "context_token_estimate": 28,
+        "items": 1,
+        "excluded": 0,
+        "latency_ms": 0.933,
+        "budget_chars": 1500,
+        "answered": true,
+        "answer": "steel",
+        "correct": true,
+        "incorrect_memory": false,
+        "forbidden_in_context": []
+      },
+      "without": {
+        "context_chars": 85,
+        "context_token_estimate": 0,
+        "items": 0,
+        "excluded": 0,
+        "latency_ms": 0.0,
+        "budget_chars": null,
+        "answered": true,
+        "answer": "steel",
+        "correct": false,
+        "incorrect_memory": true,
+        "forbidden_in_context": [
+          "aluminium"
+        ]
+      },
+      "metrics": {},
+      "notes": "The baseline holds both statements and no supersession state, so the stale token remains in its context.",
+      "wall_ms": 4.6
+    },
+    {
+      "id": 5,
+      "name": "retrieval_within_a_fixed_budget",
+      "question": "summarise the Project A alignment procedure",
+      "with": {
+        "context_chars": 386,
+        "context_token_estimate": 97,
+        "items": 3,
+        "excluded": 3,
+        "latency_ms": 2.906,
+        "budget_chars": 400,
+        "answered": true,
+        "answer": "alignment",
+        "correct": true,
+        "incorrect_memory": false,
+        "forbidden_in_context": [],
+        "budget_respected": true
+      },
+      "without": {
+        "context_chars": 9518,
+        "context_token_estimate": 0,
+        "items": 0,
+        "excluded": 0,
+        "latency_ms": 0.0,
+        "budget_chars": null,
+        "answered": true,
+        "answer": "alignment",
+        "correct": true,
+        "incorrect_memory": false,
+        "forbidden_in_context": [],
+        "budget_respected": false
+      },
+      "metrics": {
+        "budget_chars": 400
+      },
+      "notes": "The baseline has no budget mechanism, so it supplies the whole session transcript; the with-arm is capped by the compiler.",
+      "wall_ms": 31.5
+    },
+    {
+      "id": 6,
+      "name": "cross_agent_memory_portability",
+      "question": "who supplies component B?",
+      "with": {
+        "context_chars": 75,
+        "context_token_estimate": 19,
+        "items": 1,
+        "excluded": 0,
+        "latency_ms": 0.771,
+        "budget_chars": 1500,
+        "answered": true,
+        "answer": "Vendor A",
+        "correct": true,
+        "incorrect_memory": false,
+        "forbidden_in_context": []
+      },
+      "without": {
+        "context_chars": 0,
+        "context_token_estimate": 0,
+        "items": 0,
+        "excluded": 0,
+        "latency_ms": 0.0,
+        "budget_chars": null,
+        "answered": false,
+        "answer": "",
+        "correct": false,
+        "incorrect_memory": false,
+        "forbidden_in_context": []
+      },
+      "metrics": {
+        "separate_controller_instances": 2
+      },
+      "notes": "Two independent MemoryController instances on the same SQLite file, i.e. two client processes. Cross-agent sharing for the owner actor only; see scenario 9 for the untrusted case.",
+      "wall_ms": 3.4
+    },
+    {
+      "id": 7,
+      "name": "user_directed_forgetting",
+      "question": "what is the temporary fixture label?",
+      "with": {
+        "recalled_before_forget": true,
+        "forget_effective": true,
+        "archived": true,
+        "row_retained_for_rollback": true,
+        "correct": true,
+        "incorrect_memory": false,
+        "context_chars": 0,
+        "items": 0,
+        "excluded": 0,
+        "latency_ms": 0.743,
+        "before_context_chars": 83
+      },
+      "without": {
+        "recalled_before_forget": true,
+        "forget_effective": false,
+        "archived": false,
+        "row_retained_for_rollback": null,
+        "correct": false,
+        "incorrect_memory": false,
+        "context_chars": 48,
+        "items": 0,
+        "excluded": 0,
+        "latency_ms": 0.0
+      },
+      "metrics": {},
+      "notes": "Archival is reversible: the row survives with status 'archived'. The baseline has no forgetting operation, so in-context text simply stays \u2014 'correct' is false because the operator's intent cannot be carried out.",
+      "wall_ms": 4.6
+    },
+    {
+      "id": 8,
+      "name": "resistance_to_poisoned_memory",
+      "question": "may the safety interlock be bypassed?",
+      "with": {
+        "context_chars": 0,
+        "context_token_estimate": 0,
+        "items": 0,
+        "excluded": 0,
+        "latency_ms": 0.74,
+        "budget_chars": 1500,
+        "poison_leaked": false,
+        "correct": true,
+        "answered": false,
+        "answer": "",
+        "incorrect_memory": false
+      },
+      "without": {
+        "supported": false,
+        "reason": "the baseline has no persistent store, so there is nothing an untrusted writer could poison and no result to compare"
+      },
+      "metrics": {
+        "write_quarantined": true
+      },
+      "notes": "An untrusted actor's write is quarantined and never reaches the owner's context. The baseline arm is marked unsupported rather than scored zero.",
+      "wall_ms": 3.3
+    },
+    {
+      "id": 9,
+      "name": "unauthorized_retrieval_attempt",
+      "question": "where is the spare fixture stored?",
+      "with": {
+        "denial": {
+          "context_chars": 0,
+          "context_token_estimate": 0,
+          "items": 0,
+          "excluded": 0,
+          "latency_ms": 0.736,
+          "budget_chars": 1500,
+          "answered": false,
+          "answer": "",
+          "correct": false,
+          "incorrect_memory": false,
+          "forbidden_in_context": []
+        },
+        "owner_read": {
+          "context_chars": 109,
+          "context_token_estimate": 28,
+          "items": 1,
+          "excluded": 0,
+          "latency_ms": 0.747,
+          "budget_chars": 1500,
+          "answered": true,
+          "answer": "secure cabinet",
+          "correct": true,
+          "incorrect_memory": false,
+          "forbidden_in_context": []
+        },
+        "denial_correct": true,
+        "owner_read_correct": true,
+        "policy": "actor + policy checks",
+        "correct": true,
+        "incorrect_memory": false,
+        "context_chars": 0,
+        "items": 0,
+        "excluded": 0,
+        "latency_ms": 0.736
+      },
+      "without": {
+        "supported": false,
+        "reason": "the baseline has no access control, so denial accuracy is not measurable for it"
+      },
+      "metrics": {
+        "sensitivity": "internal",
+        "denial_accuracy": 1.0,
+        "owner_read_accuracy": 1.0
+      },
+      "notes": "Sensitivity is a read-policy label, not encryption.",
+      "wall_ms": 4.1
+    },
+    {
+      "id": 10,
+      "name": "performance_as_storage_grows",
+      "question": "what is the fixture jig torque value?",
+      "points": [
+        {
+          "episodes": 100,
+          "db_bytes": 290816,
+          "bytes_per_episode": 2908.2,
+          "ingest_ms_total": 62.1,
+          "ingest_ms_per_episode": 0.621,
+          "retrieval_latency_ms_median": 3.246,
+          "retrieval_latency_ms_p95": 3.306,
+          "with_context_chars": 747,
+          "without_context_chars": 4153,
+          "with": {
+            "context_chars": 747,
+            "context_token_estimate": 187,
+            "items": 6,
+            "excluded": 0,
+            "latency_ms": 3.274,
+            "budget_chars": 1500,
+            "answered": false,
+            "answer": "",
+            "correct": false,
+            "incorrect_memory": false,
+            "forbidden_in_context": []
+          },
+          "without": {
+            "context_chars": 4153,
+            "context_token_estimate": 0,
+            "items": 0,
+            "excluded": 0,
+            "latency_ms": 0.0,
+            "budget_chars": null,
+            "answered": true,
+            "answer": "45Nm",
+            "correct": true,
+            "incorrect_memory": false,
+            "forbidden_in_context": []
+          }
+        },
+        {
+          "episodes": 500,
+          "db_bytes": 573440,
+          "bytes_per_episode": 1146.9,
+          "ingest_ms_total": 313.6,
+          "ingest_ms_per_episode": 0.627,
+          "retrieval_latency_ms_median": 3.368,
+          "retrieval_latency_ms_p95": 3.402,
+          "with_context_chars": 747,
+          "without_context_chars": 21024,
+          "with": {
+            "context_chars": 747,
+            "context_token_estimate": 187,
+            "items": 6,
+            "excluded": 0,
+            "latency_ms": 3.378,
+            "budget_chars": 1500,
+            "answered": false,
+            "answer": "",
+            "correct": false,
+            "incorrect_memory": false,
+            "forbidden_in_context": []
+          },
+          "without": {
+            "context_chars": 21024,
+            "context_token_estimate": 0,
+            "items": 0,
+            "excluded": 0,
+            "latency_ms": 0.0,
+            "budget_chars": null,
+            "answered": true,
+            "answer": "45Nm",
+            "correct": true,
+            "incorrect_memory": false,
+            "forbidden_in_context": []
+          }
+        },
+        {
+          "episodes": 2000,
+          "db_bytes": 1544192,
+          "bytes_per_episode": 772.1,
+          "ingest_ms_total": 1279.4,
+          "ingest_ms_per_episode": 0.64,
+          "retrieval_latency_ms_median": 3.758,
+          "retrieval_latency_ms_p95": 3.894,
+          "with_context_chars": 747,
+          "without_context_chars": 85274,
+          "with": {
+            "context_chars": 747,
+            "context_token_estimate": 187,
+            "items": 6,
+            "excluded": 0,
+            "latency_ms": 3.749,
+            "budget_chars": 1500,
+            "answered": false,
+            "answer": "",
+            "correct": false,
+            "incorrect_memory": false,
+            "forbidden_in_context": []
+          },
+          "without": {
+            "context_chars": 85274,
+            "context_token_estimate": 0,
+            "items": 0,
+            "excluded": 0,
+            "latency_ms": 0.0,
+            "budget_chars": null,
+            "answered": true,
+            "answer": "45Nm",
+            "correct": true,
+            "incorrect_memory": false,
+            "forbidden_in_context": []
+          }
+        }
+      ],
+      "metrics": {
+        "growth_points": [
+          100,
+          500,
+          2000
+        ],
+        "retrieval_latency_ms_median": [
+          3.246,
+          3.368,
+          3.758
+        ],
+        "db_bytes": [
+          290816,
+          573440,
+          1544192
+        ],
+        "with_context_chars": [
+          747,
+          747,
+          747
+        ],
+        "without_context_chars": [
+          4153,
+          21024,
+          85274
+        ]
+      },
+      "notes": "Latency is the median of 5 build_context calls on the same store; ingest is single-threaded with embeddings disabled. The baseline's context grows with the session because it has no budget.",
+      "wall_ms": 1724.6
+    }
+  ],
+  "aggregate": {
+    "scored_scenarios": 9,
+    "comparable_scenarios": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "with_arm_only_scenarios": [
+      8,
+      9
+    ],
+    "unsupported_baseline_scenarios": [
+      8,
+      9
+    ],
+    "not_scored_scenarios": [
+      10
+    ],
+    "recall_rate": {
+      "scope": "scenarios comparable on both arms",
+      "with_hungry_hippa": 1.0,
+      "without": 0.143
+    },
+    "incorrect_memory_rate": {
+      "scope": "scenarios comparable on both arms",
+      "with_hungry_hippa": 0.0,
+      "without": 0.143
+    },
+    "context_chars_median": {
+      "with_hungry_hippa": 109,
+      "without": 0
+    },
+    "retrieval_latency_ms_median": 0.963,
+    "permission_denial_accuracy": 1.0,
+    "repeat_failed_attempt_rate": {
+      "with_hungry_hippa": 0.0,
+      "without": 1.0
+    },
+    "growth": {
+      "episodes": [
+        100,
+        500,
+        2000
+      ],
+      "db_bytes": [
+        290816,
+        573440,
+        1544192
+      ],
+      "retrieval_latency_ms_median": [
+        3.246,
+        3.368,
+        3.758
+      ]
+    }
+  }
+}

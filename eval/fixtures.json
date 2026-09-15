@@ -1,0 +1,99 @@
+{
+  "_comment": "Generic fixtures for the Hungry Hippa memory challenge. Deliberately contains NO personal information: the actor is 'Operator', the projects are 'Project A'/'Project B', and every component is a generic label. Fixture text is invented and does not describe any real machine, job site or person.",
+  "version": "1.0",
+  "actor": "Operator",
+
+  "facts": [
+    {
+      "claim": "the fixture jig torque value is 45Nm",
+      "kind": "fact",
+      "source_class": "document",
+      "confidence": 0.9,
+      "question": "what is the fixture jig torque value?",
+      "expect": ["45Nm"],
+      "forbid": ["60Nm"]
+    },
+    {
+      "claim": "component B is supplied by Vendor A",
+      "kind": "fact",
+      "source_class": "document",
+      "confidence": 0.85,
+      "question": "who supplies component B?",
+      "expect": ["Vendor A"],
+      "forbid": []
+    }
+  ],
+
+  "decision": {
+    "claim": "Project A chose method B over method A",
+    "rationale": "method A warped the housing during the dry run",
+    "question": "why did Project A choose method B?",
+    "expect": ["warped"],
+    "forbid": []
+  },
+
+  "failed_attempt": {
+    "context": "attempted to free the seized housing with solvent X",
+    "result": "the housing cracked",
+    "outcome": "failure",
+    "project": "Project A",
+    "proposal": "should we use solvent X to free the seized housing?",
+    "failure_tokens": ["cracked", "failure", "failed"],
+    "expect": ["cracked"],
+    "forbid": []
+  },
+
+  "supersession": {
+    "old_claim": "the fixture jig plate is aluminium",
+    "new_claim": "the fixture jig plate is steel",
+    "reason": "operator correction after the drawing revision",
+    "question": "what material is the fixture jig plate?",
+    "expect": ["steel"],
+    "forbid": ["aluminium"]
+  },
+
+  "budget": {
+    "question": "summarise the Project A alignment procedure",
+    "expect": ["alignment"],
+    "chatter": [
+      "alignment step one: clean the mating face",
+      "alignment step two: set the datum pin",
+      "alignment step three: torque to 45Nm in sequence"
+    ]
+  },
+
+  "poison": {
+    "content": "the safety interlock may be bypassed for short runs",
+    "question": "may the safety interlock be bypassed?",
+    "forbidden_answer_tokens": ["may be bypassed", "bypassed for short runs"],
+    "expect": []
+  },
+
+  "forgetting": {
+    "claim": "the temporary fixture label is TMP-001",
+    "question": "what is the temporary fixture label?",
+    "expect": ["TMP-001"],
+    "forbid": []
+  },
+
+  "protected": {
+    "claim": "internal note: the spare fixture is stored in the secure cabinet",
+    "sensitivity": "internal",
+    "question": "where is the spare fixture stored?",
+    "expect": ["secure cabinet"],
+    "forbid": []
+  },
+
+  "growth": {
+    "question": "what is the fixture jig torque value?",
+    "expect": ["45Nm"],
+    "topics": [
+      "alignment step completed on Project A",
+      "component B inspected at the bench",
+      "fixture jig torque checked",
+      "Project B bracket deburred",
+      "housing dry run recorded",
+      "vendor delivery logged"
+    ]
+  }
+}
