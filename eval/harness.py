@@ -846,6 +846,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "git_rev": _git("rev-parse", "HEAD"),
         "git_dirty": bool(_git("status", "--porcelain")),
+        "git_rev_note": (
+            "git_rev is the commit the measurement ran against, recorded from a clean "
+            "tree. This file is normally committed afterwards, so the commit that "
+            "contains it is one commit newer; that commit changes only eval/REPORT.md "
+            "and eval/results.json, so the measured code is exactly git_rev. Check with "
+            "`git show --stat <containing commit>`."
+        ),
         "python": sys.version.split()[0],
         "platform": f"{platform.system()} {platform.release()}",
         "controller": "deterministic Python controller (no LLM judge)",
