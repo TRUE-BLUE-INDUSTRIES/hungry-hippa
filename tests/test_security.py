@@ -346,8 +346,22 @@ def check_secrets_redacted_in_audit_logs():
 def check_repo_contains_no_secrets():
     import subprocess
 
-    tracked = subprocess.run(["git", "ls-files"], cwd=str(PLUGIN_DIR),
-                             capture_output=True, text=True, check=True).stdout.split()
+    # In a checkout, scan exactly what is tracked. Installed as a plugin there is
+    # no git repo, so fall back to walking this directory instead of failing.
+    proc = subprocess.run(["git", "ls-files"], cwd=str(PLUGIN_DIR),
+                          capture_output=True, text=True)
+    if proc.returncode == 0 and proc.stdout.split():
+        tracked = proc.stdout.split()
+        scope = f"{len(tracked)} tracked files"
+    else:
+        skip_dirs = {"__pycache__", ".git", ".demo_db", "node_modules"}
+        tracked = sorted(
+            str(p.relative_to(PLUGIN_DIR))
+            for p in PLUGIN_DIR.rglob("*")
+            if p.is_file()
+            and not any(part in skip_dirs for part in p.parts)
+        )
+        scope = f"{len(tracked)} files in the install (no git checkout)"
     patterns = [
         ("private key", re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----")),
         ("openai-style key", re.compile(r"\bsk-[A-Za-z0-9]{24,}\b")),
@@ -375,7 +389,7 @@ def check_repo_contains_no_secrets():
                 if rx.search(line):
                     hits.append(f"{rel}:{lineno} {name}")
     assert not hits, hits
-    return f"scanned {len(tracked)} tracked files: no credential-shaped strings"
+    return f"scanned {scope}: no credential-shaped strings"
 
 
 def check_sensitivity_not_an_encryption_claim():
