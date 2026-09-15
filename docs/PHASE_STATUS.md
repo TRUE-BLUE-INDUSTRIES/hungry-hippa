@@ -118,3 +118,84 @@ sensitivity-based encryption, and sensitivity is a read-policy label only.
 
 
 ---
+
+## Phase 4 — local MCP stdio server
+
+Objective: expose the same controller over local MCP stdio so other local clients can
+use Hungry Hippa, without adding a network listener, arbitrary SQL, filesystem access
+or raw database export.
+
+Files in scope: `mcp_server.py` (new), `tests/test_mcp_schema.py` (new), `docs/MCP.md`
+(new). Read-only touch: none — the Hermes `cortex` tool and provider are unchanged.
+
+Validation commands:
+
+```
+python tests/test_acceptance.py
+python tests/test_migration.py
+python tests/test_memory_architecture.py
+python tests/test_mcp_schema.py
+python mcp_server.py --print-schemas      # human/tooling inspection
+```
+
+Expected evidence: the six `hippa_*` tools exist with strict JSON schemas; `export` is
+absent; a remember→recall roundtrip works in-process on a throwaway DB; an untrusted
+actor cannot recall another actor's quarantined row; purge over MCP is denied without an
+explicit confirmation flag and an owner actor; no tool takes a path/db argument.
+
+Rollback: delete `mcp_server.py`, `tests/test_mcp_schema.py`, `docs/MCP.md`. Nothing
+else imports them, so the Hermes path is unaffected.
+
+Status: see the "Phase 4 results" section at the bottom.
+
+---
+
+## Phase 4 results — COMMIT `feat: add local stdio MCP server for Hungry Hippa`
+
+Files: `mcp_server.py` (new, ~600 lines), `tests/test_mcp_schema.py` (new, 11 checks),
+`docs/MCP.md` (new). No existing file was modified, so the Hermes provider, the
+`cortex` tool and T10 are untouched by this phase.
+
+What was implemented:
+
+- `mcp_server.py`: newline-delimited JSON-RPC 2.0 over **stdio only**. Answers
+  `initialize`, `notifications/initialized`, `ping`, `tools/list`, `tools/call`, the
+  protocol's `shutdown` method; unknown methods get `-32601`, malformed JSON gets
+  `-32700`, unknown tools get a normal `isError` tool result. Logging goes to stderr
+  because stdout is the protocol channel. No socket, HTTP, asyncio or third-party
+  import (asserted by an AST import check in the test file).
+- Six tools with strict schemas (`additionalProperties: false`, explicit `required`,
+  enums, numeric bounds, string/array length caps): `hippa_remember`, `hippa_recall`,
+  `hippa_build_context`, `hippa_record_outcome`, `hippa_forget`, `hippa_status`.
+  No `export`, no SQL, no path/database argument on any tool.
+- Caller identity: `actor_id` on every tool, defaulting to `mcp-untrusted`. Untrusted
+  writes are stored quarantined; untrusted reads see only their own unclassified,
+  non-quarantined rows; purge requires `confirmation: true` **and** an owner actor and
+  is otherwise denied. `hippa_status` hides the database path from untrusted callers.
+- Handlers and the validator are importable in-process, so the tests drive real tool
+  calls, real validation and a real stdio round trip without spawning a subprocess.
+
+Verification beyond the test file (manual, this working tree):
+
+- `python mcp_server.py --print-schemas` → prints the six tools as JSON.
+- `python mcp_server.py` was piped an `initialize` / `tools/list` / three `tools/call`
+  sequence against `HUNGRY_HIPPA_DB=/tmp/...` and returned correct results, including
+  an untrusted caller being excluded with reason `other-actor`.
+- `python -m mcp_server` works from the plugin directory.
+
+Actual test results (run 2026-09-15, this working tree):
+
+```
+python tests/test_acceptance.py            -> 10/10 passed
+python tests/test_migration.py             ->  6/6 passed
+python tests/test_memory_architecture.py   ->  8/8 passed
+python tests/test_mcp_schema.py            -> 11/11 passed
+```
+
+Not done in this phase: no external MCP client has been run against this server. The
+Grok CLI `[mcp_servers.*]` snippet in `docs/MCP.md` is illustrative and marked
+untested; its schema was copied from the Grok user guide installed on this machine.
+No Unix socket, no loopback HTTP, no OAuth, no remote transport.
+
+---
+
