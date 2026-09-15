@@ -1,9 +1,9 @@
 {
   "harness": "hungry-hippa-memory-challenge",
   "harness_version": "1.0",
-  "generated_at": "2026-09-15T14:16:14Z",
-  "git_rev": "b0c8a7f47381e1b5dc545558859b6f6840c85bcd",
-  "git_dirty": true,
+  "generated_at": "2026-09-15T14:23:28Z",
+  "git_rev": "e1fea4eaaafc823337f3c2071bfb3693eb154748",
+  "git_dirty": false,
   "git_rev_note": "git_rev is the commit the measurement ran against, recorded from a clean tree. This file is normally committed afterwards, so the commit that contains it is one commit newer; that commit changes only eval/REPORT.md and eval/results.json, so the measured code is exactly git_rev. Check with `git show --stat <containing commit>`.",
   "python": "3.14.7",
   "platform": "Linux 7.1.9-arch1-2",
@@ -11,7 +11,7 @@
   "embedding": "disabled (offline, repeatable)",
   "baseline": "session-transcript-only agent (no memory runtime)",
   "fixtures": "eval/fixtures.json",
-  "wall_ms": 1901.0,
+  "wall_ms": 2335.2,
   "unsupported": [
     {
       "metric": "natural-language answer quality",
@@ -48,7 +48,7 @@
         "context_token_estimate": 72,
         "items": 1,
         "excluded": 0,
-        "latency_ms": 2.037,
+        "latency_ms": 2.077,
         "budget_chars": 1500,
         "answered": true,
         "answer": "45Nm",
@@ -71,7 +71,7 @@
       },
       "metrics": {},
       "notes": "Same deterministic reader; the only difference is that the with-arm reopens the store in a new session.",
-      "wall_ms": 6.0
+      "wall_ms": 6.2
     },
     {
       "id": 2,
@@ -82,7 +82,7 @@
         "context_token_estimate": 122,
         "items": 2,
         "excluded": 0,
-        "latency_ms": 1.244,
+        "latency_ms": 1.235,
         "budget_chars": 1500,
         "answered": true,
         "answer": "warped",
@@ -105,7 +105,7 @@
       },
       "metrics": {},
       "notes": "Measures whether the rationale, not just the decision, comes back.",
-      "wall_ms": 5.5
+      "wall_ms": 5.8
     },
     {
       "id": 3,
@@ -116,7 +116,7 @@
         "context_token_estimate": 96,
         "items": 1,
         "excluded": 0,
-        "latency_ms": 1.029,
+        "latency_ms": 1.063,
         "budget_chars": 1500,
         "answered": true,
         "answer": "cracked",
@@ -143,7 +143,7 @@
       },
       "metrics": {},
       "notes": "'repeated_failed_attempt' is derived: the prior failure is absent from the context, so the agent has nothing to stop it.",
-      "wall_ms": 4.5
+      "wall_ms": 4.8
     },
     {
       "id": 4,
@@ -154,7 +154,7 @@
         "context_token_estimate": 81,
         "items": 1,
         "excluded": 0,
-        "latency_ms": 0.997,
+        "latency_ms": 1.039,
         "budget_chars": 1500,
         "answered": true,
         "answer": "steel",
@@ -179,7 +179,7 @@
       },
       "metrics": {},
       "notes": "The baseline holds both statements and no supersession state, so the stale token remains in its context.",
-      "wall_ms": 5.6
+      "wall_ms": 6.0
     },
     {
       "id": 5,
@@ -190,7 +190,7 @@
         "context_token_estimate": 86,
         "items": 1,
         "excluded": 5,
-        "latency_ms": 2.827,
+        "latency_ms": 3.23,
         "budget_chars": 400,
         "answered": true,
         "answer": "alignment",
@@ -217,7 +217,7 @@
         "budget_chars": 400
       },
       "notes": "The baseline has no budget mechanism, so it supplies the whole session transcript; the with-arm is capped by the compiler.",
-      "wall_ms": 34.3
+      "wall_ms": 43.7
     },
     {
       "id": 6,
@@ -228,7 +228,7 @@
         "context_token_estimate": 71,
         "items": 1,
         "excluded": 0,
-        "latency_ms": 0.819,
+        "latency_ms": 0.835,
         "budget_chars": 1500,
         "answered": true,
         "answer": "Vendor A",
@@ -253,7 +253,7 @@
         "separate_controller_instances": 2
       },
       "notes": "Two independent MemoryController instances on the same SQLite file, i.e. two client processes. Cross-agent sharing for the owner actor only; see scenario 9 for the untrusted case.",
-      "wall_ms": 4.3
+      "wall_ms": 4.8
     },
     {
       "id": 7,
@@ -269,7 +269,7 @@
         "context_chars": 0,
         "items": 0,
         "excluded": 0,
-        "latency_ms": 0.734,
+        "latency_ms": 0.773,
         "before_context_chars": 297
       },
       "without": {
@@ -286,7 +286,7 @@
       },
       "metrics": {},
       "notes": "Archival is reversible: the row survives with status 'archived'. The baseline has no forgetting operation, so in-context text simply stays \u2014 'correct' is false because the operator's intent cannot be carried out.",
-      "wall_ms": 5.6
+      "wall_ms": 6.0
     },
     {
       "id": 8,
@@ -297,7 +297,7 @@
         "context_token_estimate": 0,
         "items": 0,
         "excluded": 0,
-        "latency_ms": 0.785,
+        "latency_ms": 0.787,
         "budget_chars": 1500,
         "poison_leaked": false,
         "correct": true,
@@ -313,7 +313,7 @@
         "write_quarantined": true
       },
       "notes": "An untrusted actor's write is quarantined and never reaches the owner's context. The baseline arm is marked unsupported rather than scored zero.",
-      "wall_ms": 4.2
+      "wall_ms": 4.4
     },
     {
       "id": 9,
@@ -325,7 +325,7 @@
           "context_token_estimate": 0,
           "items": 0,
           "excluded": 0,
-          "latency_ms": 0.785,
+          "latency_ms": 0.894,
           "budget_chars": 1500,
           "answered": false,
           "answer": "",
@@ -354,7 +354,7 @@
         "context_chars": 0,
         "items": 0,
         "excluded": 0,
-        "latency_ms": 0.785
+        "latency_ms": 0.894
       },
       "without": {
         "supported": false,
@@ -366,7 +366,7 @@
         "owner_read_accuracy": 1.0
       },
       "notes": "Sensitivity is a read-policy label, not encryption.",
-      "wall_ms": 5.0
+      "wall_ms": 5.5
     },
     {
       "id": 10,
@@ -375,12 +375,12 @@
       "points": [
         {
           "episodes": 100,
-          "db_bytes": 303104,
-          "bytes_per_episode": 3031.0,
-          "ingest_ms_total": 65.9,
-          "ingest_ms_per_episode": 0.659,
-          "retrieval_latency_ms_median": 3.468,
-          "retrieval_latency_ms_p95": 3.527,
+          "db_bytes": 311296,
+          "bytes_per_episode": 3113.0,
+          "ingest_ms_total": 83.1,
+          "ingest_ms_per_episode": 0.831,
+          "retrieval_latency_ms_median": 3.539,
+          "retrieval_latency_ms_p95": 3.559,
           "with_context_chars": 1112,
           "without_context_chars": 4153,
           "with": {
@@ -388,7 +388,7 @@
             "context_token_estimate": 278,
             "items": 6,
             "excluded": 0,
-            "latency_ms": 3.46,
+            "latency_ms": 3.547,
             "budget_chars": 1500,
             "answered": false,
             "answer": "",
@@ -412,12 +412,12 @@
         },
         {
           "episodes": 500,
-          "db_bytes": 606208,
-          "bytes_per_episode": 1212.4,
-          "ingest_ms_total": 334.2,
-          "ingest_ms_per_episode": 0.668,
-          "retrieval_latency_ms_median": 3.617,
-          "retrieval_latency_ms_p95": 3.626,
+          "db_bytes": 614400,
+          "bytes_per_episode": 1228.8,
+          "ingest_ms_total": 415.3,
+          "ingest_ms_per_episode": 0.831,
+          "retrieval_latency_ms_median": 3.704,
+          "retrieval_latency_ms_p95": 3.753,
           "with_context_chars": 1112,
           "without_context_chars": 21024,
           "with": {
@@ -425,7 +425,7 @@
             "context_token_estimate": 278,
             "items": 6,
             "excluded": 0,
-            "latency_ms": 3.611,
+            "latency_ms": 3.683,
             "budget_chars": 1500,
             "answered": false,
             "answer": "",
@@ -449,12 +449,12 @@
         },
         {
           "episodes": 2000,
-          "db_bytes": 1662976,
-          "bytes_per_episode": 831.5,
-          "ingest_ms_total": 1347.9,
-          "ingest_ms_per_episode": 0.674,
-          "retrieval_latency_ms_median": 3.993,
-          "retrieval_latency_ms_p95": 4.05,
+          "db_bytes": 1671168,
+          "bytes_per_episode": 835.6,
+          "ingest_ms_total": 1670.3,
+          "ingest_ms_per_episode": 0.835,
+          "retrieval_latency_ms_median": 3.996,
+          "retrieval_latency_ms_p95": 4.079,
           "with_context_chars": 1112,
           "without_context_chars": 85274,
           "with": {
@@ -462,7 +462,7 @@
             "context_token_estimate": 278,
             "items": 6,
             "excluded": 0,
-            "latency_ms": 4.018,
+            "latency_ms": 3.944,
             "budget_chars": 1500,
             "answered": false,
             "answer": "",
@@ -492,14 +492,14 @@
           2000
         ],
         "retrieval_latency_ms_median": [
-          3.468,
-          3.617,
-          3.993
+          3.539,
+          3.704,
+          3.996
         ],
         "db_bytes": [
-          303104,
-          606208,
-          1662976
+          311296,
+          614400,
+          1671168
         ],
         "with_context_chars": [
           1112,
@@ -513,7 +513,7 @@
         ]
       },
       "notes": "Latency is the median of 5 build_context calls on the same store; ingest is single-threaded with embeddings disabled. The baseline's context grows with the session because it has no budget.",
-      "wall_ms": 1824.0
+      "wall_ms": 2246.1
     }
   ],
   "aggregate": {
@@ -552,7 +552,7 @@
       "with_hungry_hippa": 323,
       "without": 0
     },
-    "retrieval_latency_ms_median": 1.029,
+    "retrieval_latency_ms_median": 1.063,
     "permission_denial_accuracy": 1.0,
     "repeat_failed_attempt_rate": {
       "with_hungry_hippa": 0.0,
@@ -565,14 +565,14 @@
         2000
       ],
       "db_bytes": [
-        303104,
-        606208,
-        1662976
+        311296,
+        614400,
+        1671168
       ],
       "retrieval_latency_ms_median": [
-        3.468,
-        3.617,
-        3.993
+        3.539,
+        3.704,
+        3.996
       ]
     }
   }
