@@ -9,6 +9,7 @@ full export.
 from __future__ import annotations
 
 import json
+import os
 from typing import Any, Dict, List, Optional
 
 from . import db as _db
@@ -151,7 +152,17 @@ class Observability:
 
         data = self.db._run(_q) or {}
         try:
-            with open(path, "w", encoding="utf-8") as f:
+            # Exports contain every memory row: create them owner-only, like the
+            # database itself. (Plaintext either way — see docs/SECURITY.md.)
+            parent = os.path.dirname(os.path.abspath(path))
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+            fd = os.open(path, os.O_CREAT | os.O_TRUNC | os.O_WRONLY, 0o600)
+            try:
+                os.chmod(path, 0o600)
+            except OSError:
+                pass
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2, default=str)
             return {"exported": path, "tables": {k: len(v) for k, v in data.items()}}
         except Exception as e:

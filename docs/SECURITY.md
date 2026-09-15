@@ -125,10 +125,38 @@ identify or authorize callers.
   always writes a `*.pre-migration-<UTC>.bak` copy first — including the implicit
   upgrade performed by an ordinary open (status, plugin start, MCP server startup),
   not just `hermes living-cortex migrate`. Brand-new databases and already-current
-  databases are not backed up. The copy is created with the source database's own
-  permission bits (a `0600` database yields a `0600` backup), so the backup is never
-  readable by other local users when the database is not. Rotating or pruning old
-  backups is not implemented.
+  databases are not backed up. Rotating or pruning old backups is not implemented.
+
+### Files on disk
+
+Memory is stored in plaintext SQLite. What the runtime does about that, and what
+it does not:
+
+| Path | Mode | Notes |
+|---|---|---|
+| new database | `0600` | created owner-only |
+| pre-migration backup (`*.pre-migration-<UTC>.bak`) | `0600` at most | never inherits a world-readable source mode |
+| migration backup from `hermes living-cortex migrate` (`*.pre-hippa-<UTC>.bak`) | same rule | |
+| export (`hermes living-cortex export`, the `cortex` export action) | `0600` | a full dump, so it gets the same treatment |
+| owner token | `0600` | created owner-only |
+
+**An existing lax file is reported, never silently changed.** `hermes
+living-cortex status` (and `Database.file_permissions()`) expose `mode` and
+`lax`, and the log carries a warning naming the command that fixes it:
+
+```bash
+hermes living-cortex fix-permissions   # 0600 on the db, its -wal/-shm, and its *.bak
+```
+
+This is **not encryption** and is not described as such: the file stays
+plaintext, and any process running as the operator can read it. Permissions only
+stop *other local users* from reading the operator's memory. Encryption at rest
+is the operating system's job (full-disk or home-directory encryption).
+
+Platform note: POSIX permission bits are Unix-only. On Windows the mode is not
+meaningful, so the runtime skips the check rather than claiming a protection it
+cannot provide; use account separation and file ACLs there. Backups are never
+pruned automatically, so an old copy of a memory can outlive its deletion.
 
 ### Quarantine
 

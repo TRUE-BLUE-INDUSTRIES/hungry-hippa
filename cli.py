@@ -11,6 +11,7 @@ changed | forgotten | export | selftest | migrate
 from __future__ import annotations
 
 import json
+import os
 import sys
 from typing import Any, Dict
 
@@ -41,6 +42,8 @@ def living_cortex_command(args) -> None:
         return _cmd_migrate(args)
     if sub == "owner-token":
         return _cmd_owner_token(args)
+    if sub == "fix-permissions":
+        return _cmd_fix_permissions(args)
     c = _controller()
     obs = Observability(c.db, c.cfg, controller=c)
     if sub == "status":
@@ -164,6 +167,50 @@ def _cmd_owner_token(args) -> None:
     _print_json(report)
 
 
+def _cmd_fix_permissions(args) -> None:
+    """Set 0600 on the database, its sidecars and its backups.
+
+    An explicit operator action: the runtime reports lax permissions but never
+    changes an existing file behind the operator's back. This is a permission,
+    not encryption — the file stays plaintext.
+    """
+    import stat
+
+    path = getattr(args, "db", "") or resolve_db_path(load_config())
+    targets = [path, path + "-wal", path + "-shm"]
+    parent = os.path.dirname(os.path.abspath(path))
+    if os.path.isdir(parent):
+        base = os.path.basename(path)
+        targets += [os.path.join(parent, n) for n in sorted(os.listdir(parent))
+                    if n.startswith(base) and n.endswith(".bak")]
+    changed, already, missing, failed = [], [], [], []
+    for target in targets:
+        try:
+            mode = stat.S_IMODE(os.stat(target).st_mode)
+        except OSError:
+            missing.append(target)
+            continue
+        if not (mode & 0o077):
+            already.append(f"{target} ({oct(mode)})")
+            continue
+        try:
+            os.chmod(target, mode & ~0o077)
+            changed.append(f"{target} {oct(mode)} -> {oct(mode & ~0o077)}")
+        except OSError as e:
+            failed.append(f"{target}: {e}")
+    _print_json({
+        "database": path,
+        "tightened": changed,
+        "already_restrictive": already,
+        "absent": missing,
+        "failed": failed,
+        "note": ("permissions are not encryption; the files remain plaintext. "
+                 "Backups are only tightened here when you ask."),
+    })
+    if failed:
+        sys.exit(1)
+
+
 def register_cli(subparser) -> None:
     """Build the ``hermes living-cortex`` argparse tree.
 
@@ -182,6 +229,11 @@ def register_cli(subparser) -> None:
     )
     otok.add_argument("--print", dest="print_token", action="store_true",
                       help="Also print the token value (it is a secret: shell history!)")
+    fix = subs.add_parser(
+        "fix-permissions",
+        help="Set 0600 on the database, its WAL/SHM sidecars and its backups",
+    )
+    fix.add_argument("--db", default="", help="Database path (default: resolved config path)")
     mig = subs.add_parser(
         "migrate",
         help="Backup an existing Living Cortex DB and apply Hungry Hippa migrations",

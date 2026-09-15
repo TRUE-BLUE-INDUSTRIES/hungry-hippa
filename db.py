@@ -62,10 +62,63 @@ class Database:
         self.path = path
         self.failures = 0
         self.last_backup: Optional[str] = None
+        self.permissions_lax = False
+        self.permissions_warning = ""
         self._lock = threading.Lock()
+        self._secure_new_file()
         self._ensure_schema()
 
     # ------------------------------------------------------------- infra
+
+    def _secure_new_file(self) -> None:
+        """Create a new database 0600, and warn about an existing lax one.
+
+        This is a permission, not encryption: the file is still plaintext, and a
+        process running as this user can read it. It only stops *other* local
+        users from reading the operator's memory. No-op on platforms without
+        POSIX permission bits.
+        """
+        try:
+            if not os.path.exists(self.path):
+                parent = os.path.dirname(os.path.abspath(self.path))
+                if parent:
+                    os.makedirs(parent, exist_ok=True)
+                fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+                os.close(fd)
+                return
+            mode = stat.S_IMODE(os.stat(self.path).st_mode)
+            if mode & 0o077:
+                self.permissions_lax = True
+                self.permissions_warning = (
+                    f"{self.path} is mode {oct(mode)}: other local users can read the "
+                    "plaintext memory database. Run `hermes living-cortex "
+                    "fix-permissions` to set 0600.")
+                logger.warning(self.permissions_warning)
+        except (OSError, AttributeError, NotImplementedError):
+            # Windows and other platforms without POSIX bits: nothing to do.
+            return
+
+    def file_permissions(self) -> Dict[str, Any]:
+        """Permission state of the database and its sidecars (not encryption).
+
+        ``lax`` means at least one file is readable by other local users. The
+        runtime never silently changes an existing file's mode; it reports, and
+        ``hermes living-cortex fix-permissions`` is the explicit remediation.
+        """
+        files: Dict[str, Optional[str]] = {}
+        lax = False
+        for suffix in ("", "-wal", "-shm"):
+            target = self.path + suffix
+            try:
+                mode = stat.S_IMODE(os.stat(target).st_mode)
+            except OSError:
+                continue
+            files[suffix or "db"] = oct(mode)
+            if mode & 0o077:
+                lax = True
+        return {"mode": files.get("db"), "files": files, "lax": lax,
+                "warning": self.permissions_warning,
+                "note": "permissions are not encryption; the file is plaintext"}
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.path, timeout=30.0)
@@ -352,6 +405,7 @@ class Database:
                 "path": self.path,
                 "counts": counts,
                 "failures": self.failures,
+                "permissions": self.file_permissions(),
             }
 
         return self._run(_h) or {"path": self.path, "counts": {}, "failures": self.failures}
@@ -371,7 +425,11 @@ def backup_sqlite(src: str, dest: str) -> None:
         mode = stat.S_IMODE(os.stat(src).st_mode)
     except OSError:
         mode = 0o600
-    mode &= 0o777
+    # The copy is never wider than 0600 and never wider than its source: a
+    # world-readable source (or a lax umask) must not produce a world-readable
+    # backup of the operator's memory. Permissions are not encryption — see
+    # docs/SECURITY.md.
+    mode = (mode & 0o600) or 0o600
     # create the destination ourselves so the file never exists with looser bits,
     # even briefly, and let sqlite write into it
     try:
