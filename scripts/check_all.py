@@ -44,6 +44,16 @@ STEPS: Sequence[Tuple[str, List[str]]] = (
 )
 
 
+def orphan_suites() -> List[str]:
+    """Test files that exist but no step runs.
+
+    A suite left out of the runner is worse than no suite: it rots, then fails
+    loudly for the next person, or passes while testing a deleted implementation.
+    """
+    wired = " ".join(" ".join(cmd) for _, cmd in STEPS)
+    return sorted(f.name for f in (REPO / "tests").glob("test_*.py") if f.name not in wired)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--quiet", action="store_true",
@@ -54,6 +64,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     env.setdefault("PYTHONUNBUFFERED", "1")
 
     failures: List[str] = []
+    orphans = orphan_suites()
+    print(f"\n=== test inventory: {len(STEPS)} steps ===", flush=True)
+    if orphans:
+        print(f"FAIL  orphan test files (add them to STEPS): {', '.join(orphans)}")
+        failures.append("test inventory")
+    else:
+        print("PASS  every tests/test_*.py is run by a step")
+
     for label, cmd in STEPS:
         argv_cmd = [sys.executable] + list(cmd[1:]) if cmd[:1] == ["python"] else list(cmd)
         print(f"\n=== {label}: {' '.join(cmd)} ===", flush=True)
