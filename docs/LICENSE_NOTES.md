@@ -12,13 +12,14 @@ which parts of the repository are covered by what.
 `os`, `sys`, `re`, `math`, `time`, `threading`, `logging`, `hashlib`, `argparse`,
 `importlib`, `io`, `struct`, `subprocess`, `tempfile`, `shutil`, `platform`, `statistics`,
 `datetime`, `pathlib`, `typing`, `warnings`, `difflib`, `types`, `ast`, `urllib` and
-`__future__`. There is no `requirements.txt`, `pyproject.toml` or vendored code, because
-there is nothing to install.
+`__future__`, plus the official Model Context Protocol SDK, which is the one runtime
+dependency and is declared in `pyproject.toml`.
 
-Three module names in that list are **host-provided optional imports**, guarded by
-`try/except` and never required: `agent.memory_provider` (Hermes' provider interface),
-`hermes_cli.config` and `hermes_constants` (Hermes' config/home helpers). Standalone use
-falls back to built-in defaults, which is how the tests run.
+Hungry Hippa imports nothing from any host application: it owns its own
+configuration (`$XDG_CONFIG_HOME/hungry-hippa/config.json`), data
+(`$XDG_DATA_HOME/hungry-hippa/`) and state (`$XDG_STATE_HOME/hungry-hippa/`)
+locations. The MCP surface is built on the official SDK; the in-process adapter is
+plain library code for whatever host wants it.
 
 `urllib` is used only for the optional local Ollama embedding request to
 `http://127.0.0.1:11434`. It is stdlib, not a dependency, and it is not called when

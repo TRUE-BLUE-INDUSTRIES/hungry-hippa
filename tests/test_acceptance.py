@@ -1,6 +1,6 @@
 """Living Cortex acceptance tests (§23, adapted).
 
-Runs standalone: registers the plugin dir as the ``livingcortex`` package so
+Runs standalone: registers the plugin dir as the ``hungry_hippa`` package so
 it can be imported without the Hermes runtime. Each test maps to the spec:
 
   T1 episode creation          T6 procedural learning
@@ -29,20 +29,20 @@ def _import_plugin():
     like the real Hermes loader's synthetic package does."""
     import importlib.util
 
-    if sys.modules.get("livingcortex") is not None and \
-            getattr(sys.modules["livingcortex"], "__file__", None):
-        return sys.modules["livingcortex"]
+    if sys.modules.get("hungry_hippa") is not None and \
+            getattr(sys.modules["hungry_hippa"], "__file__", None):
+        return sys.modules["hungry_hippa"]
 
-    pkg = types.ModuleType("livingcortex")
+    pkg = types.ModuleType("hungry_hippa")
     pkg.__path__ = [str(PLUGIN_DIR)]
     pkg.__file__ = str(PLUGIN_DIR / "__init__.py")
-    sys.modules["livingcortex"] = pkg
+    sys.modules["hungry_hippa"] = pkg
 
     spec = importlib.util.spec_from_file_location(
-        "livingcortex", str(PLUGIN_DIR / "__init__.py"),
+        "hungry_hippa", str(PLUGIN_DIR / "__init__.py"),
         submodule_search_locations=[str(PLUGIN_DIR)])
     mod = importlib.util.module_from_spec(spec)
-    sys.modules["livingcortex"] = mod
+    sys.modules["hungry_hippa"] = mod
     spec.loader.exec_module(mod)
     return mod
 
@@ -58,8 +58,8 @@ def _config_with_vision(cfg: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def run_all(db_path: str, embed_enabled: bool = False) -> List[Dict[str, Any]]:
-    from livingcortex.config import load_config
-    from livingcortex.controller import MemoryController
+    from hungry_hippa.config import load_config
+    from hungry_hippa.controller import MemoryController
 
     cfg = load_config()
     cfg["retrieval"]["vectors_enabled"] = bool(embed_enabled)
@@ -102,8 +102,8 @@ def run_all(db_path: str, embed_enabled: bool = False) -> List[Dict[str, Any]]:
 
     # ------------------------------------------------------- T2 visual
     def t2():
-        from livingcortex.observability import Observability
-        from livingcortex.vision import VisualEventMemory
+        from hungry_hippa.observability import Observability
+        from hungry_hippa.vision import VisualEventMemory
         cfg2 = _config_with_vision(cfg)
         c2 = MemoryController(cfg2, db_path=db_path)
         c2.bind_session(session_id="glasses-session")
@@ -158,7 +158,7 @@ def run_all(db_path: str, embed_enabled: bool = False) -> List[Dict[str, Any]]:
         a = c.semantic.add_belief("Printer A prints PLA best at 215C", kind="belief",
                                   confidence=0.9, source_class="tool_result")
         b = c.semantic.contradict(a["belief_id"], "Printer A prints PLA best at 230C",
-                                  confidence=0.6, source_class="hermes_inference")
+                                  confidence=0.6, source_class="agent_inference")
         winner = c.semantic.get_belief(a["belief_id"])
         loser = c.semantic.get_belief(b["belief_id"])
         assert winner["status"] == "active" and loser["status"] == "contradicted"
@@ -201,7 +201,7 @@ def run_all(db_path: str, embed_enabled: bool = False) -> List[Dict[str, Any]]:
                                   kind="procedural_belief", confidence=0.8,
                                   source_class="tool_result",
                                   evidence_ids=[ev])
-        from livingcortex.observability import Observability
+        from hungry_hippa.observability import Observability
         obs = Observability(c.db, cfg, controller=c)
         trace = obs.why(b["belief_id"])
         assert trace["evidence"], trace
@@ -241,7 +241,7 @@ def run_all(db_path: str, embed_enabled: bool = False) -> List[Dict[str, Any]]:
                                    kind="fact", confidence=0.8, source_class="document",
                                    evidence_ids=[ev_before])
         b2 = c.semantic.add_belief("Printer A nozzle 0.4mm is good for PLA",
-                                   kind="fact", confidence=0.5, source_class="hermes_inference")
+                                   kind="fact", confidence=0.5, source_class="agent_inference")
         report = c.consolidate(reason="test-t9")
         b2_after = c.semantic.get_belief(b2["belief_id"])
         b1_after = c.semantic.get_belief(b1["belief_id"])

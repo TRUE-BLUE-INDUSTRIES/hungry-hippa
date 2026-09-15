@@ -8,7 +8,7 @@ Run it:
     python demo/demo.py --check     # play it and diff against expected_output.txt
     python demo/demo.py --tmp       # use a fresh temp database instead of demo/.demo_db
 
-The demo never opens ``$HERMES_HOME/living_cortex.db``. The database it uses is a
+The demo never opens the operator's own database. The database it uses is a
 throwaway under ``demo/.demo_db`` (or a temp dir with ``--tmp``).
 
 Every step prints what it is doing, so the transcript doubles as the
@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import asyncio
 import json
 import os
 import re
@@ -49,19 +50,19 @@ CLEANUP_RE = re.compile(
 
 
 def _load_plugin():
-    if sys.modules.get("livingcortex") is not None and getattr(
-        sys.modules["livingcortex"], "__file__", None
+    if sys.modules.get("hungry_hippa") is not None and getattr(
+        sys.modules["hungry_hippa"], "__file__", None
     ):
-        return sys.modules["livingcortex"]
-    pkg = types.ModuleType("livingcortex")
+        return sys.modules["hungry_hippa"]
+    pkg = types.ModuleType("hungry_hippa")
     pkg.__path__ = [str(PLUGIN_DIR)]
     pkg.__file__ = str(PLUGIN_DIR / "__init__.py")
-    sys.modules["livingcortex"] = pkg
+    sys.modules["hungry_hippa"] = pkg
     spec = importlib.util.spec_from_file_location(
-        "livingcortex", str(PLUGIN_DIR / "__init__.py"),
+        "hungry_hippa", str(PLUGIN_DIR / "__init__.py"),
         submodule_search_locations=[str(PLUGIN_DIR)])
     mod = importlib.util.module_from_spec(spec)
-    sys.modules["livingcortex"] = mod
+    sys.modules["hungry_hippa"] = mod
     spec.loader.exec_module(mod)
     return mod
 
@@ -102,23 +103,23 @@ def demo_db_path(use_tmp: bool) -> str:
     return str(DEFAULT_DB_DIR / "hungry_hippa.db")
 
 
-def demo_owner_token(db_path: str) -> str:
-    """A demo-scoped owner token, never the operator's real one.
+def demo_owner_token(db_path: str):
+    """A demo-scoped owner token file and value, never the operator's real one.
 
-    The demo shows the identity boundary honestly: the owner client presents a
-    token that an untrusted client cannot read, instead of typing actor_id
-    "primary" and being believed.
+    The demo shows the identity boundary honestly: the owner instance is a server
+    *launched with* a token that only the operator's user could read, instead of a
+    client typing actor_id "primary" and being believed. Returns
+    ``(token_file, token)``.
     """
-    from livingcortex import trust
+    from hungry_hippa import trust
 
     path = os.path.join(os.path.dirname(os.path.abspath(db_path)), "owner.token")
-    os.environ["HUNGRY_HIPPA_OWNER_TOKEN_FILE"] = path
-    return trust.ensure_owner_token(path)
+    return path, trust.ensure_owner_token(path)
 
 
 def fresh_controller(db_path: str, session_id: str, actor: str = "primary"):
-    from livingcortex.config import load_config
-    from livingcortex.controller import MemoryController
+    from hungry_hippa.config import load_config
+    from hungry_hippa.controller import MemoryController
 
     cfg = load_config()
     cfg["retrieval"]["vectors_enabled"] = False          # offline, deterministic
@@ -159,48 +160,49 @@ def reset_database(db_path: str) -> Dict[str, Any]:
 
 # ------------------------------------------------------------ MCP client
 
-class McpClient:
-    """A second, independent agent process talking MCP stdio to the same store."""
+def mcp_calls(db_path: str, calls, *, token_file: str = "", token: str = ""):
+    """Talk to a Hungry Hippa MCP server with the *official* MCP SDK client.
 
-    def __init__(self, db_path: str) -> None:
-        env = dict(os.environ)
-        env["HUNGRY_HIPPA_DB"] = db_path
-        env.pop("LIVING_CORTEX_DB", None)
-        self.proc = subprocess.Popen(
-            [sys.executable, str(PLUGIN_DIR / "mcp_server.py")],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            text=True, env=env, cwd=str(PLUGIN_DIR))
-        self._next_id = 0
-        self.request("initialize", {"protocolVersion": "2024-11-05",
-                                    "capabilities": {}})
+    Each call starts a fresh server process over the SDK's stdio transport and
+    initialises a session — nothing here re-implements JSON-RPC. Identity is a
+    property of the *server launch context*: ``token`` is placed in the server's
+    environment, and the server verifies it against the token file before it will
+    act as the owner. An untrusted instance is the same server started without it.
+    """
+    from mcp import ClientSession
+    from mcp.client.stdio import StdioServerParameters, stdio_client
 
-    def request(self, method: str, params: Optional[Dict[str, Any]] = None) -> Dict:
-        assert self.proc.stdin and self.proc.stdout
-        self._next_id += 1
-        msg = {"jsonrpc": "2.0", "id": self._next_id, "method": method}
-        if params is not None:
-            msg["params"] = params
-        self.proc.stdin.write(json.dumps(msg) + "\n")
-        self.proc.stdin.flush()
-        line = self.proc.stdout.readline()
-        if not line:
-            err = (self.proc.stderr.read() if self.proc.stderr else "")[:400]
-            raise RuntimeError(f"MCP server closed the pipe: {err}")
-        return json.loads(line)
+    env = dict(os.environ)
+    env["HUNGRY_HIPPA_DB"] = db_path
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env.pop("LIVING_CORTEX_DB", None)
+    env.pop("HUNGRY_HIPPA_OWNER_TOKEN", None)
+    if token_file:
+        env["HUNGRY_HIPPA_OWNER_TOKEN_FILE"] = token_file
+    if token:
+        env["HUNGRY_HIPPA_OWNER_TOKEN"] = token
 
-    def call_tool(self, name: str, arguments: Dict[str, Any]) -> Dict:
-        response = self.request("tools/call", {"name": name, "arguments": arguments})
-        if "error" in response:
-            return {"ok": False, "error": response["error"]}
-        return json.loads(response["result"]["content"][0]["text"])
+    params = StdioServerParameters(
+        command=sys.executable, args=[str(PLUGIN_DIR / "mcp_server.py")],
+        env=env, cwd=str(PLUGIN_DIR))
 
-    def close(self) -> None:
-        try:
-            if self.proc.stdin:
-                self.proc.stdin.close()
-            self.proc.wait(timeout=10)
-        except Exception:
-            self.proc.kill()
+    async def _run():
+        out = []
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                for name, args in calls:
+                    result = await session.call_tool(name, args or {})
+                    text = "".join(getattr(b, "text", "") or ""
+                                   for b in getattr(result, "content", []) or [])
+                    try:
+                        out.append(json.loads(text) if text else {})
+                    except json.JSONDecodeError:
+                        out.append({"_raw": text})
+        return out
+
+    return asyncio.run(_run())
+
 
 
 # ------------------------------------------------------------------ steps
@@ -295,37 +297,36 @@ def run_demo(db_path: str, use_tmp: bool) -> Transcript:
     # ---------------------------------------------------------------- step 7
     t.emit("STEP 7 — a second compatible agent gets only what it is authorized to read")
     t.emit("-" * 72)
-    # The token file must exist (and be exported) before the client process
-    # starts, because the server reads the same environment.
-    owner_token = demo_owner_token(db_path)
-    client = McpClient(db_path)
-    try:
-        t.emit("  starting a separate MCP client process (stdio, local only)...")
-        untrusted = client.call_tool("hippa_recall",
-                                     {"actor_id": "mcp-untrusted",
-                                      "query": q["decision"]})
-        t.emit(f"  untrusted client   -> count={untrusted.get('count')} "
-               f"items={len(untrusted.get('items', []))} "
-               f"excluded={untrusted.get('excluded')}")
-        t.emit("  (excluded items are not enumerated for a caller that may not read "
-               "them: ids and counts are an existence oracle)")
-        owner = client.call_tool("hippa_recall",
-                                {"actor_id": "primary",
-                                 "owner_token": owner_token,
-                                 "query": q["decision"]})
-        t.emit(f"  owner-authorized   -> count={owner.get('count')} "
-               f"items={[(i['id'], i['type']) for i in owner.get('items', [])]}")
-        status = client.call_tool("hippa_status", {"actor_id": "mcp-untrusted"})
-        t.emit(f"  status (counts only) -> {status.get('counts')}")
-        t.emit("  the untrusted client received nothing; the owner client received the history.")
-    finally:
-        client.close()
+    # The owner token file must exist before the owner instance starts; the
+    # token itself is passed in the *server's* environment, never as an argument.
+    token_file, owner_token = demo_owner_token(db_path)
+    t.emit("  starting a separate MCP server process via the official SDK client "
+           "(stdio, local only)...")
+    (untrusted,) = mcp_calls(
+        db_path,
+        [("hippa_recall", {"actor_id": "mcp-untrusted", "query": q["decision"]})],
+        token_file=token_file)
+    t.emit(f"  untrusted instance -> count={untrusted.get('count')} "
+           f"items={len(untrusted.get('items', []))} "
+           f"excluded={untrusted.get('excluded')}")
+    t.emit("  (excluded items are not enumerated for a caller that may not read "
+           "them: ids and counts are an existence oracle)")
+    owner, status = mcp_calls(
+        db_path,
+        [("hippa_recall", {"actor_id": "primary", "query": q["decision"]}),
+         ("hippa_status", {"actor_id": "mcp-untrusted"})],
+        token_file=token_file, token=owner_token)
+    t.emit(f"  owner-authorized  -> count={owner.get('count')} "
+           f"items={[(i['id'], i['type']) for i in owner.get('items', [])]}")
+    t.emit(f"  status (counts only) -> {status.get('counts')}")
+    t.emit("  the untrusted instance received nothing; the owner-authorized "
+           "instance received the history.")
     t.emit("")
 
     # ---------------------------------------------------------------- step 8
     t.emit("STEP 8 — the operator can inspect, correct and forget a memory")
     t.emit("-" * 72)
-    from livingcortex.observability import Observability
+    from hungry_hippa.observability import Observability
 
     obs = Observability(session_b.db, session_b.cfg, controller=session_b)
     before = session_b.semantic.get_belief(belief["belief_id"])

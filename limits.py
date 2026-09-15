@@ -68,6 +68,10 @@ FIELD_LIMITS: Dict[str, int] = {
     "procedure_id": 64,
     "session_id": 128,
     "actor_id": 128,
+    # array fields: the value is both the item cap and the array's element bound
+    "related_entities": 256,
+    "evidence_ids": 64,
+    "source_refs": 512,
     "path": 4096,          # local CLI export only; never exposed over MCP
 }
 
@@ -246,7 +250,7 @@ def db_size_report(path: str) -> Dict[str, Any]:
         "over_limit": size > limit,
         "warning": (f"database is {size / 1048576:.0f} MiB, over the "
                     f"{limit / 1048576:.0f} MiB warning threshold; consider "
-                    f"'hermes living-cortex consolidate' and a fresh export"
+                    f"'hungry-hippa consolidate' and a fresh export"
                     if size > limit else ""),
         "note": "a warning, not a quota: nothing is deleted and nothing is refused",
     }

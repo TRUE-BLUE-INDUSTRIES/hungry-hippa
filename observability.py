@@ -74,7 +74,7 @@ class Observability:
             return "well-evidenced"
         if src == "derived_pattern" and conf >= 0.7:
             return "pattern-derived, verified"
-        if src == "hermes_inference":
+        if src in ("agent_inference", "hermes_inference"):
             return "inference — treat as provisional until reinforced"
         return "moderate"
 

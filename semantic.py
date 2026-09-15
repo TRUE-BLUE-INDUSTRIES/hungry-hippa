@@ -1,6 +1,6 @@
 """Semantic memory (§2, §8, §9) — facts, beliefs, hypotheses with provenance.
 
-  - source_class records where a belief came from; hermes_inference starts at
+  - source_class records where a belief came from; agent_inference starts at
     a lower confidence and must be reinforced before it is treated as fact.
   - Beliefs are revised via supersede/contradict; the old row is retained
     with status 'superseded'/'contradicted' so history survives.
@@ -17,9 +17,13 @@ from . import policy as _policy
 from . import trust as _trust
 
 KINDS = {"fact", "belief", "hypothesis", "procedural_belief"}
+# The canonical "the agent inferred this" class is ``agent_inference``.
+# ``hermes_inference`` is the former name: still accepted on input and still
+# readable from older rows, normalized to the canonical value on write.
+LEGACY_SOURCE_ALIASES = {"hermes_inference": "agent_inference"}
 SOURCE_CLASSES = {
     "user_explicit", "document", "tool_result", "visual_observation",
-    "audio_observation", "external_source", "hermes_inference", "derived_pattern",
+    "audio_observation", "external_source", "agent_inference", "derived_pattern",
     # assigned by the runtime, never accepted as a caller claim: the model's own
     # report of where something came from (see trust.verified_source_class)
     "agent_reported",
@@ -34,7 +38,7 @@ _SOURCE_PRIORITY = {
     "visual_observation": 0.10,
     "audio_observation": 0.10,
     "external_source": 0.05,
-    "hermes_inference": 0.0,
+    "agent_inference": 0.0,
     "derived_pattern": 0.05,
     # the model's own report: above inference, below anything the operator said
     "agent_reported": 0.08,
@@ -73,7 +77,7 @@ class SemanticMemory:
 
     def add_belief(self, claim: str, *, kind: str = "belief",
                    confidence: Optional[float] = None, importance: float = 0.5,
-                   source_class: str = "hermes_inference", source_ref: str = "",
+                   source_class: str = "agent_inference", source_ref: str = "",
                    related_entities: Optional[List[str]] = None,
                    derived_from: Optional[List[str]] = None,
                    evidence_ids: Optional[List[str]] = None,
@@ -99,8 +103,9 @@ class SemanticMemory:
                     "quota": quota}
         if kind not in KINDS:
             kind = "belief"
+        source_class = LEGACY_SOURCE_ALIASES.get(source_class, source_class)
         if source_class not in SOURCE_CLASSES:
-            source_class = "hermes_inference"
+            source_class = "agent_inference"
         # ``source_class`` is a claim. The effective class — the one the trust
         # weighting uses — is decided by the channel (trust.py), and the claim is
         # kept beside it so provenance stays inspectable instead of rewritten.
@@ -237,7 +242,7 @@ class SemanticMemory:
 
     def supersede(self, belief_id: str, replacement_claim: str, *,
                   reason: str = "", keep_confidence: Optional[float] = None,
-                  source_class: str = "hermes_inference",
+                  source_class: str = "agent_inference",
                   actor_id: str = "", identity: Optional[str] = None,
                   provenance: Optional[str] = None, channel: str = "",
                   session_id: str = "") -> Dict[str, Any]:
@@ -260,7 +265,7 @@ class SemanticMemory:
                     "protected": protected, "actor_id": _policy.normalize_actor(actor_id),
                     "provenance": provenance,
                     "hint": "the operator can do this from their own terminal: "
-                            "hermes living-cortex verify / cortex submit with "
+                            "hungry-hippa verify (operator channel) "
                             "an owner token"}
         now = _db.now_iso()
 
@@ -289,7 +294,7 @@ class SemanticMemory:
 
     def contradict(self, belief_id: str, counter_claim: str, *,
                    confidence: Optional[float] = None,
-                   source_class: str = "hermes_inference",
+                   source_class: str = "agent_inference",
                    actor_id: str = "", identity: Optional[str] = None,
                    provenance: Optional[str] = None, channel: str = "",
                    session_id: str = "") -> Dict[str, Any]:

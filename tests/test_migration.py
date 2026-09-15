@@ -1,6 +1,6 @@
 """Hungry Hippa migration and compatibility tests (Phase 2).
 
-Throwaway directories only. Never opens the live $HERMES_HOME database.
+Throwaway directories only. Never opens the operator's own database.
 """
 
 from __future__ import annotations
@@ -19,22 +19,22 @@ PLUGIN_DIR = Path(__file__).resolve().parent.parent
 def _import_plugin():
     import importlib.util
 
-    if sys.modules.get("livingcortex") is not None and getattr(
-        sys.modules["livingcortex"], "__file__", None
+    if sys.modules.get("hungry_hippa") is not None and getattr(
+        sys.modules["hungry_hippa"], "__file__", None
     ):
-        return sys.modules["livingcortex"]
+        return sys.modules["hungry_hippa"]
 
-    pkg = types.ModuleType("livingcortex")
+    pkg = types.ModuleType("hungry_hippa")
     pkg.__path__ = [str(PLUGIN_DIR)]
     pkg.__file__ = str(PLUGIN_DIR / "__init__.py")
-    sys.modules["livingcortex"] = pkg
+    sys.modules["hungry_hippa"] = pkg
     spec = importlib.util.spec_from_file_location(
-        "livingcortex",
+        "hungry_hippa",
         str(PLUGIN_DIR / "__init__.py"),
         submodule_search_locations=[str(PLUGIN_DIR)],
     )
     mod = importlib.util.module_from_spec(spec)
-    sys.modules["livingcortex"] = mod
+    sys.modules["hungry_hippa"] = mod
     spec.loader.exec_module(mod)
     return mod
 
@@ -53,7 +53,7 @@ def test_hungry_hippa_db_env_wins():
     os.environ["HUNGRY_HIPPA_DB"] = path
     os.environ["LIVING_CORTEX_DB"] = os.path.join(tempfile.gettempdir(), "old.db")
     try:
-        from livingcortex.config import load_config, resolve_db_path
+        from hungry_hippa.config import load_config, resolve_db_path
 
         cfg = load_config()
         assert resolve_db_path(cfg) == path
@@ -66,7 +66,7 @@ def test_living_cortex_db_env_still_works_with_warning():
     path = os.path.join(tempfile.gettempdir(), "lc_compat.db")
     os.environ["LIVING_CORTEX_DB"] = path
     try:
-        from livingcortex.config import load_config, resolve_db_path
+        from hungry_hippa.config import load_config, resolve_db_path
 
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
@@ -78,7 +78,7 @@ def test_living_cortex_db_env_still_works_with_warning():
 
 
 def test_existing_living_cortex_file_is_discovered():
-    from livingcortex.config import discover_default_db_path
+    from hungry_hippa.config import discover_default_db_path
 
     home = Path(tempfile.mkdtemp(prefix="hh_disc_"))
     old = home / "living_cortex.db"
@@ -88,7 +88,7 @@ def test_existing_living_cortex_file_is_discovered():
 
 
 def test_new_install_defaults_to_hungry_hippa_db():
-    from livingcortex.config import discover_default_db_path
+    from hungry_hippa.config import discover_default_db_path
 
     home = Path(tempfile.mkdtemp(prefix="hh_new_"))
     path = discover_default_db_path(home)
@@ -97,9 +97,9 @@ def test_new_install_defaults_to_hungry_hippa_db():
 
 
 def test_migrate_backs_up_and_preserves_memories():
-    from livingcortex.config import load_config
-    from livingcortex.controller import MemoryController
-    from livingcortex.db import migrate_database
+    from hungry_hippa.config import load_config
+    from hungry_hippa.controller import MemoryController
+    from hungry_hippa.db import migrate_database
 
     tmp = tempfile.mkdtemp(prefix="hh_mig_")
     src = os.path.join(tmp, "living_cortex.db")
@@ -178,8 +178,8 @@ def test_implicit_open_backs_up_before_upgrading():
     scripts directly, so a discovered old database could be upgraded before the
     operator ever ran the documented backup command.
     """
-    from livingcortex import schema as _schema
-    from livingcortex.db import Database
+    from hungry_hippa import schema as _schema
+    from hungry_hippa.db import Database
 
     with tempfile.TemporaryDirectory(prefix="hh_mig_implicit_") as tmp:
         path = os.path.join(tmp, "old.db")

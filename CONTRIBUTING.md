@@ -40,7 +40,7 @@ If your change alters behaviour, update the relevant document (`README.md`,
 3. **Never introduce a claim that no test, measurement or file supports.** If it is
    unverified, say so in the text (the existing docs do this constantly — see
    `docs/MCP.md`'s untested client snippet and `eval/README.md`'s unsupported metrics).
-4. **Tests use throwaway databases only.** Never open `$HERMES_HOME/living_cortex.db` or
+4. **Tests use throwaway databases only.** Never open the operator's own database or
    `hungry_hippa.db` from a test, demo or harness. Use `tempfile`.
 5. **Do not print secrets or private memories**, in tests, logs, commits or issues.
    Fixtures must be invented (`Operator`, `Project A`, `Vendor A`), not scraped.

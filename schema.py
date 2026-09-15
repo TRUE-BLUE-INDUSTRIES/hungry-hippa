@@ -66,7 +66,7 @@ CREATE INDEX ix_episodes_status ON episodes(status);
 -- --------------------------------------------------------------- evidence
 CREATE TABLE evidence (
   evidence_id TEXT PRIMARY KEY,
-  kind TEXT NOT NULL,       -- user_explicit|document|tool_result|visual_observation|audio_observation|external_source|hermes_inference|derived_pattern
+  kind TEXT NOT NULL,       -- user_explicit|document|tool_result|visual_observation|audio_observation|external_source|agent_inference|derived_pattern
   content TEXT NOT NULL,
   content_hash TEXT NOT NULL,
   captured_at TEXT NOT NULL,
@@ -101,7 +101,7 @@ CREATE TABLE relationships (
   valid_until TEXT,
   confidence REAL NOT NULL DEFAULT 0.5,
   importance REAL NOT NULL DEFAULT 0.5,
-  source_type TEXT NOT NULL DEFAULT 'hermes_inference',
+  source_type TEXT NOT NULL DEFAULT 'agent_inference',
   source_ref TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   last_verified TEXT,
@@ -126,7 +126,7 @@ CREATE TABLE beliefs (
   valid_from TEXT,
   last_verified TEXT,
   reinforcement_count INTEGER NOT NULL DEFAULT 0,
-  source_class TEXT NOT NULL DEFAULT 'hermes_inference',
+  source_class TEXT NOT NULL DEFAULT 'agent_inference',
   contradictions TEXT NOT NULL DEFAULT '[]',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL

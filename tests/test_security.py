@@ -8,6 +8,7 @@ run_all() -> list of {name, passed, detail}.
 
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import json
 import os
@@ -23,19 +24,19 @@ PLUGIN_DIR = Path(__file__).resolve().parent.parent
 
 
 def _import_plugin():
-    if sys.modules.get("livingcortex") is not None and getattr(
-        sys.modules["livingcortex"], "__file__", None
+    if sys.modules.get("hungry_hippa") is not None and getattr(
+        sys.modules["hungry_hippa"], "__file__", None
     ):
-        return sys.modules["livingcortex"]
-    pkg = types.ModuleType("livingcortex")
+        return sys.modules["hungry_hippa"]
+    pkg = types.ModuleType("hungry_hippa")
     pkg.__path__ = [str(PLUGIN_DIR)]
     pkg.__file__ = str(PLUGIN_DIR / "__init__.py")
-    sys.modules["livingcortex"] = pkg
+    sys.modules["hungry_hippa"] = pkg
     spec = importlib.util.spec_from_file_location(
-        "livingcortex", str(PLUGIN_DIR / "__init__.py"),
+        "hungry_hippa", str(PLUGIN_DIR / "__init__.py"),
         submodule_search_locations=[str(PLUGIN_DIR)])
     mod = importlib.util.module_from_spec(spec)
-    sys.modules["livingcortex"] = mod
+    sys.modules["hungry_hippa"] = mod
     spec.loader.exec_module(mod)
     return mod
 
@@ -57,8 +58,8 @@ MCP = _import_mcp_server()
 
 
 def _fresh(prefix: str = "hh_sec_"):
-    from livingcortex.config import load_config
-    from livingcortex.controller import MemoryController
+    from hungry_hippa.config import load_config
+    from hungry_hippa.controller import MemoryController
 
     tmp = tempfile.mkdtemp(prefix=prefix)
     db_path = os.path.join(tmp, "hungry_hippa.db")
@@ -72,14 +73,13 @@ def _fresh(prefix: str = "hh_sec_"):
 # ---------------------------------------------------------------- identity
 
 def _owner_token() -> str:
-    """A temp owner token so a test can act as the owner over MCP.
+    """A temp owner token file for tests that mean "an owner-authorized instance".
 
-    Trust is channel-resolved now: an MCP caller is the owner only when it
-    presents a token only the operator's user can read. Tests that mean "the
-    owner is calling" must present one; tests that mean "an untrusted caller is
-    calling" must not.
+    The server launch context authenticates (see trust.py): a test that wants
+    owner behaviour builds the server with this token, and never passes it as a
+    tool argument. Tests that mean "an untrusted caller" build it without one.
     """
-    from livingcortex import trust
+    from hungry_hippa import trust
 
     path = os.path.join(tempfile.mkdtemp(prefix="hh_token_"), "owner.token")
     os.environ["HUNGRY_HIPPA_OWNER_TOKEN_FILE"] = path
@@ -90,17 +90,32 @@ OWNER_TOKEN = _owner_token()
 
 
 def _call(name: str, args: Dict[str, Any], ctrl, *, owner: bool = False) -> Dict[str, Any]:
-    if owner:
-        args = {**args, "owner_token": OWNER_TOKEN}
-    return MCP.call_tool(name, args, ctrl)
+    """Call a tool through the MCP server object, in-process.
+
+    The SDK still owns schema validation and dispatch; ``owner=True`` builds an
+    owner-authorized instance (the launch-environment token), which is the only
+    thing that grants owner identity now.
+    """
+    app = MCP.build_server(controller=ctrl, owner_token=OWNER_TOKEN if owner else "")
+    try:
+        result = asyncio.run(app.call_tool(name, args or {}))
+    except Exception as e:               # unknown tool / schema violation
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"[:300]}
+    text = "".join(getattr(b, "text", "") or "" for b in getattr(result, "content", []) or [])
+    if getattr(result, "is_error", False) and not text:
+        return {"ok": False, "error": "tool error (rejected by the SDK schema validator)"}
+    try:
+        return json.loads(text) if text else {}
+    except json.JSONDecodeError:
+        return {"ok": False, "error": f"unparseable result: {text[:120]}"}
 
 
 # ---------------------------------------------------------------- checks
 
 def check_oversized_payload_rejected():
-    from livingcortex import limits
-    from livingcortex.observability import Observability
-    from livingcortex.tools import handle
+    from hungry_hippa import limits
+    from hungry_hippa.observability import Observability
+    from hungry_hippa.tools import handle
 
     ctrl, _db = _fresh("hh_sec_size_")
     obs = Observability(ctrl.db, ctrl.cfg, controller=ctrl)
@@ -113,8 +128,9 @@ def check_oversized_payload_rejected():
                             "content": "c" * (limits.MAX_CONTENT_CHARS + 1)}),
         ("hippa_remember", {"actor_id": "primary", "memory_type": "episodic",
                             "content": "ok", "result": "r" * (limits.MAX_CONTENT_CHARS + 1)}),
-        ("hippa_recall", {"actor_id": "primary", "query": "x",
-                          "related_entities": ["e"] * (limits.MAX_ARRAY_ITEMS + 1)}),
+        ("hippa_remember", {"actor_id": "primary", "memory_type": "semantic",
+                            "content": "ok",
+                            "related_entities": ["e"] * (limits.MAX_ARRAY_ITEMS + 1)}),
     ):
         out = _call(tool, args, ctrl)
         assert out["ok"] is False, (tool, len(json.dumps(out)))
@@ -131,6 +147,13 @@ def check_oversized_payload_rejected():
         assert "error" in result and expect in result["error"], result
         assert "rejected" in result["error"], result
 
+    # an unknown property never reaches the handler: the SDK drops it during
+    # validation, so nothing can be smuggled past the schema as extra arguments
+    smuggled = _call("hippa_recall", {"actor_id": "primary", "query": "lockout",
+                                      "sql": "DROP TABLE beliefs"}, ctrl, owner=True)
+    assert smuggled.get("ok") is True, smuggled
+    assert "sql" not in json.dumps(smuggled), smuggled
+
     # exactly at the cap is still accepted
     ok = _call("hippa_recall", {"actor_id": "primary",
                                 "query": "q" * limits.MAX_QUERY_CHARS}, ctrl, owner=True)
@@ -141,7 +164,7 @@ def check_oversized_payload_rejected():
 
 
 def check_result_caps():
-    from livingcortex import limits
+    from hungry_hippa import limits
 
     ctrl, _db = _fresh("hh_sec_result_")
     for i in range(10):
@@ -154,18 +177,19 @@ def check_result_caps():
     assert big["ok"], big
     assert len(big["rendering"]) <= limits.MAX_RESULT_CHARS, len(big["rendering"])
 
-    frame = MCP._result(1, {"ok": True, "context": "x" * (limits.MAX_RESULT_JSON_CHARS + 5000)})
-    text = frame["result"]["content"][0]["text"]
-    assert len(text) <= limits.MAX_RESULT_JSON_CHARS, len(text)
-    payload = json.loads(text)
-    assert payload["truncated"] is True and payload["ok"] is True, payload
-    assert payload["original_chars"] > limits.MAX_RESULT_JSON_CHARS, payload
-    return (f"context capped at {limits.MAX_RESULT_CHARS} chars; frame backstop "
-            f"{limits.MAX_RESULT_JSON_CHARS} chars")
+    # the server truncates the rendered context itself; framing and the frame-size
+    # backstop now belong to the SDK transport, which is not ours to test
+    ctrl2, _db2 = _fresh("hh_sec_trunc_")
+    ctrl2.semantic.add_belief("y" * 1000, kind="fact", source_class="document")
+    tight = limits.truncate("y" * (limits.MAX_RESULT_CHARS + 5000), limits.MAX_RESULT_CHARS)
+    assert len(tight) <= limits.MAX_RESULT_CHARS + len("…[truncated]"), len(tight)
+    assert tight.endswith("[truncated]"), tight[-20:]
+    return (f"context capped at {limits.MAX_RESULT_CHARS} chars server-side; "
+            f"transport framing is the SDK's")
 
 
 def check_call_budget():
-    from livingcortex import limits
+    from hungry_hippa import limits
 
     ctrl, _db = _fresh("hh_sec_budget_")
     MCP.set_call_budget(3)
@@ -180,7 +204,7 @@ def check_call_budget():
     finally:
         MCP.set_call_budget()
 
-    assert MCP.call_budget_summary()["used"] == 0, MCP.call_budget_summary()
+    assert MCP.CALL_BUDGET.summary()["used"] == 0, MCP.CALL_BUDGET.summary()
     assert limits.max_calls_from_env(7) == 7
     os.environ["HUNGRY_HIPPA_MAX_MCP_CALLS"] = "12"
     try:
@@ -191,13 +215,16 @@ def check_call_budget():
 
 
 def check_mcp_has_no_export():
-    names = [t["name"] for t in MCP.tool_schemas()]
+    app = MCP.build_server(controller=_fresh("hh_sec_names_")[0], owner_token="")
+    names = [t.name for t in asyncio.run(app.list_tools())]
     assert "export" not in names and "hippa_export" not in names, names
     ctrl, _db = _fresh("hh_sec_export_")
     for attempt in ("hippa_export", "export", "hippa_dump", "hippa_sql",
                     "hippa_schema", "hippa_download"):
         out = _call(attempt, {}, ctrl)
-        assert out["ok"] is False and "unknown tool" in out["error"], (attempt, out)
+        assert out["ok"] is False, (attempt, out)
+        low = out["error"].lower()
+        assert "unknown tool" in low or "rejected" in low or "toolerror" in low, (attempt, out)
     src = (PLUGIN_DIR / "mcp_server.py").read_text(encoding="utf-8")
     # the MCP layer goes through the controller and never touches the database
     for forbidden in ("import sqlite3", "Observability", "PRAGMA", "SELECT ",
@@ -321,7 +348,7 @@ def check_sql_injection_attempts_are_inert():
 
 
 def check_secrets_redacted_in_audit_logs():
-    from livingcortex import limits
+    from hungry_hippa import limits
 
     fake = {
         "openai": "sk-" + "A1b2C3d4E5f6G7h8I9j0",
@@ -416,7 +443,7 @@ def check_repo_contains_no_secrets():
 
 def check_sensitivity_not_an_encryption_claim():
     """Sensitivity must behave as a read-policy label only, and docs must say so."""
-    from livingcortex import policy
+    from hungry_hippa import policy
 
     ctrl, db_path = _fresh("hh_sec_sens_")
     r = ctrl.semantic.add_belief("internal-only note about the shim pack",
@@ -426,7 +453,7 @@ def check_sensitivity_not_an_encryption_claim():
 
     # untrusted actors cannot read it; the owner can. (Identity comes from the
     # channel now, so the probe binds an external binding rather than a name.)
-    from livingcortex import trust as _trust
+    from hungry_hippa import trust as _trust
 
     ctrl.bind_session(session_id="s", platform="cli", agent_context="primary",
                       trust=_trust.external_binding("mcp-untrusted"))
@@ -507,7 +534,7 @@ def check_untrusted_archival_denied_per_record():
 
 def check_whitespace_actor_does_not_elevate():
     """A whitespace-only actor_id must never be treated as the owner actor."""
-    from livingcortex import policy
+    from hungry_hippa import policy
 
     assert policy.normalize_actor(None) == "primary"
     assert policy.normalize_actor("") == "primary"
@@ -527,26 +554,41 @@ def check_whitespace_actor_does_not_elevate():
     rec = _call("hippa_recall", {"actor_id": " ", "query": "private owner note whitespace"}, ctrl)
     assert rec["count"] == 0, rec
     summary = policy.policy_summary()
-    assert "not authentication" in summary["identity_model"], summary
+    assert "strictly isolated" in summary["identity_model"], summary
+    assert "remapped to the untrusted actor" in summary["identity_model"], summary
     return "whitespace actor is untrusted; identity model is documented as a selector"
 
 
 def check_schema_enforcement():
-    """Advertised schemas must actually be enforced, and outputs described."""
-    tools = {t["name"]: t for t in MCP.tool_schemas()}
+    """Schema and limit enforcement after the SDK took over schema generation.
+
+    The SDK builds the input schemas from the type hints and validates every call
+    against them, so this checks the properties we still own: the required fields
+    are declared, a null is rejected rather than defaulting, the server's own
+    bounds hold even when a client ignores the schema, and no tool accepts a
+    secret or a dangerous argument.
+    """
+    ctrl, _db = _fresh("hh_sec_schema_")
+    app = MCP.build_server(controller=ctrl, owner_token=OWNER_TOKEN)
+    tools = {t.name: t for t in asyncio.run(app.list_tools())}
     assert set(tools) == {"hippa_remember", "hippa_recall", "hippa_build_context",
                           "hippa_record_outcome", "hippa_forget", "hippa_status"}, tools
-    for name, t in tools.items():
-        assert "outputSchema" in t, f"{name} has no outputSchema"
-        out = t["outputSchema"]
-        assert out["type"] == "object" and "ok" in out["properties"], out
-        assert t["inputSchema"]["additionalProperties"] is False, name
+    required = {"hippa_remember": {"memory_type", "content"},
+                "hippa_recall": {"query"},
+                "hippa_build_context": {"query"},
+                "hippa_record_outcome": {"procedure_id", "success"},
+                "hippa_forget": {"target_kind", "target_id"}}
+    for name, fields in required.items():
+        schema = tools[name].input_schema or {}
+        assert fields <= set(schema.get("required", [])), (name, schema.get("required"))
+        assert "token" not in json.dumps(schema).lower(), (name, "token in schema")
 
-    ctrl, _db = _fresh("hh_sec_schema_")
-    # a null actor_id must not fall through to the default owner actor
+    # a null actor_id is rejected by the SDK's validator, not silently defaulted
     null_actor = _call("hippa_status", {"actor_id": None}, ctrl)
-    assert null_actor["ok"] is False and "null" in null_actor["error"], null_actor
-    # array items over their advertised maxLength are refused
+    assert null_actor["ok"] is False, null_actor
+    assert "ToolError" in null_actor["error"] or "string" in null_actor["error"], null_actor
+
+    # array item bounds are enforced server-side, whatever the schema says
     long_item = _call("hippa_remember", {"actor_id": "primary", "memory_type": "semantic",
                                          "content": "array bound check",
                                          "related_entities": ["x" * 257]}, ctrl, owner=True)
@@ -556,23 +598,21 @@ def check_schema_enforcement():
                                         "content": "array bound check ok",
                                         "related_entities": ["x" * 256]}, ctrl, owner=True)
     assert at_bound["ok"] is True, at_bound
-    # unknown fields are still refused
-    unknown = _call("hippa_status", {"actor_id": "primary", "sql": "SELECT 1"}, ctrl, owner=True)
-    assert unknown["ok"] is False and "unknown field" in unknown["error"], unknown
-    return "outputSchema on all six tools; null and item-length bounds enforced"
+    return ("required fields declared; null rejected by the SDK; server-side item "
+            "bounds hold; no token in any schema")
 
 
 def check_export_is_operator_only():
     """The legacy cortex export action is owner-only and audited."""
-    from livingcortex.observability import Observability
-    from livingcortex.tools import handle
+    from hungry_hippa.observability import Observability
+    from hungry_hippa.tools import handle
 
     ctrl, _db = _fresh("hh_sec_export_")
     obs = Observability(ctrl.db, ctrl.cfg, controller=ctrl)
 
     # "untrusted" is now a channel fact, not a label: bind an external binding
     # (the MCP boundary without the owner token) rather than naming the caller.
-    from livingcortex import trust as _trust
+    from hungry_hippa import trust as _trust
 
     forbidden = os.path.join(tempfile.mkdtemp(prefix="hh_export_denied_"), "out.json")
     ctrl.bind_session(session_id="s", platform="cli", agent_context="primary",
@@ -602,7 +642,7 @@ def check_export_is_operator_only():
     # the CLI path is audited too (it is the same raw dump by another door)
     import os as _os
     import types as _types
-    from livingcortex.cli import living_cortex_command
+    from hungry_hippa.cli import hungry_hippa_command
 
     cli_dir = tempfile.mkdtemp(prefix="hh_export_cli_")
     cli_db = _os.path.join(cli_dir, "hungry_hippa.db")
@@ -610,8 +650,8 @@ def check_export_is_operator_only():
     previous = _os.environ.get("HUNGRY_HIPPA_DB")
     _os.environ["HUNGRY_HIPPA_DB"] = cli_db
     try:
-        living_cortex_command(_types.SimpleNamespace(
-            living_cortex_command="export", path=cli_out, kind="episodes"))
+        hungry_hippa_command(_types.SimpleNamespace(
+            hungry_hippa_command="export", path=cli_out, kind="episodes"))
     finally:
         if previous is None:
             _os.environ.pop("HUNGRY_HIPPA_DB", None)

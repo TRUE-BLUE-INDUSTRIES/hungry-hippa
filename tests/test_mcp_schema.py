@@ -24,19 +24,19 @@ PLUGIN_DIR = Path(__file__).resolve().parent.parent
 
 
 def _import_plugin():
-    if sys.modules.get("livingcortex") is not None and getattr(
-        sys.modules["livingcortex"], "__file__", None
+    if sys.modules.get("hungry_hippa") is not None and getattr(
+        sys.modules["hungry_hippa"], "__file__", None
     ):
-        return sys.modules["livingcortex"]
-    pkg = types.ModuleType("livingcortex")
+        return sys.modules["hungry_hippa"]
+    pkg = types.ModuleType("hungry_hippa")
     pkg.__path__ = [str(PLUGIN_DIR)]
     pkg.__file__ = str(PLUGIN_DIR / "__init__.py")
-    sys.modules["livingcortex"] = pkg
+    sys.modules["hungry_hippa"] = pkg
     spec = importlib.util.spec_from_file_location(
-        "livingcortex", str(PLUGIN_DIR / "__init__.py"),
+        "hungry_hippa", str(PLUGIN_DIR / "__init__.py"),
         submodule_search_locations=[str(PLUGIN_DIR)])
     mod = importlib.util.module_from_spec(spec)
-    sys.modules["livingcortex"] = mod
+    sys.modules["hungry_hippa"] = mod
     spec.loader.exec_module(mod)
     return mod
 
@@ -58,8 +58,8 @@ MCP = _import_mcp_server()
 
 
 def _fresh(prefix: str = "hh_mcp_"):
-    from livingcortex.config import load_config
-    from livingcortex.controller import MemoryController
+    from hungry_hippa.config import load_config
+    from hungry_hippa.controller import MemoryController
 
     tmp = tempfile.mkdtemp(prefix=prefix)
     db_path = os.path.join(tmp, "hungry_hippa.db")
@@ -80,7 +80,7 @@ def _owner_token() -> str:
     owner is calling" must present one; tests that mean "an untrusted caller is
     calling" must not.
     """
-    from livingcortex import trust
+    from hungry_hippa import trust
 
     path = os.path.join(tempfile.mkdtemp(prefix="hh_token_"), "owner.token")
     os.environ["HUNGRY_HIPPA_OWNER_TOKEN_FILE"] = path

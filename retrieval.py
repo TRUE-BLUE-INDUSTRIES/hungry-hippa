@@ -80,6 +80,17 @@ def _neutralize(text: Any) -> str:
     return s
 
 
+def _display_source(item: Dict[str, Any]) -> str:
+    """The source class to *show*: verified first, claimed only as a fallback.
+
+    A caller that claims ``user_explicit`` at ingestion must not be able to make
+    retrieved text look operator-attested. Rows written before schema v5 have no
+    verified column, so ``source_class`` is the honest fallback there.
+    """
+    return str(item.get("verified_source_class")
+               or item.get("source_class") or "unknown")
+
+
 def _frame(rendering: str) -> str:
     """Wrap a rendering in the recalled-memory frame (empty stays empty)."""
     if not rendering:
@@ -155,7 +166,7 @@ class RetrievalRouter:
         if kind == "belief":
             return str(item.get("source_class") or "unknown")
         if kind == "relationship":
-            return str(item.get("source_type") or "hermes_inference")
+            return str(item.get("source_type") or "agent_inference")
         return "episodic_record"
 
     def _rank(self, items: List[Dict[str, Any]], query_terms: List[str]) -> List[Dict[str, Any]]:
@@ -567,9 +578,11 @@ class RetrievalRouter:
             return block
         if kind == "belief":
             derived = _db.jload(it.get("derived_from"), []) or []
-            # Provenance is explicit: an inference is never rendered as fact.
+            # Provenance is explicit: an inference is never rendered as fact, and
+            # the header shows the *verified* class the runtime assigned, not the
+            # class the writer claimed (older rows fall back to source_class).
             marker = "HYPOTHESIS" if it.get("kind") == "hypothesis" else "BELIEF"
-            block = (f"[{marker} {it['belief_id']} {it['kind']}/{it['source_class']} "
+            block = (f"[{marker} {it['belief_id']} {it['kind']}/{_display_source(it)} "
                      f"conf {float(it.get('confidence', 0) or 0):.2f}] "
                      f"{_neutralize(it.get('claim', ''))}")
             if derived:

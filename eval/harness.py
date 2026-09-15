@@ -22,7 +22,7 @@ Run it:
     python eval/harness.py --stdout   # also print the summary table
 
 Every scenario uses its own throwaway temporary database. The live
-``$HERMES_HOME/living_cortex.db`` is never opened. Embeddings are disabled, so
+The operator's own database is never opened. Embeddings are disabled, so
 nothing here talks to the network.
 """
 
@@ -58,19 +58,19 @@ GROWTH_LATENCY_RUNS = 5
 # ------------------------------------------------------------------ plugin
 
 def _import_plugin():
-    if sys.modules.get("livingcortex") is not None and getattr(
-        sys.modules["livingcortex"], "__file__", None
+    if sys.modules.get("hungry_hippa") is not None and getattr(
+        sys.modules["hungry_hippa"], "__file__", None
     ):
-        return sys.modules["livingcortex"]
-    pkg = types.ModuleType("livingcortex")
+        return sys.modules["hungry_hippa"]
+    pkg = types.ModuleType("hungry_hippa")
     pkg.__path__ = [str(PLUGIN_DIR)]
     pkg.__file__ = str(PLUGIN_DIR / "__init__.py")
-    sys.modules["livingcortex"] = pkg
+    sys.modules["hungry_hippa"] = pkg
     spec = importlib.util.spec_from_file_location(
-        "livingcortex", str(PLUGIN_DIR / "__init__.py"),
+        "hungry_hippa", str(PLUGIN_DIR / "__init__.py"),
         submodule_search_locations=[str(PLUGIN_DIR)])
     mod = importlib.util.module_from_spec(spec)
-    sys.modules["livingcortex"] = mod
+    sys.modules["hungry_hippa"] = mod
     spec.loader.exec_module(mod)
     return mod
 
@@ -142,9 +142,9 @@ class HippaReader:
 
     def __init__(self, db_path: str, *, actor: str = "primary",
                  session_id: str = "eval", untrusted: bool = False) -> None:
-        from livingcortex.config import load_config
-        from livingcortex.controller import MemoryController
-        from livingcortex import trust as _trust
+        from hungry_hippa.config import load_config
+        from hungry_hippa.controller import MemoryController
+        from hungry_hippa import trust as _trust
 
         cfg = load_config()
         cfg["retrieval"]["vectors_enabled"] = False
@@ -455,7 +455,7 @@ def scenario_7_user_directed_forgetting() -> Dict[str, Any]:
 def scenario_8_poison_resistance() -> Dict[str, Any]:
     p = FIXTURES["poison"]
     db = _temp_db()
-    from livingcortex.policy import is_owner
+    from hungry_hippa.policy import is_owner
 
     # untrusted = the MCP boundary without the owner token (channel-resolved),
     # not a caller that merely names itself "mcp-untrusted".
@@ -828,7 +828,7 @@ def _report(results: Dict[str, Any]) -> str:
     add("```")
     add("")
     add("Every scenario builds its own throwaway database under the system temp "
-        "directory. The harness never opens `$HERMES_HOME/living_cortex.db`, needs "
+        "directory. The harness never opens the operator's database, needs "
         "no network, and uses no LLM.")
     add("")
     return "\n".join(lines) + "\n"

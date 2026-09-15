@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hungry-hippa"
+version = "1.0.0"
+description = "Hungry Hippa — a local-first memory runtime for AI agents, exposed over the Model Context Protocol."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+keywords = ["mcp", "model-context-protocol", "agent-memory", "local-first", "sqlite"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Operating System :: POSIX",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+]
+# The official Model Context Protocol SDK owns the transport and protocol
+# lifecycle. Tested against 2.2.0; the source keeps a one-line fallback import for
+# 1.x hosts that still expose mcp.server.fastmcp.
+dependencies = [
+    "mcp>=2.2,<3",
+]
+
+[project.urls]
+Repository = "https://github.com/TRUE-BLUE-INDUSTRIES/hungry-hippa"
+
+[tool.setuptools]
+# The runtime is a flat package at the repository root: modules like controller.py
+# live beside __init__.py rather than in a subdirectory.
+packages = ["hungry_hippa"]
+
+[tool.setuptools.package-dir]
+hungry_hippa = "."
+
+[project.scripts]
+hungry-hippa = "hungry_hippa.cli:main"
+# stdio MCP server: the same entry point a host configures as its MCP command
+hungry-hippa-mcp = "hungry_hippa.mcp_server:main"

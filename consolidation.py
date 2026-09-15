@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional
 
 from . import config as _cfg
 from . import db as _db
+from . import trust as _trust
 
 _NEGATIONS = (" no longer ", " not ", " never ", " doesn't ", " does not ",
               " won't ", " cannot ", " can't ", " stopped ", "isn't ", "aren't ",
@@ -144,16 +145,29 @@ class Consolidator:
                     continue
                 if _claims_similar(a["claim"], b["claim"]) >= _SIMILARITY_MIN:
                     older, newer = (a, b) if a["created_at"] <= b["created_at"] else (b, a)
-                    self.semantic.supersede(
+                    # A background merge is the runtime's own work, not an operator
+                    # action: it is stamped with system identity and
+                    # agent_consolidation provenance, so a merge can never inherit a
+                    # CLI trust default and can never mint user_explicit provenance
+                    # from content the model wrote.
+                    outcome = self.semantic.supersede(
                         newer["belief_id"],
                         older["claim"],
                         reason="duplicate merged in consolidation",
                         keep_confidence=max(older["confidence"], newer["confidence"]),
-                        source_class=older["source_class"],
+                        source_class=older.get("verified_source_class")
+                        or older["source_class"],
+                        actor_id="system",
+                        identity=_trust.SYSTEM,
+                        provenance=_trust.PROVENANCE_AGENT_CONSOLIDATION,
+                        channel=_trust.CHANNEL_CONSOLIDATION,
                         session_id=session_id,
                     )
-                    done.add(newer["belief_id"])
-                    merged += 1
+                    if outcome.get("belief_id"):
+                        done.add(newer["belief_id"])
+                        merged += 1
+                    # a refused merge (e.g. the row is operator-protected) simply
+                    # stays as it is; consolidation never forces a rewrite
         return merged, [f"duplicate_detection: merged {merged} duplicate beliefs"]
 
     def _relationship_extraction(self, session_id: str) -> tuple:
@@ -185,10 +199,15 @@ class Consolidator:
                 pa = any(neg in f" {_norm_claim(a['claim'])} " for neg in _NEGATIONS)
                 pb = any(neg in f" {_norm_claim(b['claim'])} " for neg in _NEGATIONS)
                 if pa != pb:
-                    self.semantic.contradict(a["belief_id"], b["claim"],
-                                             confidence=b["confidence"],
-                                             source_class=b["source_class"],
-                                             session_id=session_id)
+                    self.semantic.contradict(
+                        a["belief_id"], b["claim"],
+                        confidence=b["confidence"],
+                        source_class=b.get("verified_source_class") or b["source_class"],
+                        # background analysis: system identity, never user trust
+                        actor_id="system", identity=_trust.SYSTEM,
+                        provenance=_trust.PROVENANCE_AGENT_CONSOLIDATION,
+                        channel=_trust.CHANNEL_CONSOLIDATION,
+                        session_id=session_id)
                     found += 1
         return found, [f"contradiction_analysis: {found} contradictions cross-linked"]
 

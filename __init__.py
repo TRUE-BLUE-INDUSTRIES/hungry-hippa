@@ -1,7 +1,7 @@
-"""Living Cortex — MemoryProvider plugin for Hermes.
+"""Hungry Hippa — local agent adapter.
 
-Implements the agent.memory_provider.MemoryProvider ABC so the Cortex joins
-the normal cognitive loop:
+Exposes Hungry Hippa's memory runtime to an in-process agent host, so recall and
+writing join the normal cognitive loop instead of being a separate chore:
 
   prefetch(query)          — automatic recall, injected before each turn
                              (<memory-context> block). Test 10.
@@ -13,8 +13,14 @@ the normal cognitive loop:
   get_tool_schemas()       — the `cortex` tool
   recall_status()          — deterministic "⟡ recalled N" indicator
 
-All writes are skipped for non-primary agent contexts (subagents, cron
-system prompts) so user representations are never corrupted.
+All writes are skipped for non-primary agent contexts (subagents, cron system
+prompts) so user representations are never corrupted.
+
+This adapter is host-neutral library code. It is *not* an MCP transport (that lives
+in ``mcp_server.py`` and is built on the official MCP SDK) and it is not tied to any
+particular agent application: a host wires these methods into its own loop. It binds
+with agent provenance, so what the model writes is recorded as ``agent_reported``
+and can never claim the operator's voice (see ``trust.py``).
 """
 
 from __future__ import annotations
@@ -32,9 +38,10 @@ from . import trust as _trust
 from .neural import NeuralMemoryInterface
 from .observability import Observability
 from .tools import CORTEX_SCHEMA, handle as _handle_tool
+from .version import __version__
 from .vision import VisualEventMemory
 
-logger = logging.getLogger("living_cortex")
+logger = logging.getLogger("hungry_hippa")
 
 TRIVIAL_RE = re.compile(
     r'^(yes|no|ok|okay|sure|thanks|thank you|y|n|yep|nope|yeah|nah|'
@@ -62,7 +69,7 @@ class LivingCortexProvider:
     host's ABC changes shape; the loader's register() pattern is the contract.
     """
 
-    name = "living-cortex"
+    name = "hungry-hippa"
     glyph = "⟡"
 
     def __init__(self):
@@ -119,7 +126,7 @@ class LivingCortexProvider:
         self._prefetch_enabled = bool(prov.get("prefetch_enabled", True))
         self._mirror = bool(prov.get("mirror_builtin_memory_writes", True))
         self._auto_episode = bool(prov.get("auto_episode_on_session_end", True))
-        logger.info("living-cortex initialized session=%s db=%s context=%s",
+        logger.info("hungry-hippa adapter initialized session=%s db=%s context=%s",
                     session_id, path, agent_context)
 
     def shutdown(self) -> None:
@@ -248,7 +255,7 @@ class LivingCortexProvider:
                 return ""
             ev = c.db.add_evidence(
                 "context-compression capture:\n" + "\n".join(parts[-8:]),
-                kind="hermes_inference",
+                kind="agent_inference",
                 source_ref=f"compress:{c.session_id}", session_id=c.session_id)
             return f"cortex evidence {ev}: prior user requests preserved"
         except Exception:
@@ -284,7 +291,7 @@ class LivingCortexProvider:
         if c is None or not c.writes_enabled or not self._mirror:
             return
         try:
-            src = "user_explicit" if target == "user" else "hermes_inference"
+            src = "user_explicit" if target == "user" else "agent_inference"
             if action == "remove":
                 for b in c.semantic.list_beliefs(status="active", limit=100):
                     if b["claim"].strip() == content.strip():
@@ -292,7 +299,7 @@ class LivingCortexProvider:
                             b["belief_id"], b["claim"],
                             reason="removed from builtin memory",
                             keep_confidence=0.2,
-                            source_class="hermes_inference",
+                            source_class="agent_inference",
                             session_id=c.session_id)
                 return
             # dedupe: reinforce an identical active belief instead of duplicating
@@ -329,7 +336,7 @@ class LivingCortexProvider:
 
     def get_config_schema(self) -> List[Dict[str, Any]]:
         return [
-            {"key": "db_path", "description": "SQLite database path (default: $HERMES_HOME/living_cortex.db)",
+            {"key": "db_path", "description": "SQLite database path (default: $XDG_DATA_HOME/hungry-hippa/hungry_hippa.db)",
              "type": "text", "required": False, "default": ""},
             {"key": "privacy.vision_memory_enabled",
              "description": "Store structured visual-episode memory (glasses events)", "type": "boolean", "default": False},
@@ -343,9 +350,18 @@ class LivingCortexProvider:
              "description": "Daily consolidation schedule (cron)", "type": "text", "default": "0 4 * * *"},
         ]
 
-    def save_config(self, values: Dict[str, Any], hermes_home: str) -> None:
-        """Persist non-secret config to a sidecar JSON (never hand-edit config.yaml)."""
-        sidecar = os.path.join(hermes_home, "living_cortex_config.json")
+    def save_config(self, values: Dict[str, Any], config_dir: str = "") -> None:
+        """Persist non-secret config to Hungry Hippa's own XDG sidecar.
+
+        ``config_dir`` is accepted for hosts that pass one; when it is empty the
+        canonical ``$XDG_CONFIG_HOME/hungry-hippa`` location is used, so the
+        package never writes into another application's directory.
+        """
+        from .config import config_dir as _config_dir
+
+        base = config_dir or str(_config_dir())
+        os.makedirs(base, exist_ok=True)
+        sidecar = os.path.join(base, "config.json")
         merged = dict(values)
         try:
             if os.path.exists(sidecar):

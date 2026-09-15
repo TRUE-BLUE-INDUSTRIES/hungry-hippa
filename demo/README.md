@@ -23,7 +23,7 @@ expected output as a default run.
 | `demo.py` | The scripted demo. Prints a transcript; `--check` compares it to the expected output. |
 | `seed.json` | Generic fixture: `Operator`, `Project A`/`Project B`, `fixture housing`, `solvent X`, `method B`. **No personal information** — every value is invented. |
 | `expected_output.txt` | The transcript captured from a real run. Dates and database paths are normalised before comparison. |
-| `.demo_db/` | The throwaway demo database, created by `--reset`. Gitignored. Never `$HERMES_HOME`. |
+| `.demo_db/` | The throwaway demo database, created by `--reset`. Gitignored. Never the operator's own database. |
 
 The demo database path is `demo/.demo_db/hungry_hippa.db` unless you set
 `HUNGRY_HIPPA_DEMO_DB` or pass `--tmp`.

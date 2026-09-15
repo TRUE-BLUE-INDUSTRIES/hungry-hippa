@@ -26,9 +26,9 @@ Both are resolved by the server from the **channel** the call arrived on:
 
 | Channel | Identity | Provenance |
 |---|---|---|
-| in-process code — the Hermes plugin, the CLI, `scripts/` | owner | `user` for the CLI (a human at a terminal), `agent` for the plugin (the model) |
-| MCP with a valid owner token | owner | `user` |
-| MCP without it | untrusted | `external` (writes are quarantined) |
+| in-process code — the local agent adapter, the CLI, `scripts/` | owner | `user` for the CLI (a human at a terminal), `agent` for the adapter (the model) |
+| MCP instance launched with a verified owner token | owner | `user` |
+| MCP instance launched without one | untrusted | `external` (writes are quarantined) |
 
 `actor_id` is a **label**, not identity. A caller may use it to name itself — an
 untrusted client reading back its own rows — and it never grants owner rights. A
@@ -37,15 +37,15 @@ claim that collides with an owner label (`primary`, `owner`) is remapped to
 
 ### The owner token
 
-`$HERMES_HOME/hungry_hippa.owner.token` (override:
+`$XDG_STATE_HOME/hungry-hippa/owner.token` (override:
 `HUNGRY_HIPPA_OWNER_TOKEN_FILE`), 32 random bytes, mode `0600`, created by
-`hermes living-cortex owner-token`. An MCP caller becomes the owner by presenting
+`hungry-hippa owner-token`. An MCP caller becomes the owner by presenting
 its contents as `owner_token`. The token is consumed at the boundary: it is never
 echoed in a response, never stored as memory, and never written to the audit log.
 
 What this proves and what it does not: the transport is stdio, so "can read this
-file" means "is the operator or running as them". The token stops a **client**
-from naming itself owner. It cannot and does not stop a process that already holds
+file" means "is the operator or running as them". The token stops a **client** —
+or a model driving one — from naming itself owner. It cannot and does not stop a process that already holds
 the operator's uid — such a process can read the database directly. That is not a
 claim of authentication over a network, and this server has no network transport.
 
@@ -81,11 +81,11 @@ in `verified_source_class`, next to the untouched claim:
 
 Each row keeps `claimed_source_class`, `verified_source_class`, `source_actor`
 and `ingestion_channel`, so provenance is inspectable rather than rewritten
-(`hermes living-cortex why <belief_id>` returns all four). The operator can
+(`hungry-hippa why <belief_id>` returns all four). The operator can
 promote a memory from their own terminal:
 
 ```bash
-hermes living-cortex verify B-0007 --source-class user_explicit
+hungry-hippa verify B-0007 --source-class user_explicit
 ```
 
 which is the only path that sets `verified_source_class = user_explicit` for a
@@ -120,7 +120,7 @@ channel decides what a caller may do (`policy.may_capability`):
 |---|---|---|---|
 | `read` | everything | everything (it is the operator's own agent) | its own rows only |
 | `write_candidate` | yes | yes, recorded as `agent_reported` | yes, stored quarantined |
-| `approve` (attest what the operator said) | **yes** (`hermes living-cortex verify`) | no | no |
+| `approve` (attest what the operator said) | **yes** (`hungry-hippa verify`) | no | no |
 | `correct` a protected fact | **yes** | no — becomes a quarantined candidate | no |
 | `forget`/archive a protected fact | **yes** | no | no |
 | `forget` an ordinary row | yes | yes (its own candidates included) | no |
@@ -210,7 +210,7 @@ identify or authorize callers.
   fixed internal table/column names chosen from literal tuples.
 - No MCP tool accepts SQL, a file path or a database path.
 - There is no MCP export, dump or schema tool. The legacy surfaces that do export
-  (`cortex` action `export` and `hermes living-cortex export`) are **owner-only and
+  (`cortex` action `export` and `hungry-hippa export`) are **owner-only and
   audited**: a non-owner actor gets `{"error": "export is operator-only; ..."}`, the
   denial is recorded in `mutation_log` as `export_denied`, and every successful
   export is recorded as `export`. Export writes `SELECT *` output to a
@@ -223,7 +223,7 @@ identify or authorize callers.
 - **Migration safety:** applying pending schema migrations to an existing database
   always writes a `*.pre-migration-<UTC>.bak` copy first — including the implicit
   upgrade performed by an ordinary open (status, plugin start, MCP server startup),
-  not just `hermes living-cortex migrate`. Brand-new databases and already-current
+  not just `hungry-hippa migrate`. Brand-new databases and already-current
   databases are not backed up. Rotating or pruning old backups is not implemented.
 
 ### Files on disk
@@ -235,16 +235,16 @@ it does not:
 |---|---|---|
 | new database | `0600` | created owner-only |
 | pre-migration backup (`*.pre-migration-<UTC>.bak`) | `0600` at most | never inherits a world-readable source mode |
-| migration backup from `hermes living-cortex migrate` (`*.pre-hippa-<UTC>.bak`) | same rule | |
-| export (`hermes living-cortex export`, the `cortex` export action) | `0600` | a full dump, so it gets the same treatment |
+| migration backup from `hungry-hippa migrate` (`*.pre-hippa-<UTC>.bak`) | same rule | |
+| export (`hungry-hippa export`, the `cortex` export action) | `0600` | a full dump, so it gets the same treatment |
 | owner token | `0600` | created owner-only |
 
-**An existing lax file is reported, never silently changed.** `hermes
-living-cortex status` (and `Database.file_permissions()`) expose `mode` and
+**An existing lax file is reported, never silently changed.** `hungry-hippa
+status` (and `Database.file_permissions()`) expose `mode` and
 `lax`, and the log carries a warning naming the command that fixes it:
 
 ```bash
-hermes living-cortex fix-permissions   # 0600 on the db, its -wal/-shm, and its *.bak
+hungry-hippa fix-permissions   # 0600 on the db, its -wal/-shm, and its *.bak
 ```
 
 This is **not encryption** and is not described as such: the file stays
@@ -286,7 +286,7 @@ Database helpers return empty results instead of raising into the agent loop, an
 Not implemented. Hungry Hippa writes a plain SQLite database (WAL mode). If the
 contents matter, the expectation is that you encrypt the disk:
 
-- Linux: LUKS (or an encrypted home / filesystem holding `$HERMES_HOME`);
+- Linux: LUKS (or an encrypted home / filesystem holding the XDG data directory);
 - macOS: FileVault;
 - Windows: BitLocker.
 
@@ -294,7 +294,7 @@ Additional requirements if you enable them:
 
 - File permissions: the DB and its `-wal`/`-shm` siblings should be readable only
   by your user (default `umask` behaviour on a single-user home directory).
-- Backups created by `hermes living-cortex migrate` (`*.pre-hippa-<UTC>.bak`) are
+- Backups created by `hungry-hippa migrate` (`*.pre-hippa-<UTC>.bak`) are
   plain copies of the database. They inherit its exposure: keep them on encrypted
   storage and delete them when no longer needed.
 - SQLCipher (an encrypted SQLite variant) is **not** supported and is not a
@@ -319,10 +319,10 @@ Additional requirements if you enable them:
 1. Keep the MCP transport stdio-only. Do not wrap it in a socket forwarder or
    expose it through a network service.
 2. Never pass `actor_id: "primary"` on behalf of a caller you do not control.
-3. Encrypt the disk holding `$HERMES_HOME` if the memories matter.
+3. Encrypt the disk holding the XDG data directory if the memories matter.
 4. Set `HUNGRY_HIPPA_MAX_MCP_CALLS` when a session is long-lived.
 5. Review quarantined rows periodically:
-   `hermes living-cortex recall "<topic>" --quarantined`, then decide to keep or
+   `hungry-hippa recall "<topic>" --quarantined`, then decide to keep or
    forget them. Without the flag, quarantined content never appears.
 6. Prefer `mode: archival` over `purge`. Archival is reversible; purge is not.
 7. Treat the database as the sensitive artefact it is: it accumulates whatever
@@ -338,4 +338,4 @@ python tests/test_acceptance.py        # T1-T10 still pass
 ```
 
 Each test uses a throwaway temporary database. None of them touch
-`$HERMES_HOME/living_cortex.db`.
+the XDG data directory (or a legacy database found for migration).

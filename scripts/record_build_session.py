@@ -10,18 +10,18 @@ import importlib.util
 from pathlib import Path
 
 PLUGIN = Path(__file__).resolve().parent.parent
-pkg = types.ModuleType("livingcortex")
+pkg = types.ModuleType("hungry_hippa")
 pkg.__path__ = [str(PLUGIN)]
-sys.modules["livingcortex"] = pkg
+sys.modules["hungry_hippa"] = pkg
 spec = importlib.util.spec_from_file_location(
-    "livingcortex", str(PLUGIN / "__init__.py"),
+    "hungry_hippa", str(PLUGIN / "__init__.py"),
     submodule_search_locations=[str(PLUGIN)])
 mod = importlib.util.module_from_spec(spec)
-sys.modules["livingcortex"] = mod
+sys.modules["hungry_hippa"] = mod
 spec.loader.exec_module(mod)
 
-from livingcortex.controller import MemoryController
-from livingcortex.config import load_config
+from hungry_hippa.controller import MemoryController
+from hungry_hippa.config import load_config
 
 c = MemoryController(load_config())
 c.bind_session(session_id="build-session", platform="cli")

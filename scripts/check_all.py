@@ -18,6 +18,7 @@ import argparse
 import os
 import subprocess
 import sys
+import sys
 from pathlib import Path
 from typing import List, Sequence, Tuple
 
@@ -27,8 +28,9 @@ STEPS: Sequence[Tuple[str, List[str]]] = (
     ("acceptance (T1-T10)", ["python", "tests/test_acceptance.py"]),
     ("migration + compatibility", ["python", "tests/test_migration.py"]),
     ("memory architecture", ["python", "tests/test_memory_architecture.py"]),
-    ("MCP schema + policy", ["python", "tests/test_mcp_schema.py"]),
+    ("MCP integration (official SDK)", ["python", "tests/test_mcp_integration.py"]),
     ("identity binding", ["python", "tests/test_trust_boundary.py"]),
+    ("owner token", ["python", "tests/test_trust_token.py"]),
     ("existence oracle", ["python", "tests/test_existence_oracle.py"]),
     ("file permissions", ["python", "tests/test_file_permissions.py"]),
     ("provenance", ["python", "tests/test_provenance.py"]),
@@ -53,8 +55,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     failures: List[str] = []
     for label, cmd in STEPS:
+        argv_cmd = [sys.executable] + list(cmd[1:]) if cmd[:1] == ["python"] else list(cmd)
         print(f"\n=== {label}: {' '.join(cmd)} ===", flush=True)
-        result = subprocess.run(cmd, cwd=str(REPO), env=env,
+        result = subprocess.run(argv_cmd, cwd=str(REPO), env=env,
                                 capture_output=args.quiet, text=True)
         if args.quiet:
             output = (result.stdout or "") + (result.stderr or "")

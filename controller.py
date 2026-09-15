@@ -262,7 +262,7 @@ class MemoryController:
             return self.semantic.get_belief(belief_id) or {}
         return {"error": "no update specified"}
 
-    def add_evidence(self, content: str, kind: str = "hermes_inference",
+    def add_evidence(self, content: str, kind: str = "agent_inference",
                      source_ref: str = "") -> str:
         return self.db.add_evidence(content, kind, source_ref, self.session_id)
 

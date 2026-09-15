@@ -47,11 +47,11 @@ feeling. Nothing on this list publishes anything by itself.
 
 ## 5. Compatibility
 
-- [ ] `hermes config set memory.provider living-cortex` still works and
-      `hermes memory status` reports the provider as available
+- [ ] `python -m pip install -e .` succeeds on a clean interpreter and
+      `python -c "import mcp"` reports the SDK version
 - [ ] The `cortex` tool still exposes every previously supported action
       (`record_outcome` and `explain` are additive)
-- [ ] `hermes living-cortex migrate --db <copy>` still backs up and migrates a copy of a
+- [ ] `hungry-hippa migrate --db <copy>` still backs up and migrates a copy of a
       pre-v4 database, and the migration test covers it
 - [ ] Table names and existing row ids are unchanged
 
@@ -91,5 +91,5 @@ the operator's explicit approval.
 
 - Code: revert the release commit (`git revert <sha>`), or check out the previous tag.
 - Database: restore the `*.pre-hippa-<UTC>.bak` file written by
-  `hermes living-cortex migrate`, then optionally set `LIVING_CORTEX_DB` back to the old
+  `hungry-hippa migrate`, then optionally set `LIVING_CORTEX_DB` back to the old
   path. See `docs/MIGRATION.md`.

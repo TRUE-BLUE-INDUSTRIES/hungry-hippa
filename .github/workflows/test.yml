@@ -1,9 +1,10 @@
 name: tests
 
-# Runs the standalone Python test files, the demo check and the memory-challenge
-# harness. There is nothing to install: the runtime is standard-library only.
+# Runs the standalone Python test files, the official-SDK MCP integration suite,
+# the demo check and the memory-challenge harness.
 #
-# Python 3.12/3.13 passed on main at 905167d (run 34932877707).
+# The runtime depends on the official Model Context Protocol SDK, so the
+# dependency is installed from pyproject.toml before the suites run.
 # See docs/FOLLOWUP.md for deployment verification.
 
 on:
@@ -33,6 +34,12 @@ jobs:
           python -VV
           python -c "import sqlite3; print('sqlite', sqlite3.sqlite_version)"
 
+      - name: Install the project and its dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+          python -c "import mcp, importlib.metadata as md; print('mcp', md.version('mcp'))"
+
       - name: Byte-compile every module (syntax gate)
         run: python -m compileall -q . -x '__pycache__'
 
@@ -45,10 +52,12 @@ jobs:
       - name: Memory architecture suite
         run: python tests/test_memory_architecture.py
 
-      - name: MCP schema and policy suite
-        run: python tests/test_mcp_schema.py
+      - name: MCP integration suite (official SDK client over stdio)
+        run: python tests/test_mcp_integration.py
       - name: Identity binding
         run: python tests/test_trust_boundary.py
+      - name: Owner token storage
+        run: python tests/test_trust_token.py
       - name: Existence oracle
         run: python tests/test_existence_oracle.py
       - name: File permissions
@@ -70,8 +79,20 @@ jobs:
       - name: Demo transcript check (throwaway database)
         run: python demo/demo.py --tmp --check
 
-      - name: MCP server prints its schemas
-        run: python mcp_server.py --print-schemas > /tmp/schemas.json && python -c "import json; d=json.load(open('/tmp/schemas.json')); assert len(d['tools'])==6, d['tools']; assert 'export' not in json.dumps(d), 'export must not be exposed'"
+      - name: MCP server advertises its tools through the SDK
+        run: |
+          python mcp_server.py --print-schemas > /tmp/schemas.json
+          python - <<'PY'
+          import json
+          d = json.load(open("/tmp/schemas.json"))
+          names = sorted(t["name"] for t in d["tools"])
+          expected = ["hippa_build_context", "hippa_forget", "hippa_recall",
+                      "hippa_record_outcome", "hippa_remember", "hippa_status"]
+          assert names == expected, names
+          blob = json.dumps(d).lower()
+          assert "export" not in blob and "owner_token" not in blob, "leaked surface"
+          print("tools:", names)
+          PY
 
       - name: Memory challenge harness (regenerates results in a temp dir)
         env:
@@ -79,9 +100,9 @@ jobs:
           HUNGRY_HIPPA_MAX_MCP_CALLS: "1000"
         run: python eval/check_results.py --verbose
 
-      - name: Confirm no database or credential files are tracked
+      - name: Confirm no database, credential or token files are tracked
         run: |
-          if git ls-files | grep -Ei '\.(db|sqlite|sqlite3|bak|key|pem)$'; then
+          if git ls-files | grep -Ei '\.(db|sqlite|sqlite3|bak|key|pem)$|owner\.token$'; then
             echo "::error::tracked database or credential file"
             exit 1
           fi

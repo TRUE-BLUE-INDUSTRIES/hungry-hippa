@@ -68,7 +68,7 @@ class EpisodicMemory:
         # explicit argument; the verified class is channel-derived either way.
         provenance = _trust.resolve_provenance(provenance, identity)
         claimed = str(claimed_source_class or "").strip()
-        verified = _trust.verified_source_class(claimed or "hermes_inference",
+        verified = _trust.verified_source_class(claimed or "agent_inference",
                                                 provenance)
 
         def _insert(conn) -> None:

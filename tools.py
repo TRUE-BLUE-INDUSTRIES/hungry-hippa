@@ -81,7 +81,7 @@ CORTEX_SCHEMA = {
             "source_class": {"type": "string",
                              "enum": ["user_explicit", "document", "tool_result",
                                       "visual_observation", "audio_observation",
-                                      "external_source", "hermes_inference",
+                                      "external_source", "agent_inference",
                                       "derived_pattern"],
                              "description": "add_belief: where this came from."},
             "belief_id": {"type": "string",
@@ -160,7 +160,7 @@ def handle(cortex_controller, observability, action: str, args: Dict[str, Any]) 
         if action == "relate":
             r = c.relate(args.get("src", ""), args.get("rel", ""), args.get("dst", ""),
                          confidence=args.get("confidence", 0.7),
-                         source_type=args.get("source_class", "hermes_inference"))
+                         source_type=args.get("source_class", "agent_inference"))
             return json.dumps(r, ensure_ascii=False)
 
         if action == "graph":
@@ -190,7 +190,7 @@ def handle(cortex_controller, observability, action: str, args: Dict[str, Any]) 
             r = c.semantic.add_belief(
                 args.get("claim", ""), kind=args.get("kind") or "belief",
                 confidence=args.get("confidence"),
-                source_class=args.get("source_class", "hermes_inference"),
+                source_class=args.get("source_class", "agent_inference"),
                 identity=c.identity, provenance=c.provenance, channel=c.channel,
                 actor_id=c.actor_id,
                 session_id=c.session_id)
@@ -206,7 +206,7 @@ def handle(cortex_controller, observability, action: str, args: Dict[str, Any]) 
         if action == "contradict":
             r = c.contradict(args.get("belief_id", ""), args.get("counter_claim", ""),
                              confidence=args.get("confidence"),
-                             source_class=args.get("source_class", "hermes_inference"),
+                             source_class=args.get("source_class", "agent_inference"),
                              identity=c.identity, provenance=c.provenance,
                              channel=c.channel, actor_id=c.actor_id)
             return json.dumps(r, ensure_ascii=False, default=str)
@@ -279,7 +279,7 @@ def handle(cortex_controller, observability, action: str, args: Dict[str, Any]) 
                 return json.dumps(
                     {"error": "export is operator-only; unavailable to this actor",
                      "actor_id": c.actor_id}, ensure_ascii=False)
-            out_path = args.get("path", "living_cortex_export.json")
+            out_path = args.get("path", "hungry_hippa_export.json")
             kind = args.get("export_kind", "all")
             r = observability.export(out_path, kind)
             c.db.log_mutation("export", "database", "",

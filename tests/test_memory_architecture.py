@@ -1,6 +1,6 @@
 """Hungry Hippa memory-architecture tests (Phase 3).
 
-Throwaway temp databases only — never the live $HERMES_HOME database.
+Throwaway temp databases only — never the operator's own database.
 
 Covers the additive Phase 3 behaviour: schema-v4 defaults, quarantine,
 actor policy, explainable ranking, the context compiler budget, and
@@ -27,23 +27,23 @@ PLUGIN_DIR = Path(__file__).resolve().parent.parent
 
 
 def _import_plugin():
-    """Register the plugin dir as the ``livingcortex`` package and import it."""
-    if sys.modules.get("livingcortex") is not None and getattr(
-        sys.modules["livingcortex"], "__file__", None
+    """Register the plugin dir as the ``hungry_hippa`` package and import it."""
+    if sys.modules.get("hungry_hippa") is not None and getattr(
+        sys.modules["hungry_hippa"], "__file__", None
     ):
-        return sys.modules["livingcortex"]
+        return sys.modules["hungry_hippa"]
 
-    pkg = types.ModuleType("livingcortex")
+    pkg = types.ModuleType("hungry_hippa")
     pkg.__path__ = [str(PLUGIN_DIR)]
     pkg.__file__ = str(PLUGIN_DIR / "__init__.py")
-    sys.modules["livingcortex"] = pkg
+    sys.modules["hungry_hippa"] = pkg
     spec = importlib.util.spec_from_file_location(
-        "livingcortex",
+        "hungry_hippa",
         str(PLUGIN_DIR / "__init__.py"),
         submodule_search_locations=[str(PLUGIN_DIR)],
     )
     mod = importlib.util.module_from_spec(spec)
-    sys.modules["livingcortex"] = mod
+    sys.modules["hungry_hippa"] = mod
     spec.loader.exec_module(mod)
     return mod
 
@@ -53,8 +53,8 @@ _PLUGIN = _import_plugin()
 
 def _fresh(prefix: str = "hh_ma_", **cfg_overrides: Any) -> Tuple[Any, str]:
     """A controller on a brand-new temp database (vectors off, offline)."""
-    from livingcortex.config import load_config
-    from livingcortex.controller import MemoryController
+    from hungry_hippa.config import load_config
+    from hungry_hippa.controller import MemoryController
 
     tmp = tempfile.mkdtemp(prefix=prefix)
     db_path = os.path.join(tmp, "hungry_hippa.db")
@@ -215,8 +215,8 @@ def check_record_outcome_updates_procedure():
     assert r3["confidence"] >= 0.85, r3
 
     # the same operation is reachable through the `cortex` tool surface
-    from livingcortex.observability import Observability
-    from livingcortex.tools import handle
+    from hungry_hippa.observability import Observability
+    from hungry_hippa.tools import handle
 
     p2 = c.create_procedure("inspect hoist", confidence=0.5)
     obs = Observability(c.db, c.cfg, controller=c)
@@ -265,8 +265,8 @@ def check_untrusted_actor_policy():
         context="shop policy: blade changes are logged at the bench",
         outcome="success", project="shop", embed=False)
 
-    from livingcortex.config import load_config
-    from livingcortex.controller import MemoryController
+    from hungry_hippa.config import load_config
+    from hungry_hippa.controller import MemoryController
 
     cfg = load_config()
     cfg["retrieval"]["vectors_enabled"] = False
@@ -301,7 +301,7 @@ def check_untrusted_actor_policy():
 
 def check_v4_migrates_populated_v3_database():
     """A pre-v4 database with real rows must upgrade in place, losing nothing."""
-    from livingcortex import schema as schema_mod
+    from hungry_hippa import schema as schema_mod
 
     c, db = _fresh("hh_ma_v3_")
     # Build a pre-v4 database the honest way: run only migrations 1..3, insert
@@ -339,9 +339,9 @@ def check_v4_migrates_populated_v3_database():
     finally:
         schema_mod.MIGRATIONS[4] = saved
 
-    from livingcortex.config import load_config
-    from livingcortex.controller import MemoryController
-    from livingcortex.db import migrate_database
+    from hungry_hippa.config import load_config
+    from hungry_hippa.controller import MemoryController
+    from hungry_hippa.db import migrate_database
 
     report = migrate_database(old_db)
     assert os.path.isfile(report["backup"]), report

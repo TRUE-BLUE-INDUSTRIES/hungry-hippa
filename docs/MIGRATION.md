@@ -29,16 +29,19 @@ repository use throwaway copies only.
 # Optional: point at a copy, never the only copy of production data
 export HUNGRY_HIPPA_DB=/path/to/copy.db
 
-hermes living-cortex migrate
+hungry-hippa migrate
 # or
-hermes living-cortex migrate --db /path/to/copy.db
+hungry-hippa migrate --db /path/to/copy.db
 ```
 
 `migrate` creates `*.pre-hippa-<UTC>.bak` via the SQLite backup API (WAL-safe)
 then applies pending schema migrations in place.
 
-An existing `$HERMES_HOME/living_cortex.db` is still discovered if
-`hungry_hippa.db` is not present, so memories are not stranded by the rename.
+Where databases are found, in order: `HUNGRY_HIPPA_DB` if set, then
+`$XDG_DATA_HOME/hungry-hippa/hungry_hippa.db`, then — only if neither exists — a
+database left behind by the former Hermes-hosted release
+(`~/.hermes/living_cortex.db`). That last path is read for migration and never
+written, so memories are not stranded by the move.
 
 ## Deprecated configuration
 
@@ -70,20 +73,19 @@ An existing `$HERMES_HOME/living_cortex.db` is still discovered if
    git checkout HEAD~1 -- schema.py config.py db.py
    ```
 
-5. Confirm with `hermes living-cortex status` (counts only; do not export
+5. Confirm with `hungry-hippa status` (counts only; do not export
    private memories to a ticket or log).
 
 Schema v3 `down_sql` drops `product_meta` only. It does not delete episodes or
 beliefs. There is no automatic down-migrator in the CLI; restoring the `.bak`
 file is the supported rollback.
 
-## Hermes compatibility
+## Using the migrated database
 
-Keep:
+Hungry Hippa owns its own locations now (see `docs/MCP.md`). Point an MCP host at
+the server with the token in its environment, or keep using an in-process adapter:
 
 ```bash
-hermes config set memory.provider living-cortex
+hungry-hippa status                      # counts only
+HUNGRY_HIPPA_DB=/path/to/copy.db hungry-hippa recall "<query>"
 ```
-
-The provider `name` remains `living-cortex`. Help text and the system prompt
-identify the product as Hungry Hippa (formerly Living Cortex).

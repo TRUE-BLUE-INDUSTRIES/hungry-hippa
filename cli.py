@@ -1,8 +1,8 @@
-"""``hermes living-cortex`` CLI — observability + operations (§21).
+"""``hungry-hippa`` CLI — operator observability and maintenance.
 
-Hungry Hippa (formerly Living Cortex). Command name stays ``living-cortex``
-so existing Hermes configs keep working. ``migrate`` backs up and upgrades
-an existing Living Cortex database in place.
+A standalone command (``hungry-hippa status|recall|...``) that is also mountable
+into a host's own CLI tree via :func:`register_cli`. ``migrate`` backs up and
+upgrades an older database in place.
 
 Commands: status | recall | episodes | graph | why | consolidate | learned |
 changed | forgotten | export | selftest | migrate
@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import os
 import sys
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
 from .config import load_config, resolve_db_path
 from .controller import MemoryController
@@ -34,8 +34,8 @@ def _print_json(obj: Any) -> None:
     print(json.dumps(obj, ensure_ascii=False, indent=2, default=str))
 
 
-def living_cortex_command(args) -> None:
-    sub = getattr(args, "living_cortex_command", None) or "status"
+def hungry_hippa_command(args) -> None:
+    sub = getattr(args, "hungry_hippa_command", None) or "status"
     if sub == "selftest":
         return _cmd_selftest(args)
     if sub == "migrate":
@@ -53,7 +53,7 @@ def living_cortex_command(args) -> None:
     elif sub == "recall":
         q = getattr(args, "query", "")
         if not q:
-            print("Usage: hermes living-cortex recall '<query>' [--quarantined]")
+            print("Usage: hungry-hippa recall '<query>' [--quarantined]")
             return
         _print_json(c.recall(q, project=getattr(args, "project", ""),
                              include_quarantined=bool(
@@ -68,7 +68,7 @@ def living_cortex_command(args) -> None:
         rel = getattr(args, "rel", "") or ""
         dst = getattr(args, "dst", "") or ""
         if not src and not rel and not dst:
-            print("Usage: hermes living-cortex graph --src X [--rel R] [--dst Y] [--history]")
+            print("Usage: hungry-hippa graph --src X [--rel R] [--dst Y] [--history]")
             return
         _print_json({"edges": c.retrieve_graph(
             src=src, rel=rel, dst=dst,
@@ -94,7 +94,7 @@ def living_cortex_command(args) -> None:
             _print_json({"error": "export is operator-only; unavailable to this actor",
                          "actor_id": c.actor_id})
             return
-        out_path = getattr(args, "path", "living_cortex_export.json")
+        out_path = getattr(args, "path", "hungry_hippa_export.json")
         kind = getattr(args, "kind", "all")
         result = obs.export(out_path, kind)
         c.db.log_mutation("export", "database", "",
@@ -102,7 +102,7 @@ def living_cortex_command(args) -> None:
                           c.session_id)
         _print_json(result)
     else:
-        print("Unknown living-cortex command. Available: status, recall, "
+        print("Unknown hungry-hippa command. Available: status, recall, "
               "episodes, graph, why, consolidate, learned, changed, "
               "forgotten, export, selftest, migrate, owner-token, "
               "fix-permissions, verify")
@@ -259,14 +259,13 @@ def _cmd_verify(args) -> None:
 
 
 def register_cli(subparser) -> None:
-    """Build the ``hermes living-cortex`` argparse tree.
+    """Build the ``hungry-hippa`` argparse tree.
 
-    The dynamic CLI harness calls this with the plugin parser. We set the
-    default handler here (the harness cannot resolve a hyphenated name via
-    getattr), so ``hermes living-cortex <cmd>`` always routes.
+    ``main()`` uses this for the console script; a host that mounts Hungry Hippa
+    into its own CLI can call it with its own subparser.
     """
-    subparser.set_defaults(func=living_cortex_command)
-    subs = subparser.add_subparsers(dest="living_cortex_command")
+    subparser.set_defaults(func=hungry_hippa_command)
+    subs = subparser.add_subparsers(dest="hungry_hippa_command")
 
     subs.add_parser("status", help="Hungry Hippa health and table counts")
     subs.add_parser("selftest", help="Run acceptance tests on a throwaway DB")
@@ -331,6 +330,19 @@ def register_cli(subparser) -> None:
     forgotten.add_argument("--limit", type=int, default=20)
 
     exp = subs.add_parser("export", help="Export memory as JSON")
-    exp.add_argument("--path", default="living_cortex_export.json")
+    exp.add_argument("--path", default="hungry_hippa_export.json")
     exp.add_argument("--kind", default="all",
                      choices=["all", "episodes", "beliefs", "graph"])
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    """Console-script entry point: ``hungry-hippa <command>``."""
+    import argparse
+
+    parser = argparse.ArgumentParser(prog="hungry-hippa",
+                                     description=__doc__.splitlines()[0])
+    register_cli(parser)
+    args = parser.parse_args(sys.argv[1:] if argv is None else argv)
+    handler = getattr(args, "func", hungry_hippa_command)
+    handler(args)
+    return 0

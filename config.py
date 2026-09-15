@@ -1,14 +1,22 @@
-"""Hungry Hippa (formerly Living Cortex) configuration.
+"""Hungry Hippa configuration.
 
-Resolved in this order (highest wins):
-  1. config.yaml ``plugins.living-cortex`` section (read via hermes cfg_get when
-     running inside Hermes; silently unavailable in standalone use).
-  2. Environment override ``HUNGRY_HIPPA_DB`` (path only).
-  3. Deprecated environment override ``LIVING_CORTEX_DB`` (path only; warns).
-  4. Built-in defaults below.
+Hungry Hippa is a standalone local-first package: it owns its own locations and
+does not read another application's configuration. Resolved in this order
+(highest wins):
 
-New installs default to ``hungry_hippa.db``. An existing ``living_cortex.db``
-in the same home directory is still discovered so memories are not stranded.
+  1. Environment overrides: ``HUNGRY_HIPPA_DB`` (path) and the deprecated
+     ``LIVING_CORTEX_DB`` (path only; warns).
+  2. Optional sidecar ``$XDG_CONFIG_HOME/hungry-hippa/config.json``.
+  3. Built-in defaults below.
+
+Locations:
+
+  * database: ``$XDG_DATA_HOME/hungry-hippa/hungry_hippa.db``
+    (``~/.local/share/hungry-hippa/`` when ``XDG_DATA_HOME`` is unset)
+  * state (owner token): ``$XDG_STATE_HOME/hungry-hippa/owner.token``
+
+A database written by the former Hermes-hosted plugin is still *found* — read
+only, never written — so memories are not stranded; see ``legacy_db_paths()``.
 
 Privacy defaults are conservative (§20): vision/audio episode storage OFF,
 raw media retention minimal, location/face identity memory OFF, no automatic
@@ -24,7 +32,7 @@ from typing import Any, Dict, Union
 
 DEFAULTS: Dict[str, Any] = {
     # --- storage ---
-    "db_path": "",                 # empty -> $HERMES_HOME/living_cortex.db (or ./living_cortex.db standalone)
+    "db_path": "",                 # empty -> $XDG_DATA_HOME/hungry-hippa/hungry_hippa.db
     "schema_version": 1,
     # --- attention / importance (§6) ---
     "attention": {
@@ -51,7 +59,8 @@ DEFAULTS: Dict[str, Any] = {
         "visual_observation": 0.70,
         "audio_observation": 0.65,
         "external_source": 0.60,
-        "hermes_inference": 0.45,
+        "agent_inference": 0.45,
+        "hermes_inference": 0.45,   # legacy name for agent_inference (old rows)
         "derived_pattern": 0.50,
         # assigned by the runtime when the writer is the model, not the user
         "agent_reported": 0.55,
@@ -138,28 +147,15 @@ def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any
 
 
 def load_config() -> Dict[str, Any]:
-    """Load plugin config: hermes config.yaml section > env > defaults."""
+    """Load Hungry Hippa config: env > optional XDG sidecar > defaults."""
     cfg: Dict[str, Any] = _deep_merge(DEFAULTS, {})
-    try:  # inside Hermes — read the plugins.living-cortex section
-        from hermes_cli.config import cfg_get
+    try:  # optional local sidecar: $XDG_CONFIG_HOME/hungry-hippa/config.json
+        import json
 
-        if cfg_get is not None:
-            section = cfg_get(None, "plugins", "living-cortex")
-            if isinstance(section, dict):
-                cfg = _deep_merge(cfg, section)
-    except Exception:
-        pass
-    try:  # sidecar written by save_config() (never hand-edit config.yaml)
-        from hermes_constants import get_hermes_home
-
-        home = get_hermes_home()
-        for name in ("living_cortex_config.json", "hungry_hippa_config.json"):
-            sidecar = home / name
-            if sidecar.exists():
-                import json
-
-                with open(sidecar, "r", encoding="utf-8") as f:
-                    cfg = _deep_merge(cfg, json.load(f) or {})
+        sidecar = config_dir() / "config.json"
+        if sidecar.exists():
+            with open(sidecar, "r", encoding="utf-8") as f:
+                cfg = _deep_merge(cfg, json.load(f) or {})
     except Exception:
         pass
     env_old = os.environ.get("LIVING_CORTEX_DB")
@@ -177,26 +173,63 @@ def load_config() -> Dict[str, Any]:
     return cfg
 
 
-def discover_default_db_path(home: Union[str, Path]) -> str:
-    """Prefer an existing Living Cortex DB; otherwise use hungry_hippa.db."""
-    home_path = Path(home)
-    old = home_path / "living_cortex.db"
-    new = home_path / "hungry_hippa.db"
-    if old.exists() and not new.exists():
-        return str(old)
-    return str(new)
+APP_DIR_NAME = "hungry-hippa"
+
+
+def data_dir() -> Path:
+    """``$XDG_DATA_HOME/hungry-hippa`` (``~/.local/share/hungry-hippa``)."""
+    base = os.environ.get("XDG_DATA_HOME", "").strip()
+    root = Path(base) if base else Path(os.path.expanduser("~")) / ".local" / "share"
+    return root / APP_DIR_NAME
+
+
+def config_dir() -> Path:
+    """``$XDG_CONFIG_HOME/hungry-hippa`` (``~/.config/hungry-hippa``)."""
+    base = os.environ.get("XDG_CONFIG_HOME", "").strip()
+    root = Path(base) if base else Path(os.path.expanduser("~")) / ".config"
+    return root / APP_DIR_NAME
+
+
+def legacy_db_paths() -> List[str]:
+    """Databases written by earlier releases, checked only for *migration*.
+
+    Hungry Hippa is a local-first package and owns its own XDG locations; these
+    paths exist so a database written by the former Hermes-hosted plugin is still
+    found rather than orphaned. They are never written to.
+    """
+    home = Path(os.path.expanduser("~"))
+    return [str(home / ".hermes" / "living_cortex.db"),
+            str(home / ".hermes" / "hungry_hippa.db")]
+
+
+def discover_default_db_path(home: Union[str, Path] = "") -> str:
+    """Resolve where the database lives.
+
+    Order: an existing XDG database, then a legacy database found only for
+    migration, then the XDG location to create. ``home`` is accepted for
+    backwards compatibility with callers that passed a directory explicitly.
+    """
+    if home:
+        home_path = Path(home)
+        candidates = [home_path / "hungry_hippa.db", home_path / "living_cortex.db"]
+        for candidate in candidates:
+            if candidate.exists():
+                return str(candidate)
+        return str(home_path / "hungry_hippa.db")
+    current = data_dir() / "hungry_hippa.db"
+    if current.exists():
+        return str(current)
+    for legacy in legacy_db_paths():
+        if Path(legacy).exists():
+            return legacy
+    return str(current)
 
 
 def resolve_db_path(cfg: Dict[str, Any]) -> str:
     """Resolve the SQLite database path from config."""
     if cfg.get("db_path"):
         return str(cfg["db_path"])
-    try:
-        from hermes_constants import get_hermes_home
-
-        return discover_default_db_path(get_hermes_home())
-    except Exception:
-        return discover_default_db_path(os.getcwd())
+    return discover_default_db_path()
 
 
 def get(cfg: Dict[str, Any], dotted: str, default: Any = None) -> Any:

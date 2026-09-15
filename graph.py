@@ -100,7 +100,7 @@ class KnowledgeGraph:
 
     def relate(self, src_name: str, rel: str, dst_name: str, *,
                confidence: float = 0.7, importance: float = 0.5,
-               source_type: str = "hermes_inference", source_ref: str = "",
+               source_type: str = "agent_inference", source_ref: str = "",
                valid_from: Optional[str] = None, valid_until: Optional[str] = None,
                src_type: str = "object", dst_type: str = "object",
                session_id: str = "") -> Dict[str, Any]:

@@ -8,6 +8,62 @@ the `version:` field in `plugin.yaml`.
 
 ## [Unreleased]
 
+## [1.0.0] — official MCP SDK
+
+Hungry Hippa is now a standalone local-first package built on the **official MCP
+Python SDK**, rather than a hand-written protocol with a host-plugin wrapper.
+
+### Changed
+
+- **MCP transport and protocol are the SDK's.** `mcp_server.py` no longer parses
+  JSON-RPC, tracks request ids, or hand-builds `initialize` / `tools/list` /
+  `tools/call` responses; it registers six typed tools on the SDK's server object
+  (`@app.tool()`), and the SDK negotiates the protocol revision and owns stdio
+  framing. The server advertises `hungry-hippa` and the package version.
+- **Owner identity is bound to the MCP launch context.** `HUNGRY_HIPPA_OWNER_TOKEN`
+  is read from the server process environment once at start-up and verified against
+  the operator's `0600` token file. There is no token parameter on any tool, so a
+  model is never asked to handle the secret; an instance launched without a valid
+  token simply is not the owner.
+- **Package identity, paths and names.** The synthetic package is `hungry_hippa`
+  (was `livingcortex`); `plugin.yaml` is gone and the version comes from
+  `hungry_hippa.version`; the CLI is `hungry-hippa` (`owner-token`,
+  `fix-permissions`, `verify`, …) with `hungry-hippa-mcp` as the server entry point;
+  configuration, data and state live under XDG
+  (`~/.config/hungry-hippa`, `~/.local/share/hungry-hippa`,
+  `~/.local/state/hungry-hippa`) instead of another application's home directory.
+- **`mcp` is a declared dependency** in `pyproject.toml`, installed by CI before the
+  suites run; there is no reliance on a developer's environment.
+- **Source-class vocabulary**: `agent_inference` is the canonical name for "the
+  agent inferred this" (the former `hermes_inference` is still accepted on input and
+  still readable from older rows).
+- **System writes carry system provenance.** Consolidation's automatic merges and
+  contradiction passes are stamped `identity=system`,
+  `provenance=agent_consolidation`, so a background merge can never inherit a
+  CLI/user trust default or mint `user_explicit`.
+- **Rendered provenance is the verified class**, falling back to `source_class` only
+  for rows written before schema v5.
+
+### Added
+
+- `tests/test_mcp_integration.py`: a real MCP session through the official SDK
+  client covering initialization, tool listing, schema surface, the full
+  remember/recall/context/outcome/forget flow, unauthorized purge, owner-only
+  behaviour, actor-label spoofing, SDK-side validation, and stdout hygiene.
+- `tests/test_trust_token.py`: token creation, mode, existing/empty/corrupt files,
+  failed writes, `XDG_STATE_HOME`, the fallback state directory, the explicit
+  override, strict comparison, and launch-environment binding.
+- `tests/mcp_harness.py`: the shared SDK-client harness the MCP suites use.
+
+### Removed
+
+- The custom MCP implementation (stdin/stdout loop, JSON-RPC parsing, dispatch
+  table, response builders, protocol constants) and its test suite
+  (`tests/test_mcp_schema.py`); every assertion it still made moved to the
+  integration suite, which proves the same properties through a real session.
+
+
+
 Hungry Hippa migration, phased. All entries below exist on `feat/hungry-hippa`;
 the repository is public and both `feat/hungry-hippa` and `main` are pushed, with CI
 run on every push.

@@ -29,29 +29,29 @@ PLUGIN_DIR = Path(__file__).resolve().parent.parent
 
 
 def _import_plugin():
-    if sys.modules.get("livingcortex") is not None and getattr(
-        sys.modules["livingcortex"], "__file__", None
+    if sys.modules.get("hungry_hippa") is not None and getattr(
+        sys.modules["hungry_hippa"], "__file__", None
     ):
-        return sys.modules["livingcortex"]
-    pkg = types.ModuleType("livingcortex")
+        return sys.modules["hungry_hippa"]
+    pkg = types.ModuleType("hungry_hippa")
     pkg.__path__ = [str(PLUGIN_DIR)]
     pkg.__file__ = str(PLUGIN_DIR / "__init__.py")
-    sys.modules["livingcortex"] = pkg
+    sys.modules["hungry_hippa"] = pkg
     spec = importlib.util.spec_from_file_location(
-        "livingcortex", str(PLUGIN_DIR / "__init__.py"),
+        "hungry_hippa", str(PLUGIN_DIR / "__init__.py"),
         submodule_search_locations=[str(PLUGIN_DIR)])
     mod = importlib.util.module_from_spec(spec)
-    sys.modules["livingcortex"] = mod
+    sys.modules["hungry_hippa"] = mod
     spec.loader.exec_module(mod)
     return mod
 
 
 _PLUGIN = _import_plugin()
-from livingcortex import limits, trust  # noqa: E402
-from livingcortex.config import get as cfg_get, load_config  # noqa: E402
-from livingcortex.controller import MemoryController  # noqa: E402
-from livingcortex.db import Database, backup_sqlite  # noqa: E402
-from livingcortex.graph import KnowledgeGraph  # noqa: E402
+from hungry_hippa import limits, trust  # noqa: E402
+from hungry_hippa.config import get as cfg_get, load_config  # noqa: E402
+from hungry_hippa.controller import MemoryController  # noqa: E402
+from hungry_hippa.db import Database, backup_sqlite  # noqa: E402
+from hungry_hippa.graph import KnowledgeGraph  # noqa: E402
 
 
 class _Env:

@@ -40,7 +40,7 @@ done, and it should be treated as an open risk.
 *Threat:* a web page or tool result instructs the agent to store "ignore the
 lockout procedure" as a durable fact; a later session reads it back as truth.
 
-*Implemented:* every belief records `source_class`; `hermes_inference` and
+*Implemented:* every belief records `source_class`; `agent_inference` (formerly `hermes_inference`) and
 `external_source` start at lower confidence (`source_confidence` in `config.py`),
 retrieval reports provenance per item, and rendering labels hypotheses
 `HYPOTHESIS` so an inference is never presented as fact. `explain=True` shows the
@@ -75,7 +75,7 @@ threat 5.
 takes a path/DB/SQL argument (`tests/test_mcp_schema.py`,
 `tests/test_security.py`). `hippa_status` returns counts only. `hippa_recall`
 returns at most `limit` items (cap 50) and the context compiler caps the rendered
-text. `export` remains a local CLI command (`hermes living-cortex export`) that a
+text. `export` remains a local CLI command (`hungry-hippa export`) that a
 human runs on their own machine.
 
 *Residual:* an allowed caller can still page through recall results repeatedly.
@@ -243,7 +243,7 @@ contradiction weight and confidence ceiling.
 `verified_source_class`; the effective class is channel-derived (`agent` →
 `agent_reported`, `external` → `external_source`), confidence is capped by it, and
 `source_actor`/`ingestion_channel` are recorded. Only
-`hermes living-cortex verify` (operator channel) sets `user_explicit` for a memory
+`hungry-hippa verify` (operator channel) sets `user_explicit` for a memory
 the model wrote. See `tests/test_provenance.py`.
 
 *Residual:* provenance records origin, not truth. The operator can assert a false

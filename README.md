@@ -5,14 +5,15 @@ experience across sessions, retrieve relevant history and share explicitly
 authorized context without surrendering the underlying memory database to a model
 provider.**
 
-This repository was formerly **Living Cortex**. Hermes still loads the plugin under the
-name `living-cortex` and the agent tool is still `cortex`, so existing installs keep
-working; see [MIGRATION.md](docs/MIGRATION.md).
+This repository was formerly **Living Cortex**. It is now a standalone local-first
+package — `hungry-hippa` — that speaks MCP through the official SDK. An existing
+database written by the former release is still found (read-only discovery, so
+memories are not stranded); see [docs/MIGRATION.md](docs/MIGRATION.md).
 
 Episodic memory, a temporal knowledge graph, semantic beliefs with provenance,
 contradiction and supersession handling, a context compiler, consolidation, reversible
 forgetting, procedural learning, quarantine for untrusted writes, and a local MCP
-server — on top of plain SQLite, in the Python standard library.
+server built on the **official MCP Python SDK** — on top of plain SQLite.
 
 Not a vector database, not chat-history search, not a bigger `MEMORY.md`.
 
@@ -37,8 +38,9 @@ PERCEIVE → ATTEND → RECALL → COMPILE CONTEXT → REASON → ACT → OBSERV
 | Consolidation | Deterministic "sleep" pass: dedupe, relationship extraction, contradiction analysis, procedural candidates | T9, T6 |
 | Forgetting | Decay, compression, reversible archival; purge is owner-only and confirm-gated over MCP | T8, `test_security.py` |
 | Procedural memory | Experience → procedural candidate → validated procedure → skill promotion (needs explicit user approval) | T6, `test_memory_architecture.py` |
-| Local MCP server | Six `hippa_*` tools over stdio JSON-RPC 2.0, no network listener | `test_mcp_schema.py` |
-| Request limits | Argument, result and frame caps; per-process call budget; audit-log redaction | `test_security.py` |
+| Local MCP server | Six `hippa_*` tools over stdio, official MCP SDK, no network listener | `test_mcp_integration.py` |
+| Request limits | Argument, result and frame caps; per-process call budget; database-backed write quota; audit-log redaction | `test_security.py`, `test_resource_limits.py` |
+| Identity binding | Identity and provenance resolved from the channel; owner token in the launch environment; no secret in any tool schema | `test_trust_boundary.py`, `test_trust_token.py` |
 
 Explicitly **not** implemented, and not claimed: model training, model-weight updates,
 consciousness, self-learning, "unhackable", enterprise-ready, multi-tenant isolation,
@@ -47,23 +49,33 @@ encryption at rest (use your OS), tamper-evident audit chain. See
 
 ## Quick start
 
-Requires Python 3 and SQLite (both standard). No third-party packages, no network calls
-required.
+Requires Python 3.10+ and SQLite. The only third-party dependency is the official
+MCP SDK, declared in `pyproject.toml`; no network calls are required at runtime.
 
 ```bash
-# 1. Put the plugin where Hermes looks for user plugins
-cp -r living-cortex "$HERMES_HOME/plugins/"
+# 1. Install (a virtualenv is recommended; PEP 668 systems refuse a system install)
+python -m venv .venv && . .venv/bin/activate
+python -m pip install -e .
 
-# 2. Make it the active memory provider (name stays living-cortex for compatibility)
-hermes config set memory.provider living-cortex
+# 2. Create the owner token (0600, under $XDG_STATE_HOME/hungry-hippa/)
+hungry-hippa owner-token --print      # paste the value into your MCP host config
 
 # 3. Verify
-hermes memory status            # Provider: living-cortex — installed, available
-hermes living-cortex status     # database health + counts (no row contents)
+hungry-hippa status                   # database health + counts (no row contents)
 ```
 
-The provider activates in new sessions. Hermes' built-in `MEMORY.md`/`USER.md` memory
-stays active alongside it (mirrored into the store with provenance).
+Point your MCP host at the server, passing the token in the **server's**
+environment (see [docs/MCP.md](docs/MCP.md) for host-ready snippets):
+
+```jsonc
+{"mcpServers": {"hungry-hippa": {"command": "hungry-hippa-mcp",
+                                 "env": {"HUNGRY_HIPPA_OWNER_TOKEN": "…"}}}}
+```
+
+Without the token the instance is untrusted: it can write candidates and read only
+its own rows. An in-process host can instead use the local agent adapter
+(`hungry_hippa.MemoryProvider`), which binds with owner identity and agent
+provenance.
 
 Check it works without touching your data:
 
@@ -84,9 +96,9 @@ python eval/harness.py                     # memory challenge, writes eval/resul
 ```mermaid
 flowchart TB
     subgraph clients["Callers"]
-        HERMES["Hermes agent<br/>cortex tool (in-process)"]
+        HOST["agent host<br/>cortex tool (in-process)"]
         MCPC["MCP client<br/>stdio JSON-RPC 2.0"]
-        CLI["hermes living-cortex<br/>operability CLI"]
+        CLI["hungry-hippa CLI<br/>operator commands"]
     end
 
     subgraph runtime["Memory runtime"]
@@ -110,7 +122,7 @@ flowchart TB
 
     DB[("db.py + schema.py<br/>SQLite (WAL, FTS5)<br/>reversible migrations")]
 
-    HERMES --> CTRL
+    AGENTHOST --> CTRL
     MCPC -->|"mcp_server.py"| LIMITS
     LIMITS --> CTRL
     CLI --> CTRL
@@ -138,13 +150,13 @@ the code, not a plan.
 
 ## Install, in detail
 
-Hungry Hippa is a Hermes plugin directory, so installation is a copy plus one config
+Hungry Hippa installs as a package; an in-process host wires the adapter with one config
 key. There is no package to build, no service to start and no daemon.
 
 ```bash
-git clone <this repository> living-cortex
-cp -r living-cortex "$HERMES_HOME/plugins/"
-hermes config set memory.provider living-cortex
+git clone <this repository> hungry-hippa
+python -m pip install -e .
+# host adapter: hungry_hippa.MemoryProvider
 ```
 
 ## Configuration
@@ -153,10 +165,10 @@ Defaults live in `config.py`. Override them in Hermes config under the plugin se
 or with environment variables for the database path.
 
 ```yaml
-# $HERMES_HOME/config.yaml
+# $XDG_CONFIG_HOME/hungry-hippa/config.json (or environment variables)
 plugins:
-  living-cortex:
-    db_path: ""                    # empty -> $HERMES_HOME/hungry_hippa.db
+  hungry-hippa:
+    db_path: ""                    # empty -> $XDG_DATA_HOME/hungry-hippa/hungry_hippa.db
     retrieval:
       max_context_chars: 1500      # context compiler budget
       max_items: 6
@@ -187,7 +199,7 @@ Environment:
 | `HUNGRY_HIPPA_MAX_MCP_CALLS` | Per-process MCP call budget (default 1000) |
 | `HUNGRY_HIPPA_DEMO_DB` | Database path used by `demo/demo.py` |
 
-New installs use `hungry_hippa.db`. If an existing `$HERMES_HOME/living_cortex.db` is
+New installs use `$XDG_DATA_HOME/hungry-hippa/hungry_hippa.db`. If an existing legacy `living_cortex.db` is
 present it is discovered and used instead, so memories are not stranded by the rename.
 
 ## MCP server
@@ -217,7 +229,7 @@ Example client config (illustrative, **not verified against a live client** — 
 # ~/.grok/config.toml  (Grok CLI; schema taken from Grok's own user guide)
 [mcp_servers.hungry-hippa]
 command = "python"
-args = ["/path/to/living-cortex/mcp_server.py"]
+args = ["/path/to/hungry-hippa/mcp_server.py"]
 enabled = true
 ```
 
@@ -229,9 +241,10 @@ denied. This is an actor/policy check, not capability-based security.
 
 | Symptom | Cause and fix |
 |---|---|
-| `hermes memory status` shows the provider as unavailable | The database directory is not writable, or the plugin was copied somewhere Hermes does not load plugins from. Check `$HERMES_HOME/plugins/living-cortex` exists and `hermes living-cortex status` runs. |
+| An MCP host cannot reach the server | Check the host's `command` resolves (`hungry-hippa-mcp`, or `python /path/to/hungry-hippa/mcp_server.py`) and that the process can write the database directory. `python mcp_server.py --print-schemas` should list six tools. |
+| Calls that should be owner-only are refused | The instance was launched without `HUNGRY_HIPPA_OWNER_TOKEN`, or the value does not match `$XDG_STATE_HOME/hungry-hippa/owner.token`. Check the server's stderr: it logs which instance it is serving as. |
 | A `DeprecationWarning` about `LIVING_CORTEX_DB` | You are using the old environment key. Switch to `HUNGRY_HIPPA_DB`; the old key still works. |
-| Recall returns nothing for something you know is stored | Common causes: the query has no matching tokens (FTS is keyword-based; enable vectors for paraphrases), a `project` filter excludes it, the item is **quarantined** (untrusted write — review with `hermes living-cortex recall "<topic>" --quarantined`), or the row is `archived`/`superseded` and correctly no longer current. |
+| Recall returns nothing for something you know is stored | Common causes: the query has no matching tokens (FTS is keyword-based; enable vectors for paraphrases), a `project` filter excludes it, the item is **quarantined** (untrusted write — review with `hungry-hippa recall "<topic>" --quarantined`), or the row is `archived`/`superseded` and correctly no longer current. |
 | Everything is missing for a second client | That client is using the default `mcp-untrusted` actor. Untrusted actors only read their own unclassified, non-quarantined rows. Pass `actor_id: "primary"` only for a client you control, and read the limitation in `docs/SECURITY.md`. |
 | Recall quality dropped | Vector search may be off (Ollama not running, or `vectors_enabled: false`). Recall then degrades to keyword + graph, which is the documented failure mode. |
 | An MCP client connects but no tools appear | Tool names are namespaced by the client (e.g. `hungry-hippa__hippa_recall`). Check `grok mcp doctor <name>` or your client's equivalent, and read the server's stderr log — this server writes nothing to stdout except protocol frames. |
@@ -264,7 +277,7 @@ metrics that need an LLM judge as unsupported rather than estimating them.
 ## Layout
 
 ```
-living-cortex/
+hungry-hippa/
 ├── __init__.py          # LivingCortexProvider (Hermes MemoryProvider)
 ├── controller.py        # MemoryController — the central abstraction
 ├── policy.py            # actor + policy checks (not capability security)
@@ -282,7 +295,7 @@ living-cortex/
 ├── neural.py            # neural-memory interface (stub, no model weights)
 ├── observability.py     # why / changed / forgotten / export
 ├── tools.py             # `cortex` tool schema + dispatch
-├── cli.py               # `hermes living-cortex` CLI
+├── cli.py               # `hungry-hippa` CLI
 ├── mcp_server.py        # local stdio MCP server
 ├── schema.py            # SQLite schema + reversible migrations
 ├── db.py                # connections, mutation log, FTS reindex

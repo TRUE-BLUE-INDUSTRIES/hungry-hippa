@@ -24,7 +24,7 @@ from typing import Any, Dict, List, Optional
 from . import schema as _schema
 from . import limits as _limits
 
-logger = logging.getLogger("living_cortex.db")
+logger = logging.getLogger("hungry_hippa.db")
 
 _ID_PREFIX = {
     "episode": "E", "entity": "EN", "relationship": "R", "belief": "B",
@@ -91,8 +91,7 @@ class Database:
                 self.permissions_lax = True
                 self.permissions_warning = (
                     f"{self.path} is mode {oct(mode)}: other local users can read the "
-                    "plaintext memory database. Run `hermes living-cortex "
-                    "fix-permissions` to set 0600.")
+                    "plaintext memory database. Run `hungry-hippa fix-permissions` to set 0600.")
                 logger.warning(self.permissions_warning)
         except (OSError, AttributeError, NotImplementedError):
             # Windows and other platforms without POSIX bits: nothing to do.
@@ -103,7 +102,7 @@ class Database:
 
         ``lax`` means at least one file is readable by other local users. The
         runtime never silently changes an existing file's mode; it reports, and
-        ``hermes living-cortex fix-permissions`` is the explicit remediation.
+        ``hungry-hippa fix-permissions`` is the explicit remediation.
         """
         files: Dict[str, Optional[str]] = {}
         lax = False
@@ -288,7 +287,7 @@ class Database:
 
         self._run(_log, write=True)
 
-    def add_evidence(self, content: str, kind: str = "hermes_inference",
+    def add_evidence(self, content: str, kind: str = "agent_inference",
                      source_ref: str = "", session_id: str = "") -> str:
         """Store immutable raw evidence; returns evidence id."""
         evidence_id = self.next_id("evidence")

@@ -36,6 +36,7 @@ UNTRUSTED_ACTOR = "mcp-untrusted"
 # in-process callers, while an external caller is always resolved to an explicit
 # identity before it reaches these functions.
 IDENTITY_OWNER = "owner"
+IDENTITY_SYSTEM = "system"
 IDENTITY_UNTRUSTED = "untrusted"
 
 # Coarse ordering: unclassified < internal < private < restricted.
@@ -79,6 +80,16 @@ def is_owner_identity(identity: Any) -> bool:
     return str(identity or "").strip().lower() == IDENTITY_OWNER
 
 
+def is_system_identity(identity: Any) -> bool:
+    """True for the runtime's own background work (consolidation, maintenance).
+
+    System identity is trusted to read and to write derived rows, and is *not* the
+    operator: it has no approve/correct/forget-on-protected/purge capability and
+    everything it writes carries ``agent_consolidation`` provenance.
+    """
+    return str(identity or "").strip().lower() == IDENTITY_SYSTEM
+
+
 def is_owner(actor_id: Any, identity: Any = None) -> bool:
     """Is this caller the owner?
 
@@ -107,7 +118,8 @@ def write_quarantine(actor_id: Any, requested: bool = False,
     ``primary`` does not lift quarantine.
     """
     if identity is not None:
-        return bool(requested) or not is_owner_identity(identity)
+        trusted_writer = is_owner_identity(identity) or is_system_identity(identity)
+        return bool(requested) or not trusted_writer
     return bool(requested) or not is_owner(actor_id)
 
 
@@ -121,7 +133,9 @@ def may_read(item: Dict[str, Any], actor_id: Any, *,
     rows fetched before the columns existed.
     """
     actor = normalize_actor(actor_id)
-    owner = is_owner(actor, identity)
+    # The operator and the runtime's own background work read everything; an
+    # untrusted caller reads only its own rows. Identity decides, never a label.
+    owner = is_owner(actor, identity) or is_system_identity(identity)
     row_actor = normalize_actor(item.get("actor_id"))
     quarantined = bool(item.get("quarantined", 0))
     sensitivity = normalize_sensitivity(item.get("sensitivity"))
@@ -201,12 +215,13 @@ def may_capability(capability: str, *, provenance: Any = None,
         return owner_identity or prov == "external"  # untrusted reads own rows
     if capability == CAP_WRITE_CANDIDATE:
         return True
+    system = str(provenance or "").strip().lower() == "agent_consolidation"
     if capability == CAP_APPROVE:
         return user
     if capability in (CAP_CORRECT, CAP_FORGET):
         if protected:
             return user
-        return (user or agent) and owner_identity
+        return (user or agent or system) and (owner_identity or system)
     if capability == CAP_PURGE:
         return user and owner_identity
     return False
@@ -234,9 +249,13 @@ def policy_summary() -> Dict[str, Any]:
         raise AssertionError("default actor must be an owner actor")
     return {
         "model": "actor + policy checks (not capability-based security)",
-        "identity_model": ("caller-supplied actor_id; a policy selector, not "
-                           "authentication - a caller that claims an owner "
-                           "actor is treated as the owner"),
+        "identity_model": ("identity and provenance are strictly isolated. Owner "
+                           "identity requires a token verified by constant-time "
+                           "(HMAC) comparison against the operator's 0600 token "
+                           "file; unverified callers claiming owner status are "
+                           "securely remapped to the untrusted actor and cannot "
+                           "gain privileges by naming themselves"),
+        "identities": [IDENTITY_OWNER, IDENTITY_SYSTEM, IDENTITY_UNTRUSTED],
         "owner_actors": sorted(OWNER_ACTORS),
         "untrusted_actor_default": UNTRUSTED_ACTOR,
         "sensitivities": list(SENSITIVITIES),

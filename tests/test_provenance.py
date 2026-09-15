@@ -17,6 +17,7 @@ run_all() -> list of {name, passed, detail}.
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import sqlite3
 import sys
@@ -29,28 +30,28 @@ PLUGIN_DIR = Path(__file__).resolve().parent.parent
 
 
 def _import_plugin():
-    if sys.modules.get("livingcortex") is not None and getattr(
-        sys.modules["livingcortex"], "__file__", None
+    if sys.modules.get("hungry_hippa") is not None and getattr(
+        sys.modules["hungry_hippa"], "__file__", None
     ):
-        return sys.modules["livingcortex"]
-    pkg = types.ModuleType("livingcortex")
+        return sys.modules["hungry_hippa"]
+    pkg = types.ModuleType("hungry_hippa")
     pkg.__path__ = [str(PLUGIN_DIR)]
     pkg.__file__ = str(PLUGIN_DIR / "__init__.py")
-    sys.modules["livingcortex"] = pkg
+    sys.modules["hungry_hippa"] = pkg
     spec = importlib.util.spec_from_file_location(
-        "livingcortex", str(PLUGIN_DIR / "__init__.py"),
+        "hungry_hippa", str(PLUGIN_DIR / "__init__.py"),
         submodule_search_locations=[str(PLUGIN_DIR)])
     mod = importlib.util.module_from_spec(spec)
-    sys.modules["livingcortex"] = mod
+    sys.modules["hungry_hippa"] = mod
     spec.loader.exec_module(mod)
     return mod
 
 
 _PLUGIN = _import_plugin()
-from livingcortex import trust  # noqa: E402
-from livingcortex.config import load_config  # noqa: E402
-from livingcortex.controller import MemoryController  # noqa: E402
-from livingcortex.observability import Observability  # noqa: E402
+from hungry_hippa import trust  # noqa: E402
+from hungry_hippa.config import load_config  # noqa: E402
+from hungry_hippa.controller import MemoryController  # noqa: E402
+from hungry_hippa.observability import Observability  # noqa: E402
 
 
 def _ctrl(binding, prefix: str = "hh_prov_") -> Tuple[MemoryController, str]:
@@ -64,14 +65,22 @@ def _ctrl(binding, prefix: str = "hh_prov_") -> Tuple[MemoryController, str]:
 
 
 def _mcp_call(ctrl, name: str, args: Dict[str, Any]) -> Dict[str, Any]:
-    """Drive the real MCP handler (the external channel) in-process."""
-    import importlib.util as _ilu
+    """Drive the real MCP tool through the server object (the external channel).
 
-    spec = _ilu.spec_from_file_location("hh_prov_mcp", str(PLUGIN_DIR / "mcp_server.py"))
-    mod = _ilu.module_from_spec(spec)
-    sys.modules["hh_prov_mcp"] = mod
-    spec.loader.exec_module(mod)
-    return mod.call_tool(name, args, ctrl)
+    No owner token is configured here, so this is an untrusted MCP instance — the
+    channel whose claims must not become trusted provenance.
+    """
+    import asyncio
+
+    import mcp_harness as _h
+
+    app = _h.import_mcp_server().build_server(controller=ctrl, owner_token="")
+    result = asyncio.run(app.call_tool(name, args or {}))
+    text = "".join(getattr(b, "text", "") or "" for b in getattr(result, "content", []) or [])
+    try:
+        return json.loads(text) if text else {}
+    except json.JSONDecodeError:
+        return {"ok": False, "error": text[:120]}
 
 
 def _row(db: str, belief_id: str) -> Dict[str, Any]:
@@ -108,8 +117,8 @@ def check_agent_channel_cannot_promote_its_own_text():
     ctrl, db = _ctrl(trust.agent_binding(), prefix="hh_prov_agent_")
     import json as _json
 
-    from livingcortex.observability import Observability as _Obs
-    from livingcortex.tools import handle as _handle
+    from hungry_hippa.observability import Observability as _Obs
+    from hungry_hippa.tools import handle as _handle
 
     obs = _Obs(ctrl.db, ctrl.cfg, controller=ctrl)
     r = _json.loads(_handle(ctrl, obs, "add_belief", {

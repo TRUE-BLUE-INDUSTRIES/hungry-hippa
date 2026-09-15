@@ -30,28 +30,28 @@ PLUGIN_DIR = Path(__file__).resolve().parent.parent
 
 
 def _import_plugin():
-    if sys.modules.get("livingcortex") is not None and getattr(
-        sys.modules["livingcortex"], "__file__", None
+    if sys.modules.get("hungry_hippa") is not None and getattr(
+        sys.modules["hungry_hippa"], "__file__", None
     ):
-        return sys.modules["livingcortex"]
-    pkg = types.ModuleType("livingcortex")
+        return sys.modules["hungry_hippa"]
+    pkg = types.ModuleType("hungry_hippa")
     pkg.__path__ = [str(PLUGIN_DIR)]
     pkg.__file__ = str(PLUGIN_DIR / "__init__.py")
-    sys.modules["livingcortex"] = pkg
+    sys.modules["hungry_hippa"] = pkg
     spec = importlib.util.spec_from_file_location(
-        "livingcortex", str(PLUGIN_DIR / "__init__.py"),
+        "hungry_hippa", str(PLUGIN_DIR / "__init__.py"),
         submodule_search_locations=[str(PLUGIN_DIR)])
     mod = importlib.util.module_from_spec(spec)
-    sys.modules["livingcortex"] = mod
+    sys.modules["hungry_hippa"] = mod
     spec.loader.exec_module(mod)
     return mod
 
 
 _PLUGIN = _import_plugin()
-from livingcortex import trust  # noqa: E402
-from livingcortex.config import load_config  # noqa: E402
-from livingcortex.controller import MemoryController  # noqa: E402
-from livingcortex.observability import Observability  # noqa: E402
+from hungry_hippa import trust  # noqa: E402
+from hungry_hippa.config import load_config  # noqa: E402
+from hungry_hippa.controller import MemoryController  # noqa: E402
+from hungry_hippa.observability import Observability  # noqa: E402
 
 
 def _pair() -> Tuple[MemoryController, str]:
@@ -206,7 +206,7 @@ def check_unprotected_memory_can_still_change():
     """The control is not a blanket denial: ordinary rows still move."""
     ctrl, db = _pair()
     row = ctrl.semantic.add_belief("the staging area is near bay 2", kind="fact",
-                                   source_class="hermes_inference", confidence=0.5,
+                                   source_class="agent_inference", confidence=0.5,
                                    identity=ctrl.identity, provenance=ctrl.provenance,
                                    channel=ctrl.channel)
     _rebind(ctrl, trust.agent_binding())
