@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 
 from . import db as _db
 from . import policy as _policy
+from . import trust as _trust
 
 VALID_OUTCOMES = {"success", "failure", "mixed", "unknown", "unexpected"}
 
@@ -39,6 +40,9 @@ class EpisodicMemory:
                          quarantined: bool = False,
                          actor_id: str = "",
                          identity: Optional[str] = None,
+                         provenance: Optional[str] = None,
+                         claimed_source_class: str = "",
+                         channel: str = "",
                          session_id: str = "") -> Dict[str, Any]:
         if outcome not in VALID_OUTCOMES:
             outcome = "unknown"
@@ -60,6 +64,16 @@ class EpisodicMemory:
         # ``identity`` is the channel-resolved identity; when present it decides,
         # so the actor label cannot lift quarantine.
         quarantined = _policy.write_quarantine(actor, quarantined, identity)
+        # Episodes have no legacy source_class column, so the claim arrives as an
+        # explicit argument; the verified class is channel-derived either way.
+        if provenance is None:
+            provenance = (_trust.PROVENANCE_EXTERNAL
+                          if (identity is not None
+                              and not _policy.is_owner_identity(identity))
+                          else _trust.PROVENANCE_USER)
+        claimed = str(claimed_source_class or "").strip()
+        verified = _trust.verified_source_class(claimed or "hermes_inference",
+                                                provenance)
 
         def _insert(conn) -> None:
             conn.execute(
@@ -69,13 +83,15 @@ class EpisodicMemory:
                      tools_used, files_used, decisions, result, outcome, importance,
                      confidence, project, related_entities, source_refs, status,
                      sensitivity, quarantined, actor_id,
-                     created_at, updated_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                     claimed_source_class, verified_source_class, source_actor,
+                     ingestion_channel, created_at, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (episode_id, ts_start, ts_end, context, participants, location,
                  visual_entities, audio_transcript, user_request, actions_taken,
                  tools_used, files_used, decisions, result, outcome, importance,
                  confidence, project, rel, refs, "active",
-                 sens, 1 if quarantined else 0, actor, now, now),
+                 sens, 1 if quarantined else 0, actor,
+                 claimed, verified, actor, channel or (identity or ""), now, now),
             )
 
         ok = self.db._run(_insert, write=True)
@@ -94,7 +110,8 @@ class EpisodicMemory:
                              session_id)
         return {"episode_id": episode_id, "importance": importance,
                 "outcome": outcome, "quarantined": bool(quarantined),
-                "sensitivity": sens, "actor_id": actor}
+                "sensitivity": sens, "actor_id": actor,
+                "claimed_source_class": claimed, "verified_source_class": verified}
 
     def _field_importance(self, fields: Dict) -> float:
         # kept local to avoid circular import with attention; the provider

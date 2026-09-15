@@ -53,6 +53,8 @@ jobs:
         run: python tests/test_existence_oracle.py
       - name: File permissions
         run: python tests/test_file_permissions.py
+      - name: Provenance
+        run: python tests/test_provenance.py
 
       - name: Security suite
         run: python tests/test_security.py

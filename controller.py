@@ -147,6 +147,8 @@ class MemoryController:
         fields["actor_id"] = _policy.normalize_actor(
             fields.get("actor_id") or self.actor_id)
         fields["identity"] = self.identity
+        fields["provenance"] = self.provenance
+        fields["channel"] = self.channel
         fields["session_id"] = self.session_id
         result = self.episodic.remember_episode(**fields)
         eid = result.get("episode_id")
@@ -234,6 +236,8 @@ class MemoryController:
             return self.semantic.supersede(
                 belief_id, new_claim, reason=reason or "updated belief",
                 keep_confidence=confidence, source_class=source_class or b["source_class"],
+                actor_id=self.actor_id, identity=self.identity,
+                provenance=self.provenance, channel=self.channel,
                 session_id=self.session_id,
             )
         if confidence_delta is not None:
@@ -255,10 +259,20 @@ class MemoryController:
         return self.db.add_evidence(content, kind, source_ref, self.session_id)
 
     def contradict(self, belief_id: str, counter_claim: str, **kwargs: Any) -> Dict[str, Any]:
+        # The calling channel's provenance always travels with the write; a
+        # caller may not override it through kwargs.
+        kwargs.setdefault("identity", self.identity)
+        kwargs.setdefault("provenance", self.provenance)
+        kwargs.setdefault("channel", self.channel)
+        kwargs.setdefault("actor_id", self.actor_id)
         return self.semantic.contradict(belief_id, counter_claim,
                                         session_id=self.session_id, **kwargs)
 
     def supersede(self, belief_id: str, replacement_claim: str, **kwargs: Any) -> Dict[str, Any]:
+        kwargs.setdefault("identity", self.identity)
+        kwargs.setdefault("provenance", self.provenance)
+        kwargs.setdefault("channel", self.channel)
+        kwargs.setdefault("actor_id", self.actor_id)
         return self.semantic.supersede(belief_id, replacement_claim,
                                        session_id=self.session_id, **kwargs)
 

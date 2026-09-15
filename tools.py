@@ -184,10 +184,15 @@ def handle(cortex_controller, observability, action: str, args: Dict[str, Any]) 
             return json.dumps({"episodes": rows}, ensure_ascii=False, default=str)
 
         if action == "add_belief":
+            # The source_class in the arguments is a claim; the controller passes
+            # its channel-resolved provenance so the model cannot promote its own
+            # text to user_explicit (see trust.verified_source_class).
             r = c.semantic.add_belief(
                 args.get("claim", ""), kind=args.get("kind") or "belief",
                 confidence=args.get("confidence"),
                 source_class=args.get("source_class", "hermes_inference"),
+                identity=c.identity, provenance=c.provenance, channel=c.channel,
+                actor_id=c.actor_id,
                 session_id=c.session_id)
             return json.dumps(r, ensure_ascii=False)
 
@@ -201,7 +206,9 @@ def handle(cortex_controller, observability, action: str, args: Dict[str, Any]) 
         if action == "contradict":
             r = c.contradict(args.get("belief_id", ""), args.get("counter_claim", ""),
                              confidence=args.get("confidence"),
-                             source_class=args.get("source_class", "hermes_inference"))
+                             source_class=args.get("source_class", "hermes_inference"),
+                             identity=c.identity, provenance=c.provenance,
+                             channel=c.channel, actor_id=c.actor_id)
             return json.dumps(r, ensure_ascii=False, default=str)
 
         if action == "procedures":

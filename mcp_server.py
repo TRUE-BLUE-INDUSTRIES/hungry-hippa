@@ -442,6 +442,8 @@ def _t_remember(controller, args: Dict[str, Any], actor_id: str) -> Dict[str, An
             sensitivity=sensitivity,
             actor_id=actor_id,
             identity=controller.identity,
+            provenance=controller.provenance,
+            channel=controller.channel,
             session_id="mcp",
         )
         if r.get("error"):

@@ -67,6 +67,13 @@ TOKEN_FILENAME = "hungry_hippa.owner.token"
 TOKEN_BYTES = 32
 TOKEN_MAX_CHARS = 128
 
+# Source classes the runtime assigns itself, rather than believing a caller:
+# the model's own report of where something came from, and anything an
+# unauthorized caller wrote.
+AGENT_SOURCE_CLASS = "agent_reported"
+EXTERNAL_SOURCE_CLASS = "external_source"
+TRUSTED_SOURCE_CLASSES = frozenset({"user_explicit"})
+
 
 @dataclass(frozen=True)
 class Binding:
@@ -202,6 +209,33 @@ def external_binding(claimed_actor: Any = "", token: Any = "") -> Binding:
         label = _policy.UNTRUSTED_ACTOR
     return Binding(actor_id=label, identity=UNTRUSTED,
                    provenance=PROVENANCE_EXTERNAL, channel=CHANNEL_MCP)
+
+
+def verified_source_class(claimed: Any, provenance: Any) -> str:
+    """The source class the runtime is willing to believe for a write.
+
+    ``source_class`` is caller-supplied metadata, so it is a *claim*. What gets
+    stored as the effective class — and therefore what the trust weighting in
+    contradiction resolution uses — is decided here from the channel:
+
+      * ``user`` provenance (the operator's CLI, or an MCP caller holding the
+        owner token) may assert the origin; the claim becomes the verified class.
+      * ``agent`` provenance (the model) is recorded as ``agent_reported``: the
+        model may describe where something came from, but it does not get to
+        promote its own text to ``user_explicit``.
+      * ``external`` provenance (any other caller) is always
+        ``external_source``, and its writes are quarantined anyway.
+
+    The claim is preserved next to it in ``claimed_source_class``, so provenance
+    stays inspectable rather than silently rewritten.
+    """
+    claim = str(claimed or "").strip() or "hermes_inference"
+    prov = normalize_provenance(provenance)
+    if prov == PROVENANCE_EXTERNAL:
+        return EXTERNAL_SOURCE_CLASS
+    if prov == PROVENANCE_AGENT:
+        return AGENT_SOURCE_CLASS
+    return claim
 
 
 def binding_summary() -> dict:

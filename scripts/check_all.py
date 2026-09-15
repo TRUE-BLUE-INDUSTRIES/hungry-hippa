@@ -31,6 +31,7 @@ STEPS: Sequence[Tuple[str, List[str]]] = (
     ("identity binding", ["python", "tests/test_trust_boundary.py"]),
     ("existence oracle", ["python", "tests/test_existence_oracle.py"]),
     ("file permissions", ["python", "tests/test_file_permissions.py"]),
+    ("provenance", ["python", "tests/test_provenance.py"]),
     ("security", ["python", "tests/test_security.py"]),
     ("demo transcript", ["python", "demo/demo.py", "--tmp", "--check"]),
     ("eval result drift", ["python", "eval/check_results.py"]),

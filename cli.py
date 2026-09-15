@@ -44,6 +44,8 @@ def living_cortex_command(args) -> None:
         return _cmd_owner_token(args)
     if sub == "fix-permissions":
         return _cmd_fix_permissions(args)
+    if sub == "verify":
+        return _cmd_verify(args)
     c = _controller()
     obs = Observability(c.db, c.cfg, controller=c)
     if sub == "status":
@@ -102,7 +104,8 @@ def living_cortex_command(args) -> None:
     else:
         print("Unknown living-cortex command. Available: status, recall, "
               "episodes, graph, why, consolidate, learned, changed, "
-              "forgotten, export, selftest, migrate")
+              "forgotten, export, selftest, migrate, owner-token, "
+              "fix-permissions, verify")
 
 
 def _cmd_selftest(args) -> None:
@@ -211,6 +214,50 @@ def _cmd_fix_permissions(args) -> None:
         sys.exit(1)
 
 
+def _cmd_verify(args) -> None:
+    """Operator confirmation: promote a belief's verified provenance.
+
+    This is the trusted boundary for provenance. The model cannot promote its own
+    text to ``user_explicit``; the operator, at their own terminal, can state that
+    a memory is indeed something they said.
+    """
+    from . import db as _db
+    from . import trust as _trust
+
+    ctrl = _controller()
+    b = ctrl.semantic.get_belief(args.belief_id)
+    if not b:
+        _print_json({"error": f"unknown belief {args.belief_id}"})
+        sys.exit(1)
+    source_class = args.source_class
+    if source_class not in ("user_explicit", "document", "tool_result"):
+        _print_json({"error": "source_class must be one of user_explicit, document, "
+                              "tool_result"})
+        sys.exit(1)
+
+    def _upd(conn) -> int:
+        cur = conn.execute(
+            "UPDATE beliefs SET source_class = ?, verified_source_class = ?,"
+            " source_actor = ?, ingestion_channel = 'operator_cli', updated_at = ?"
+            " WHERE belief_id = ?",
+            (source_class, source_class, _trust.CHANNEL_CLI, _db.now_iso(),
+             args.belief_id))
+        return cur.rowcount
+
+    changed = ctrl.db._run(_upd, write=True)
+    ctrl.db.log_mutation("verify_provenance", "belief", args.belief_id,
+                         f"operator set verified_source_class={source_class} "
+                         f"(claimed was {b.get('claimed_source_class', '')})",
+                         ctrl.session_id)
+    _print_json({
+        "belief_id": args.belief_id,
+        "claimed_source_class": b.get("claimed_source_class", ""),
+        "verified_source_class": source_class,
+        "rows_changed": changed,
+        "note": "verified provenance is what the trust weighting uses",
+    })
+
+
 def register_cli(subparser) -> None:
     """Build the ``hermes living-cortex`` argparse tree.
 
@@ -234,6 +281,13 @@ def register_cli(subparser) -> None:
         help="Set 0600 on the database, its WAL/SHM sidecars and its backups",
     )
     fix.add_argument("--db", default="", help="Database path (default: resolved config path)")
+    ver = subs.add_parser(
+        "verify",
+        help="Operator confirmation: set a belief's verified provenance (trust boundary)",
+    )
+    ver.add_argument("belief_id")
+    ver.add_argument("--source-class", dest="source_class", default="user_explicit",
+                     help="user_explicit (default), document, or tool_result")
     mig = subs.add_parser(
         "migrate",
         help="Backup an existing Living Cortex DB and apply Hungry Hippa migrations",

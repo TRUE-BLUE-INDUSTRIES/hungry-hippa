@@ -48,7 +48,13 @@ class Observability:
             "claim": b["claim"],
             "kind": b["kind"],
             "confidence": b["confidence"],
-            "source_class": b["source_class"],
+            "source_class": b.get("source_class"),
+            # Provenance is inspectable on purpose: what the writer claimed, and
+            # what the runtime was willing to believe (see trust.py).
+            "claimed_source_class": b.get("claimed_source_class", ""),
+            "verified_source_class": b.get("verified_source_class", ""),
+            "source_actor": b.get("source_actor", ""),
+            "ingestion_channel": b.get("ingestion_channel", ""),
             "contradictions": b["contradictions"],
             "derived_from": derived,
             "evidence": [{"evidence_id": e["evidence_id"], "kind": e["kind"],

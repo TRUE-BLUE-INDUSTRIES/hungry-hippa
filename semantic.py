@@ -13,11 +13,15 @@ from typing import Any, Dict, List, Optional
 
 from . import db as _db
 from . import policy as _policy
+from . import trust as _trust
 
 KINDS = {"fact", "belief", "hypothesis", "procedural_belief"}
 SOURCE_CLASSES = {
     "user_explicit", "document", "tool_result", "visual_observation",
     "audio_observation", "external_source", "hermes_inference", "derived_pattern",
+    # assigned by the runtime, never accepted as a caller claim: the model's own
+    # report of where something came from (see trust.verified_source_class)
+    "agent_reported",
 }
 
 # Confidence bonus by source quality — used to resolve contradiction clusters
@@ -31,6 +35,8 @@ _SOURCE_PRIORITY = {
     "external_source": 0.05,
     "hermes_inference": 0.0,
     "derived_pattern": 0.05,
+    # the model's own report: above inference, below anything the operator said
+    "agent_reported": 0.08,
 }
 
 
@@ -56,6 +62,8 @@ class SemanticMemory:
                    quarantined: bool = False,
                    actor_id: str = "",
                    identity: Optional[str] = None,
+                   provenance: Optional[str] = None,
+                   channel: str = "",
                    session_id: str = "") -> Dict[str, Any]:
         claim = (claim or "").strip()
         if not claim:
@@ -64,8 +72,24 @@ class SemanticMemory:
             kind = "belief"
         if source_class not in SOURCE_CLASSES:
             source_class = "hermes_inference"
-        if confidence is None:
-            confidence = self.default_confidence(source_class)
+        # ``source_class`` is a claim. The effective class — the one the trust
+        # weighting uses — is decided by the channel (trust.py), and the claim is
+        # kept beside it so provenance stays inspectable instead of rewritten.
+        if provenance is None:
+            provenance = (_trust.PROVENANCE_EXTERNAL
+                          if (identity is not None
+                              and not _policy.is_owner_identity(identity))
+                          else _trust.PROVENANCE_USER)
+        claimed_source_class = source_class
+        source_class = _trust.verified_source_class(claimed_source_class, provenance)
+        # Confidence is capped by the trust of the channel: a claim from the model
+        # or from an unauthorized caller cannot carry a user-grade confidence into
+        # the contradiction weighting, whatever number it sent.
+        ceiling = self.default_confidence(source_class)
+        if provenance in (_trust.PROVENANCE_AGENT, _trust.PROVENANCE_EXTERNAL):
+            confidence = ceiling if confidence is None else min(float(confidence), ceiling)
+        elif confidence is None:
+            confidence = ceiling
         belief_id = self.db.next_id("belief")
         now = _db.now_iso()
         sens = _policy.normalize_sensitivity(sensitivity)
@@ -82,12 +106,14 @@ class SemanticMemory:
                      belief_id, kind, claim, confidence, importance, status,
                      derived_from, related_entities, valid_from, source_class,
                      contradictions, sensitivity, quarantined, actor_id,
-                     created_at, updated_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                     claimed_source_class, verified_source_class, source_actor,
+                     ingestion_channel, created_at, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (belief_id, kind, claim, confidence, importance, "active",
                  _db.jdump(derived_from or []), _db.jdump(related_entities or []),
                  valid_from or now, source_class, "[]", sens,
-                 1 if quarantined else 0, actor, now, now),
+                 1 if quarantined else 0, actor, claimed_source_class,
+                 source_class, actor, channel or (identity or ""), now, now),
             )
 
         ok = self.db._run(_insert, write=True)
@@ -99,10 +125,14 @@ class SemanticMemory:
         self.db.log_mutation("add_belief", "belief", belief_id,
                              f"[{kind}|{source_class}|c={confidence:.2f}] {claim[:160]}"
                              f" actor={actor} sensitivity={sens}"
+                             f" claimed={claimed_source_class}"
                              f"{' quarantined' if quarantined else ''}",
                              session_id)
         return {"belief_id": belief_id, "confidence": confidence,
-                "source_class": source_class, "quarantined": bool(quarantined),
+                "source_class": source_class,
+                "claimed_source_class": claimed_source_class,
+                "verified_source_class": source_class,
+                "quarantined": bool(quarantined),
                 "sensitivity": sens, "actor_id": actor}
 
     # ---------------------------------------------------------------- read
@@ -183,6 +213,8 @@ class SemanticMemory:
     def supersede(self, belief_id: str, replacement_claim: str, *,
                   reason: str = "", keep_confidence: Optional[float] = None,
                   source_class: str = "hermes_inference",
+                  actor_id: str = "", identity: Optional[str] = None,
+                  provenance: Optional[str] = None, channel: str = "",
                   session_id: str = "") -> Dict[str, Any]:
         """Mark an old belief superseded and add the new one, linking history.
 
@@ -212,12 +244,15 @@ class SemanticMemory:
             importance=old["importance"], source_class=source_class,
             related_entities=old["related_entities"],
             derived_from=old["derived_from"] + [f"supersedes:{belief_id}"],
-            session_id=session_id,
+            actor_id=actor_id, identity=identity, provenance=provenance,
+            channel=channel, session_id=session_id,
         )
 
     def contradict(self, belief_id: str, counter_claim: str, *,
                    confidence: Optional[float] = None,
                    source_class: str = "hermes_inference",
+                   actor_id: str = "", identity: Optional[str] = None,
+                   provenance: Optional[str] = None, channel: str = "",
                    session_id: str = "") -> Dict[str, Any]:
         """Record a contradiction: all claims are preserved and cross-linked.
 
@@ -235,6 +270,8 @@ class SemanticMemory:
                               confidence=new_conf, importance=old["importance"],
                               source_class=source_class,
                               related_entities=old["related_entities"],
+                              actor_id=actor_id, identity=identity,
+                              provenance=provenance, channel=channel,
                               session_id=session_id)
         if "belief_id" not in new or not new["belief_id"]:
             return new

@@ -301,6 +301,35 @@ ALTER TABLE episodes DROP COLUMN quarantined;
 ALTER TABLE episodes DROP COLUMN sensitivity;
 """,
     },
+    5: {
+        "description": "Provenance split: claimed vs verified source class, plus the writing actor and the ingestion channel, on episodes and beliefs. The existing source_class column keeps its meaning as the effective (verified) class used for trust weighting; existing rows keep their value in both new columns.",
+        "up": """
+ALTER TABLE episodes ADD COLUMN claimed_source_class TEXT NOT NULL DEFAULT '';
+ALTER TABLE episodes ADD COLUMN verified_source_class TEXT NOT NULL DEFAULT '';
+ALTER TABLE episodes ADD COLUMN source_actor TEXT NOT NULL DEFAULT '';
+ALTER TABLE episodes ADD COLUMN ingestion_channel TEXT NOT NULL DEFAULT '';
+ALTER TABLE beliefs ADD COLUMN claimed_source_class TEXT NOT NULL DEFAULT '';
+ALTER TABLE beliefs ADD COLUMN verified_source_class TEXT NOT NULL DEFAULT '';
+ALTER TABLE beliefs ADD COLUMN source_actor TEXT NOT NULL DEFAULT '';
+ALTER TABLE beliefs ADD COLUMN ingestion_channel TEXT NOT NULL DEFAULT '';
+UPDATE episodes SET source_actor = actor_id WHERE source_actor = '';
+UPDATE beliefs SET claimed_source_class = source_class, verified_source_class = source_class, source_actor = actor_id WHERE claimed_source_class = '';
+CREATE INDEX ix_episodes_verified_source ON episodes(verified_source_class);
+CREATE INDEX ix_beliefs_verified_source ON beliefs(verified_source_class);
+""",
+        "down": """
+DROP INDEX IF EXISTS ix_beliefs_verified_source;
+DROP INDEX IF EXISTS ix_episodes_verified_source;
+ALTER TABLE beliefs DROP COLUMN ingestion_channel;
+ALTER TABLE beliefs DROP COLUMN source_actor;
+ALTER TABLE beliefs DROP COLUMN verified_source_class;
+ALTER TABLE beliefs DROP COLUMN claimed_source_class;
+ALTER TABLE episodes DROP COLUMN ingestion_channel;
+ALTER TABLE episodes DROP COLUMN source_actor;
+ALTER TABLE episodes DROP COLUMN verified_source_class;
+ALTER TABLE episodes DROP COLUMN claimed_source_class;
+""",
+    },
 }
 
 CURRENT_VERSION = max(MIGRATIONS.keys())

@@ -53,6 +53,8 @@ DEFAULTS: Dict[str, Any] = {
         "external_source": 0.60,
         "hermes_inference": 0.45,
         "derived_pattern": 0.50,
+        # assigned by the runtime when the writer is the model, not the user
+        "agent_reported": 0.55,
     },
     # --- retrieval (§5) ---
     "retrieval": {

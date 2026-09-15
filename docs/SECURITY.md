@@ -67,6 +67,31 @@ Sensitivity (`unclassified`/`internal`/`private`/`restricted`) is a **read-polic
 label stored in plain text**. It is not encryption and not a data-classification
 system. Untrusted actors cannot raise the label of their own writes.
 
+### Provenance: claim vs verified
+
+`source_class` in a request is a **claim**. The class the runtime is willing to
+believe — the one the trust weighting uses — is decided by the channel and stored
+in `verified_source_class`, next to the untouched claim:
+
+| Channel provenance | `verified_source_class` | Confidence ceiling |
+|---|---|---|
+| `user` (CLI, or MCP with the owner token) | what it claimed | the class default (up to 0.95) |
+| `agent` (the model, via the `cortex` tool) | `agent_reported` | 0.55 |
+| `external` (any other caller) | `external_source` | 0.60, and the write is quarantined |
+
+Each row keeps `claimed_source_class`, `verified_source_class`, `source_actor`
+and `ingestion_channel`, so provenance is inspectable rather than rewritten
+(`hermes living-cortex why <belief_id>` returns all four). The operator can
+promote a memory from their own terminal:
+
+```bash
+hermes living-cortex verify B-0007 --source-class user_explicit
+```
+
+which is the only path that sets `verified_source_class = user_explicit` for a
+memory the model wrote. The model can describe where something came from; it
+cannot promote its own text to the operator's voice.
+
 ## Controls implemented
 
 ### Request shape and size
