@@ -123,16 +123,16 @@ def run_all(db_path: str, embed_enabled: bool = False) -> List[Dict[str, Any]]:
 
     # ------------------------------------------------------- T3 graph
     def t3():
-        c.relate("Dennis", "WORKS_ON", "Voxvil", src_type="person", dst_type="project")
-        c.relate("Voxvil", "USES", "Prusa_XL", src_type="project", dst_type="device")
-        c.relate("Voxvil", "HAD_PROBLEM", "warping", src_type="project", dst_type="problem")
+        c.relate("Operator", "WORKS_ON", "Project_V", src_type="person", dst_type="project")
+        c.relate("Project_V", "USES", "Printer_A", src_type="project", dst_type="device")
+        c.relate("Project_V", "HAD_PROBLEM", "warping", src_type="project", dst_type="problem")
         c.relate("warping", "SOLVED_BY", "heated enclosure",
                  src_type="problem", dst_type="solution")
-        # multi-hop: from Dennis reach Prusa_XL within 2 hops
-        edges = c.graph.traverse("Dennis", hop_limit=2)
+        # multi-hop: from Operator reach Printer_A within 2 hops
+        edges = c.graph.traverse("Operator", hop_limit=2)
         texts = {f"{e['src']}-{e['rel']}-{e['dst']}" for e in edges}
-        assert "Voxvil-USES-Prusa_XL" in texts, texts
-        assert "Voxvil-HAD_PROBLEM-warping" in texts, texts
+        assert "Project_V-USES-Printer_A" in texts, texts
+        assert "Project_V-HAD_PROBLEM-warping" in texts, texts
         assert "warping-SOLVED_BY-heated enclosure" in texts, texts
         return f"multi-hop traversal found {len(edges)} edges"
 
@@ -155,16 +155,16 @@ def run_all(db_path: str, embed_enabled: bool = False) -> List[Dict[str, Any]]:
 
     # ------------------------------------------------------- T5 contradiction
     def t5():
-        a = c.semantic.add_belief("Prusa XL prints PLA best at 215C", kind="belief",
+        a = c.semantic.add_belief("Printer A prints PLA best at 215C", kind="belief",
                                   confidence=0.9, source_class="tool_result")
-        b = c.semantic.contradict(a["belief_id"], "Prusa XL prints PLA best at 230C",
+        b = c.semantic.contradict(a["belief_id"], "Printer A prints PLA best at 230C",
                                   confidence=0.6, source_class="hermes_inference")
         winner = c.semantic.get_belief(a["belief_id"])
         loser = c.semantic.get_belief(b["belief_id"])
         assert winner["status"] == "active" and loser["status"] == "contradicted"
         assert b["belief_id"] in winner["contradictions"]
         # explicit user correction flips it
-        c2 = c.semantic.contradict(winner["belief_id"], "Prusa XL prints PLA best at 230C",
+        c2 = c.semantic.contradict(winner["belief_id"], "Printer A prints PLA best at 230C",
                                    confidence=0.95, source_class="user_explicit")
         active = c.semantic.get_belief(c2["belief_id"])
         assert active["status"] == "active", active["status"]
@@ -237,10 +237,10 @@ def run_all(db_path: str, embed_enabled: bool = False) -> List[Dict[str, Any]]:
     def t9():
         ev_before = c.add_evidence("raw: print completed at 215C",
                                    kind="tool_result")
-        b1 = c.semantic.add_belief("Prusa XL nozzle 0.4mm is good for PLA",
+        b1 = c.semantic.add_belief("Printer A nozzle 0.4mm is good for PLA",
                                    kind="fact", confidence=0.8, source_class="document",
                                    evidence_ids=[ev_before])
-        b2 = c.semantic.add_belief("Prusa XL nozzle 0.4mm is good for PLA",
+        b2 = c.semantic.add_belief("Printer A nozzle 0.4mm is good for PLA",
                                    kind="fact", confidence=0.5, source_class="hermes_inference")
         report = c.consolidate(reason="test-t9")
         b2_after = c.semantic.get_belief(b2["belief_id"])
