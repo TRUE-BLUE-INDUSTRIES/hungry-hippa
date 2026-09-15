@@ -43,6 +43,37 @@ run on every push.
   survived the rename, in a public repository. (The identifiers are deliberately not
   repeated here.)
 
+### Security (red-team hardening pass)
+
+Eight findings from an operator-requested red-team review, each reproduced before
+being fixed and each with a named regression test. Full detail, including what is
+still weak: `docs/SECURITY_AUDIT.md` and `RED_TEAM_REPORT.md`.
+
+- **Identity is bound to the channel.** An MCP caller is the owner only with the
+  owner token (`0600` file, `hermes living-cortex owner-token`); `actor_id` is a
+  label, never privilege. Previously `actor_id: "primary"` read private memory,
+  returned the database path and purged owner beliefs.
+- **Recalled memory is framed as data** with a no-authority trust block, and every
+  rendered field is neutralized so it cannot forge markup, a metadata header or a
+  role turn. Not a claim that prompt injection is solved.
+- **Non-enumerating exclusions**: an unauthorized caller no longer learns whether a
+  protected memory exists, or its id, or graph entity names.
+- **Owner-only file permissions** for new databases, backups and exports (never
+  wider than the source), with `fix-permissions` as the explicit remedy for an
+  existing lax file.
+- **Provenance split** (schema v5): `claimed_source_class` vs
+  `verified_source_class`, plus `source_actor` and `ingestion_channel`. The model's
+  text is `agent_reported`; confidence is capped by the verified class.
+- **Protected facts cannot be rewritten by a non-operator channel**: supersede is
+  refused, a contradiction becomes a quarantined candidate, and ordinary rows are
+  unaffected.
+- **Capability ladder** per channel: the model may read and write candidates, not
+  approve, correct or forget protected facts, or purge. Purge additionally needs an
+  operator channel and is audited when refused.
+- **Volume controls**: database-backed write quota that survives process restarts,
+  database-size warning, configurable consolidation scan caps, clamped graph hops,
+  and backups that refuse to run without space.
+
 ### Added
 
 - **Memory architecture (schema v4)**: `sensitivity`, `quarantined` and `actor_id`

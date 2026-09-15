@@ -100,13 +100,16 @@ start the process can also read its stdout.
 
 *Threat:* an MCP client passes `actor_id: "primary"` and becomes the owner.
 
-*Implemented:* nothing prevents this. `actor_id` is caller-supplied by design;
-the boundary is "whoever can start this process". This is documented in
-`docs/MCP.md` and is the main reason the MCP surface is stdio-only and must not be
-put behind a network wrapper.
+*Implemented:* identity is no longer a request field. `trust.py` resolves it from
+the channel: in-process code is owner; an MCP caller is owner only when it presents
+the owner token from a `0600` file that only the operator's user can read; anything
+else is untrusted, writes quarantined, and a claim colliding with an owner label is
+remapped to `mcp-untrusted`. `policy.may_read` refuses the label collision a second
+time. See `tests/test_trust_boundary.py`.
 
-*Residual:* accept and document, or add an authenticated transport later. Do not
-describe it as solved.
+*Residual:* the token is a local capability, not authentication. A process running
+as the operator can read the token file and the database directly. The MCP surface
+is still stdio-only and must not be put behind a network wrapper.
 
 ### 6. SQL injection
 
@@ -230,6 +233,67 @@ contents equal the pre-migration state.
 *Residual:* the backup is a plaintext copy next to the database — it inherits the
 same file permissions and is not encrypted at rest. Automated retention/pruning of
 old backups is not implemented.
+
+### 15. Caller-declared provenance (trust inflation)
+
+*Threat:* a writer claims `source_class: user_explicit` and inherits the highest
+contradiction weight and confidence ceiling.
+
+*Implemented:* schema v5 separates `claimed_source_class` from
+`verified_source_class`; the effective class is channel-derived (`agent` →
+`agent_reported`, `external` → `external_source`), confidence is capped by it, and
+`source_actor`/`ingestion_channel` are recorded. Only
+`hermes living-cortex verify` (operator channel) sets `user_explicit` for a memory
+the model wrote. See `tests/test_provenance.py`.
+
+*Residual:* provenance records origin, not truth. The operator can assert a false
+origin; the runtime does not verify claims.
+
+### 16. Rewriting history with a confident contradiction
+
+*Threat:* a high-confidence contradiction retires the operator's own statement and
+becomes the active, recall-visible claim.
+
+*Implemented:* a belief is protected when it is operator-attested or a
+high-confidence (>= 0.90) non-quarantined canonical fact. Superseding one from a
+non-operator channel is refused (`supersede_denied`); contradicting one stores the
+claim as a quarantined candidate (`contradict_blocked`) and leaves the fact and its
+cluster untouched. Ordinary rows remain supersedable. See
+`tests/test_supersession.py`.
+
+*Residual:* the protection rule is a two-trigger heuristic with a judgement-call
+threshold. Blocked candidates accumulate in quarantine until reviewed
+(`recall --quarantined`).
+
+### 17. Confused deputy: the model's owner-identity tool
+
+*Threat:* the model, acting on text it read elsewhere, uses the in-process `cortex`
+tool to write owner-trusted memory or retire something the operator relies on.
+
+*Implemented:* the plugin binds with owner identity but `agent` provenance, so its
+writes are `agent_reported` and confidence-capped; and
+`policy.may_capability()` maps the channel to read / write_candidate / approve /
+correct / forget / purge, with `approve`, protected `correct`/`forget` and `purge`
+reserved for the operator channel. See `tests/test_confused_deputy.py`.
+
+*Residual:* the boundary is between channels, not thoughts. A model that decides to
+write memory will write memory, correctly labelled as its own report, and nothing
+checks that the content is true.
+
+### 18. Volume abuse across process restarts
+
+*Threat:* legal-size records accumulate without limit; a per-process budget is reset
+by starting a new process; a full disk stops the product.
+
+*Implemented:* write accounting lives in the database (`write_quota`, per actor, per
+hour-window, survives restarts) with refusals audited as `write_quota_exceeded`;
+database size is reported in `health()` with a warning threshold; consolidation scan
+caps are configurable; graph traversal clamps `hop_limit`; a migration backup
+refuses to run without room for a full copy. See `tests/test_resource_limits.py`.
+
+*Residual:* local-first guards, not a security boundary. Someone with write access
+to the database can clear the accounting; there are no per-caller read quotas or
+query timeouts, and no automatic compaction or backup rotation.
 
 ## Explicitly not covered
 

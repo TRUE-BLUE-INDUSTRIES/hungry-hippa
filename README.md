@@ -251,6 +251,8 @@ More detail: [docs/SECURITY.md](docs/SECURITY.md), [docs/MIGRATION.md](docs/MIGR
 | Memory-layer behaviour (quarantine, explain, budget) | `python tests/test_memory_architecture.py` → 8/8 |
 | MCP schemas, policy and stdio round trip | `python tests/test_mcp_schema.py` → 11/11 |
 | Limits, redaction, injection resistance, no-export | `python tests/test_security.py` → 14/14 |
+| Identity binding, existence oracle, file permissions | `tests/test_trust_boundary.py` 6/6, `tests/test_existence_oracle.py` 5/5, `tests/test_file_permissions.py` 6/6 |
+| Provenance, injection framing, supersession, confused deputy, resources | `tests/test_provenance.py` 6/6, `tests/test_injection_framing.py` 7/7, `tests/test_supersession.py` 7/7, `tests/test_confused_deputy.py` 6/6, `tests/test_resource_limits.py` 8/8 |
 | Migration keeps existing memories | `python tests/test_migration.py` → 7/7 |
 | Memory challenge results (with vs without) | `python eval/harness.py` → `eval/REPORT.md`, `eval/results.json` |
 | The demo runs and matches its expected output | `python demo/demo.py --check` |

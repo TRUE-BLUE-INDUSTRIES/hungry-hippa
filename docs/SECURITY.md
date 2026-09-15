@@ -111,6 +111,41 @@ Rejections are explicit: the caller gets `{"ok": false, "error": "... exceeds N
 characters"}` rather than a silent truncation. Truncation only happens where a
 partial answer is still useful, and it leaves a visible `…[truncated]` marker.
 
+### Capabilities by channel
+
+Operations are not equally dangerous, so they are not equally available. The
+channel decides what a caller may do (`policy.may_capability`):
+
+| Capability | Operator channel (CLI, owner token) | The model (`cortex` tool) | Anyone else |
+|---|---|---|---|
+| `read` | everything | everything (it is the operator's own agent) | its own rows only |
+| `write_candidate` | yes | yes, recorded as `agent_reported` | yes, stored quarantined |
+| `approve` (attest what the operator said) | **yes** (`hermes living-cortex verify`) | no | no |
+| `correct` a protected fact | **yes** | no — becomes a quarantined candidate | no |
+| `forget`/archive a protected fact | **yes** | no | no |
+| `forget` an ordinary row | yes | yes (its own candidates included) | no |
+| `purge` | **yes**, with `confirmation: true` over MCP | no | no |
+
+Two consequences worth stating: no tool action can promote a memory's provenance
+(only the operator's own terminal can), and an external caller may write a
+candidate but remove nothing at all — not even its own row.
+
+### Volume: what is bounded, and what it is not
+
+| Guard | Default | Effect |
+|---|---|---|
+| MCP calls per process | 1 000 (`HUNGRY_HIPPA_MAX_MCP_CALLS`) | stops a runaway loop in one process |
+| Writes per actor per hour | 20 000 (`HUNGRY_HIPPA_MAX_WRITES_PER_HOUR`) | **stored in the database**, so a fresh process does not reset it |
+| Database size warning | 512 MiB (`HUNGRY_HIPPA_MAX_DB_BYTES`) | reported in `status`/`health`; a warning, nothing is deleted or refused |
+| Consolidation scan | 500 beliefs / 500 episodes per run (`consolidation.max_*_scan`) | bounded work per consolidation |
+| Graph traversal | 4 hops (`HUNGRY_HIPPA_MAX_HOPS`) | bounded frontier |
+| Migration backup | refuses without room for a full copy (`HUNGRY_HIPPA_BACKUP_SPACE_MULTIPLIER`) | no half-written backups on a full disk |
+
+These are local-first guards, not a security boundary: someone with write access to
+the database can clear the accounting, there are no per-caller read quotas or query
+timeouts, and backups are never pruned. A full disk still stops writes — it just
+says so, and the write that would have failed is already visible in `status`.
+
 ### Recalled memory is data, not instructions
 
 A memory runtime is a prompt-injection persistence layer if it is not framed as
