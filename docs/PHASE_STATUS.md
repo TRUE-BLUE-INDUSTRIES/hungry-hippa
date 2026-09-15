@@ -453,6 +453,90 @@ Not done: no video was recorded (the two-minute script is in `demo/README.md`), 
 demo does not drive a real Grok CLI session — step 7 uses our own MCP client process, so
 "a second compatible agent" is demonstrated with a generic MCP client, not with Grok.
 
+---
+
+## Phase 8 — product-quality packaging
+
+Objective: a technically competent stranger can install, test and understand the project
+without contacting the operator.
+
+Files in scope: `README.md` (rewritten), `CHANGELOG.md` (new), `CONTRIBUTING.md` (new),
+`docs/TECHNICAL_REPORT.md` (new), `docs/RELEASE_CHECKLIST.md` (new),
+`docs/LICENSE_NOTES.md` (new), `eval/check_results.py` (new),
+`scripts/check_all.py` (new), `.github/workflows/test.yml` (new). No runtime module
+changed.
+
+Validation commands:
+
+```
+python scripts/check_all.py         # every suite + demo check + eval drift check
+python -c "import yaml; yaml.safe_load(open('.github/workflows/test.yml'))"
+```
+
+Expected evidence: the README opens with the required sentence; the mermaid diagram names
+only modules that exist; every local link resolves; the CI steps are the same commands a
+contributor runs locally and all of them pass locally.
+
+Rollback: docs-only revert, plus deleting the two new scripts and the workflow file.
+
+Status: see the "Phase 8 results" section at the bottom.
+
+---
+
+## Phase 8 results — COMMIT `docs: package Hungry Hippa for a first-time installer`
+
+Files: `README.md` (rewritten), `CHANGELOG.md`, `CONTRIBUTING.md`,
+`docs/TECHNICAL_REPORT.md`, `docs/RELEASE_CHECKLIST.md`, `docs/LICENSE_NOTES.md`,
+`eval/check_results.py`, `scripts/check_all.py`, `.github/workflows/test.yml`,
+`eval/README.md` (one table row). No runtime module changed.
+
+What was produced:
+
+- `README.md` opens with the exact required sentence, then: a capability table where every
+  row names the test that covers it, quick start (`cp -r` into `$HERMES_HOME/plugins` plus
+  `hermes config set memory.provider living-cortex`), a sample config, an MCP section
+  marked untested for clients, a troubleshooting table drawn from real failure modes, a
+  mermaid architecture diagram built from the actual modules, layout, evidence table and
+  links to the licensing/security/changelog documents.
+- `CHANGELOG.md`: the unreleased migration work (added/changed/fixed/compatibility/known
+  limitations), including the two real bugs fixed during the migration, plus the 0.2.0
+  Living Cortex baseline entry.
+- `CONTRIBUTING.md`: the test gate, the eight hard rules (stdlib only, never silently
+  delete, no unsupported claims, throwaway DBs, no secrets/personal data, no overclaiming,
+  additive compatibility, reversible migrations), test/commit conventions.
+- `docs/TECHNICAL_REPORT.md`: data model, retrieval formula, context-compiler contract,
+  actor policy, limits, MCP surface, the measured numbers, and a limitations section
+  (including the negative-is-better bm25 wart and the `neural.py` stub).
+- `docs/RELEASE_CHECKLIST.md`: eight sections incl. an explicit "CI has not run yet" item
+  and a rollback path.
+- `docs/LICENSE_NOTES.md`: MIT, standard-library-only dependency review, host-provided
+  optional imports, optional Ollama, naming/trademark notes.
+- `.github/workflows/test.yml`: compileall gate, the five suites, the demo check, a schema
+  assertion that `export` is absent, the eval drift check, and a tracked-database check.
+- `scripts/check_all.py`: one command that runs the same seven steps CI runs.
+- `eval/check_results.py`: re-runs the harness into a temp dir and compares the
+  machine-independent aggregate metrics against the committed `results.json`, so CI can
+  detect drift without failing on timestamps or latencies.
+
+Verification actually performed (not CI — nothing is pushed):
+
+```
+python scripts/check_all.py --quiet                       -> all 7 steps passed
+python eval/check_results.py --verbose                    -> stable metrics match (5 groups, 10 scenarios)
+python -c "import yaml; yaml.safe_load(...)"               -> workflow YAML parses
+python -m compileall -q . -x '__pycache__'                 -> ok
+python mcp_server.py --print-schemas                       -> 6 tools, no export
+git ls-files | grep -Ei '\.(db|sqlite|bak|key|pem)$'       -> no matches
+local markdown link check over 17 files                    -> 16 links, 0 broken
+mermaid module check                                       -> 16 modules referenced, 0 missing
+```
+
+Not done: the GitHub Actions matrix (Python 3.12/3.13) has never executed — the workflow
+is unverified configuration, and the release checklist says so. Development and every
+measurement in this repository were produced on Python 3.14.7; no other version has been
+run.
+
+
 
 
 

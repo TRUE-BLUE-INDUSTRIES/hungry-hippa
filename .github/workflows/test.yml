@@ -1,0 +1,72 @@
+name: tests
+
+# Runs the standalone Python test files, the demo check and the memory-challenge
+# harness. There is nothing to install: the runtime is standard-library only.
+#
+# NOTE: this workflow has not been executed. Nothing has been pushed for this
+# branch, so treat the file as unverified configuration until a real run is green.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Show interpreter and SQLite version
+        run: |
+          python -VV
+          python -c "import sqlite3; print('sqlite', sqlite3.sqlite_version)"
+
+      - name: Byte-compile every module (syntax gate)
+        run: python -m compileall -q . -x '__pycache__'
+
+      - name: Acceptance suite (T1-T10)
+        run: python tests/test_acceptance.py
+
+      - name: Migration and compatibility suite
+        run: python tests/test_migration.py
+
+      - name: Memory architecture suite
+        run: python tests/test_memory_architecture.py
+
+      - name: MCP schema and policy suite
+        run: python tests/test_mcp_schema.py
+
+      - name: Security suite
+        run: python tests/test_security.py
+
+      - name: Demo transcript check (throwaway database)
+        run: python demo/demo.py --tmp --check
+
+      - name: MCP server prints its schemas
+        run: python mcp_server.py --print-schemas > /tmp/schemas.json && python -c "import json; d=json.load(open('/tmp/schemas.json')); assert len(d['tools'])==6, d['tools']; assert 'export' not in json.dumps(d), 'export must not be exposed'"
+
+      - name: Memory challenge harness (regenerates results in a temp dir)
+        env:
+          # keep the harness inside the MCP call budget it documents
+          HUNGRY_HIPPA_MAX_MCP_CALLS: "1000"
+        run: python eval/check_results.py --verbose
+
+      - name: Confirm no database or credential files are tracked
+        run: |
+          if git ls-files | grep -Ei '\.(db|sqlite|sqlite3|bak|key|pem)$'; then
+            echo "::error::tracked database or credential file"
+            exit 1
+          fi
+          echo "no tracked database/credential files"
