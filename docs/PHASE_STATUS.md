@@ -536,6 +536,102 @@ is unverified configuration, and the release checklist says so. Development and 
 measurement in this repository were produced on Python 3.14.7; no other version has been
 run.
 
+---
+
+## Phase 9 — honest differentiation
+
+Objective: a feature matrix against the three narrow architectural alternatives, claiming
+only implemented and tested behaviour.
+
+Files in scope: `docs/COMPARISON.md` (new), `README.md` (one link). No runtime change.
+
+Validation: every row cross-checked against this tree; the local link check re-run; the
+test suites re-run at the end of the phase.
+
+Rollback: delete `docs/COMPARISON.md` and the README link.
+
+Status: see the "Phase 9 results" section at the bottom.
+
+---
+
+## Phase 9 results — COMMIT `docs: add honest comparison matrix`
+
+Files: `docs/COMPARISON.md` (new), `README.md` (link added).
+
+Approach: a fourth peer agent (Codex) had already written a comparison on the unmerged
+`feat/hungry-hippa-eval` branch, describing the `6574bc6` baseline. Its framing was kept
+(narrow architectural patterns rather than strawman products; "application work" rather
+than implied absence; no superiority claim; technology-not-proprietary). Its Hungry Hippa
+rows were re-derived from this tree, because after Phases 3–8 four of them are simply no
+longer true of this code: actor policy, quarantine, the MCP server and the strict context
+compiler all now exist and are tested. Its harness numbers (from its own separate eval)
+were not copied; this document cites the numbers produced in this tree by
+`eval/results.json`.
+
+The matrix compares against basic vector-store memory, file-based agent notes and local
+event-log systems, with a legend that separates implemented-and-tested (`yes`), implemented
+with a stated limitation (`partial`), not implemented (`no`) and "the pattern does not
+supply it" (`application work`).
+
+Rows marked `no` on purpose: capability-based security (the project uses actor/policy
+checks and says so), encryption at rest, and hardware-backed deployment ("not
+demonstrated" — it may well run on a small local device, but nothing was run on one).
+Rows marked `partial` include cross-agent portability (owner actors only, no external
+client verified), poisoning resistance (quarantine is real and tested, but it is not a
+truth detector and a caller claiming the owner actor bypasses it), audit trail
+(append-only convention, not tamper-evident), forgetting (archival is not secure erasure)
+and limits (no per-caller quotas or timeouts).
+
+Explicit non-claims restated at the end: SQLite/FTS5/vector search/MCP/encryption/RBAC are
+established technologies, nothing is proprietary, no superiority is claimed, no model
+training happens anywhere in this repository.
+
+---
+
+## Definition of done — final summary
+
+| Phase | Commit | Tests at that commit | Notes |
+|---|---|---|---|
+| 1 audit + baseline | `dbb5a88` | acceptance 10/10 | pre-existing |
+| 2 rebrand + migration | `6574bc6` | acceptance 10/10, migration 6/6 | pre-existing |
+| 3 memory architecture | `5939fac` | 10/10, 6/6, memory 8/8 | migration v4, policy, explain, compiler |
+| 4 local MCP server | `112a6a2` | + MCP 11/11 | stdio only, six tools, no export |
+| 5 security | `1920c3e` | + security 10/10 | caps, budget, redaction, threat model |
+| 6 memory challenge | `52a8597` | all five suites green | real run, results.json + REPORT.md |
+| 7 demo | `b702972` | all five suites green | `--check` matches captured output |
+| 8 packaging | `2b8c7bc` | `scripts/check_all.py` 7/7 steps | README, CI, reports, checklist |
+| 9 comparison | this commit | re-run below | matrix + non-claims |
+
+Final test state (run in this tree after the last commit):
+
+```
+python scripts/check_all.py --quiet   -> all 7 steps passed
+  acceptance 10/10 | migration 6/6 | memory architecture 8/8
+  MCP schema 11/11 | security 10/10 | demo transcript match | eval metrics stable
+```
+
+Bugs found and fixed during the migration (all of them real, all found by tests written in
+the phases above): untrusted *semantic* writes bypassed quarantine; `record_outcome`
+returned a stale pre-reevaluation row; the context renderer could exceed a tiny budget;
+retrieval item keys were inconsistent between the pipeline and the compiler; and the test
+call-budget reset leaked a shrunken limit into later calls.
+
+Outstanding, deliberately not done (each is stated in the relevant document rather than
+implied away): no encryption at rest; no tamper-evident audit chain; no per-caller quotas
+or timeouts; no authenticated MCP transport; no external MCP client (including Grok CLI)
+has been run against the server; no LLM-judged eval metrics; no video recorded for the
+demo; the GitHub Actions matrix has never executed; and nothing has been pushed,
+published or deployed.
+
+Concurrent-work note: `docs/AGENT_COORDINATION.md` appeared in this working tree during
+Phase 8 (written by a peer coordinator agent, not by this session) and was included in the
+Phase 8 commit before it was noticed. It is a benign coordination document and is retained
+as-is. Its claim that `eval/`, `demo/` and `docs/COMPARISON.md` should come from the other
+branch was followed only as input: the eval and demo in this tree were built and verified
+here, and the comparison was rewritten against this tree's code and measurements instead of
+copying the baseline version.
+
+
 
 
 

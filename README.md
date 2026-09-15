@@ -240,7 +240,8 @@ denied. This is an actor/policy check, not capability-based security.
 | The FTS index looks inconsistent | The schema layer self-heals: if the FTS table is empty while source rows exist, it is rebuilt from source on open. If that fails, the affected database logs a warning and recall degrades to graph-only. |
 
 More detail: [docs/SECURITY.md](docs/SECURITY.md), [docs/MIGRATION.md](docs/MIGRATION.md),
-[docs/MCP.md](docs/MCP.md), [docs/TECHNICAL_REPORT.md](docs/TECHNICAL_REPORT.md).
+[docs/MCP.md](docs/MCP.md), [docs/TECHNICAL_REPORT.md](docs/TECHNICAL_REPORT.md),
+[docs/COMPARISON.md](docs/COMPARISON.md).
 
 ## Evidence, not adjectives
 
