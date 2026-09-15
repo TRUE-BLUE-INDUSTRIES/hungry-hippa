@@ -563,7 +563,34 @@ def check_export_is_operator_only():
         conn.close()
     assert "export_denied" in actions, actions
     assert "export" in actions, actions
-    return "legacy export is owner-only, audited, and not exposed over MCP"
+
+    # the CLI path is audited too (it is the same raw dump by another door)
+    import os as _os
+    import types as _types
+    from livingcortex.cli import living_cortex_command
+
+    cli_dir = tempfile.mkdtemp(prefix="hh_export_cli_")
+    cli_db = _os.path.join(cli_dir, "hungry_hippa.db")
+    cli_out = _os.path.join(cli_dir, "cli_out.json")
+    previous = _os.environ.get("HUNGRY_HIPPA_DB")
+    _os.environ["HUNGRY_HIPPA_DB"] = cli_db
+    try:
+        living_cortex_command(_types.SimpleNamespace(
+            living_cortex_command="export", path=cli_out, kind="episodes"))
+    finally:
+        if previous is None:
+            _os.environ.pop("HUNGRY_HIPPA_DB", None)
+        else:
+            _os.environ["HUNGRY_HIPPA_DB"] = previous
+    assert _os.path.exists(cli_out), "CLI export produced no file"
+    conn = sqlite3.connect(cli_db)
+    try:
+        cli_actions = [r[0] for r in conn.execute(
+            "SELECT action FROM mutation_log WHERE target_kind = 'database'")]
+    finally:
+        conn.close()
+    assert "export" in cli_actions, cli_actions
+    return "legacy export is owner-only and audited on both the tool and CLI paths"
 
 
 def run_all() -> List[Dict[str, Any]]:

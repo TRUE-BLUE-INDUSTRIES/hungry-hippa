@@ -30,7 +30,9 @@ run on every push.
   pre-existing database now writes `*.pre-migration-<UTC>.bak` before it runs.
 - **Legacy export is owner-only and audited.** The `cortex` tool's `export` action could
   write a full `SELECT *` dump to any path for any actor. It now requires an owner actor
-  and records both the denial (`export_denied`) and each successful export.
+  and records both the denial (`export_denied`) and each successful export. The
+  `hermes living-cortex export` CLI command applies the same rule and is audited the same
+  way.
 - **MCP schemas: outputs described, inputs actually enforced.** All six tools now
   advertise an `outputSchema`; `null` values (`actor_id: null` used to fall through to
   the owner default) are rejected; string-array items are checked against their

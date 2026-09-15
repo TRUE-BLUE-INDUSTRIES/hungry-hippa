@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import sqlite3
+import stat
 import threading
 import time
 from datetime import datetime, timezone
@@ -357,10 +358,27 @@ class Database:
 
 
 def backup_sqlite(src: str, dest: str) -> None:
-    """Consistent SQLite backup (API, not file copy) so WAL is included."""
+    """Consistent SQLite backup (API, not file copy) so WAL is included.
+
+    The copy inherits the source file's permission bits (never wider): a backup of
+    a ``0600`` database must not be world-readable, which is what a plain
+    ``sqlite3.connect(dest)`` would produce under the usual umask.
+    """
     parent = os.path.dirname(os.path.abspath(dest))
     if parent:
         os.makedirs(parent, exist_ok=True)
+    try:
+        mode = stat.S_IMODE(os.stat(src).st_mode)
+    except OSError:
+        mode = 0o600
+    mode &= 0o777
+    # create the destination ourselves so the file never exists with looser bits,
+    # even briefly, and let sqlite write into it
+    try:
+        fd = os.open(dest, os.O_CREAT | os.O_EXCL | os.O_WRONLY, mode)
+        os.close(fd)
+    except FileExistsError:
+        os.chmod(dest, mode)
     src_conn = sqlite3.connect(src, timeout=30.0)
     try:
         dest_conn = sqlite3.connect(dest, timeout=30.0)
@@ -371,6 +389,10 @@ def backup_sqlite(src: str, dest: str) -> None:
             dest_conn.close()
     finally:
         src_conn.close()
+    try:
+        os.chmod(dest, mode)
+    except OSError:
+        pass
 
 
 def migrate_database(src: str) -> Dict[str, Any]:

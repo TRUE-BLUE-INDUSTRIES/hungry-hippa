@@ -202,6 +202,30 @@ def test_implicit_open_backs_up_before_upgrading():
         assert backups, "implicit migration created no backup"
         assert db.last_backup and db.last_backup.endswith(".bak"), db.last_backup
 
+        # the backup must not be more permissive than the database it copies
+        with tempfile.TemporaryDirectory(prefix="hh_mig_perm_") as pdir:
+            p2 = os.path.join(pdir, "old.db")
+            conn = sqlite3.connect(p2)
+            conn.execute(
+                "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY,"
+                " applied_at TEXT NOT NULL, description TEXT NOT NULL,"
+                " down_sql TEXT NOT NULL DEFAULT '')"
+            )
+            for version in (1, 2, 3):
+                mig = _schema.MIGRATIONS[version]
+                conn.executescript(mig["up"])
+                conn.execute("INSERT INTO schema_migrations VALUES (?,?,?,?)",
+                             (version, "2020-01-01T00:00:00Z", mig["description"],
+                              mig["down"]))
+            conn.commit()
+            conn.close()
+            os.chmod(p2, 0o600)
+            db2 = Database(p2)
+            assert db2.last_backup, "no backup on the permission check"
+            mode = os.stat(db2.last_backup).st_mode & 0o777
+            assert mode & 0o077 == 0, f"backup is readable by others: {oct(mode)}"
+            assert mode == 0o600, oct(mode)
+
         conn = sqlite3.connect(db.last_backup)
         try:
             versions = {r[0] for r in conn.execute("SELECT version FROM schema_migrations")}

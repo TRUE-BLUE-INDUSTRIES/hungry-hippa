@@ -79,7 +79,10 @@ identify or authorize callers.
   always writes a `*.pre-migration-<UTC>.bak` copy first — including the implicit
   upgrade performed by an ordinary open (status, plugin start, MCP server startup),
   not just `hermes living-cortex migrate`. Brand-new databases and already-current
-  databases are not backed up.
+  databases are not backed up. The copy is created with the source database's own
+  permission bits (a `0600` database yields a `0600` backup), so the backup is never
+  readable by other local users when the database is not. Rotating or pruning old
+  backups is not implemented.
 
 ### Quarantine
 

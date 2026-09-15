@@ -72,8 +72,23 @@ def living_cortex_command(args) -> None:
     elif sub == "forgotten":
         _print_json({"forgotten": obs.forgotten(getattr(args, "limit", 20))})
     elif sub == "export":
-        _print_json(obs.export(getattr(args, "path", "living_cortex_export.json"),
-                               getattr(args, "kind", "all")))
+        # Same rule as the cortex tool's export action: operator-only, and audited
+        # whether it succeeds or is refused. This is a full SELECT * dump to a
+        # caller-chosen path, so it must leave a trace in mutation_log.
+        from . import policy as _policy
+        if not _policy.is_owner(c.actor_id):
+            c.db.log_mutation("export_denied", "database", "",
+                              f"actor={c.actor_id} reason=owner-only", c.session_id)
+            _print_json({"error": "export is operator-only; unavailable to this actor",
+                         "actor_id": c.actor_id})
+            return
+        out_path = getattr(args, "path", "living_cortex_export.json")
+        kind = getattr(args, "kind", "all")
+        result = obs.export(out_path, kind)
+        c.db.log_mutation("export", "database", "",
+                          f"kind={kind} path={out_path} actor={c.actor_id}",
+                          c.session_id)
+        _print_json(result)
     else:
         print("Unknown living-cortex command. Available: status, recall, "
               "episodes, graph, why, consolidate, learned, changed, "
