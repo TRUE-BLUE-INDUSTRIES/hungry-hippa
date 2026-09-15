@@ -406,6 +406,7 @@ class Database:
                 "counts": counts,
                 "failures": self.failures,
                 "permissions": self.file_permissions(),
+                "size": _limits.db_size_report(self.path),
             }
 
         return self._run(_h) or {"path": self.path, "counts": {}, "failures": self.failures}
@@ -421,6 +422,11 @@ def backup_sqlite(src: str, dest: str) -> None:
     parent = os.path.dirname(os.path.abspath(dest))
     if parent:
         os.makedirs(parent, exist_ok=True)
+    # A full filesystem turns a routine backup into a half-written copy, so refuse
+    # up front rather than reporting success on a truncated file.
+    ok, detail = _limits.backup_space_ok(src)
+    if not ok:
+        raise RuntimeError(f"refusing to back up: {detail}")
     try:
         mode = stat.S_IMODE(os.stat(src).st_mode)
     except OSError:

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from . import config as _cfg
 from . import db as _db
 
 _NEGATIONS = (" no longer ", " not ", " never ", " doesn't ", " does not ",
@@ -55,6 +56,8 @@ class Consolidator:
     def run(self, *, reason: str = "scheduled", session_id: str = "") -> Dict[str, Any]:
         """Run the full consolidation pipeline. Returns a report dict."""
         run_id = self.db.next_id("consolidation")
+        self._scan_beliefs = int(_cfg.get(self.cfg, "consolidation.max_beliefs_scan", 500))
+        self._scan_episodes = int(_cfg.get(self.cfg, "consolidation.max_episodes_scan", 500))
         started = _db.now_iso()
         changes: List[str] = []
         counts: Dict[str, int] = {}
@@ -103,7 +106,7 @@ class Consolidator:
         entities = self._all_entity_names()
         if not entities:
             return 0, []
-        for b in self.semantic.list_beliefs(status="active", limit=500):
+        for b in self.semantic.list_beliefs(status="active", limit=self._scan_beliefs):
             text = f"{b['claim']} {b.get('related_entities', '')}".lower()
             for name, etype in entities:
                 if name.lower() in text:
@@ -130,7 +133,7 @@ class Consolidator:
         """Merge near-identical active beliefs (keep oldest, supersede rest)."""
         if self.semantic is None:
             return 0, []
-        beliefs = self.semantic.list_beliefs(status="active", limit=500)
+        beliefs = self.semantic.list_beliefs(status="active", limit=self._scan_beliefs)
         merged = 0
         done: set = set()
         for i, a in enumerate(beliefs):
@@ -158,7 +161,7 @@ class Consolidator:
         if self.episodic is None or self.graph is None:
             return 0, []
         added = 0
-        for e in self.episodic.list_episodes_full(status="active", limit=300):
+        for e in self.episodic.list_episodes_full(status="active", limit=self._scan_episodes):
             rels = _db.jload(e["related_entities"], []) or []
             for ent in rels:
                 r = self.graph.relate(e["project"] or e["context"] or "session",
@@ -173,7 +176,7 @@ class Consolidator:
         """Detect opposite-polarity active claims about the same subject."""
         if self.semantic is None:
             return 0, []
-        beliefs = self.semantic.list_beliefs(status="active", limit=500)
+        beliefs = self.semantic.list_beliefs(status="active", limit=self._scan_beliefs)
         found = 0
         for i, a in enumerate(beliefs):
             for b in beliefs[i + 1:]:
@@ -196,7 +199,7 @@ class Consolidator:
         cfg = self.cfg.get("consolidation", {})
         min_ep = int(cfg.get("procedural_min_episodes", 3))
         by_key: Dict[str, List[Dict[str, Any]]] = {}
-        for e in self.episodic.list_episodes_full(status="active", limit=500):
+        for e in self.episodic.list_episodes_full(status="active", limit=self._scan_episodes):
             key = (e["project"] or "", (e["context"] or "").strip()[:60])
             by_key.setdefault(key, []).append(e)
         created = 0
@@ -233,7 +236,7 @@ class Consolidator:
         if self.semantic is None or self.episodic is None:
             return 0, []
         updated = 0
-        for b in self.semantic.list_beliefs(status="active", limit=300):
+        for b in self.semantic.list_beliefs(status="active", limit=self._scan_beliefs):
             derived = _db.jload(b["derived_from"], [])
             n_support = len([d for d in derived if str(d).startswith("episode:")])
             if n_support >= 3 and b["reinforcement_count"] < n_support:

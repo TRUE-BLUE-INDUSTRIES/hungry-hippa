@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from . import db as _db
+from . import limits as _limits
 from . import policy as _policy
 from . import trust as _trust
 
@@ -87,6 +88,15 @@ class SemanticMemory:
         claim = (claim or "").strip()
         if not claim:
             return {"error": "empty claim"}
+        allowed, quota = _limits.check_write_quota(self.db,
+                                                   _policy.normalize_actor(actor_id))
+        if not allowed:
+            self.db.log_mutation("write_quota_exceeded", "belief", "",
+                                 f"actor={_policy.normalize_actor(actor_id)} "
+                                 f"used={quota['used']} limit={quota['limit']}",
+                                 session_id)
+            return {"error": "write quota exceeded for this actor this hour",
+                    "quota": quota}
         if kind not in KINDS:
             kind = "belief"
         if source_class not in SOURCE_CLASSES:

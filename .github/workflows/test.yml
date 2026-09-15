@@ -61,6 +61,8 @@ jobs:
         run: python tests/test_supersession.py
       - name: Confused deputy
         run: python tests/test_confused_deputy.py
+      - name: Resource limits
+        run: python tests/test_resource_limits.py
 
       - name: Security suite
         run: python tests/test_security.py

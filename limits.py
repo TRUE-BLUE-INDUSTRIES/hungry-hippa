@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
+import time
 import threading
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -200,3 +202,121 @@ def max_calls_from_env(default: int = DEFAULT_MAX_CALLS) -> int:
     except Exception:
         return default
     return value if value > 0 else default
+
+
+# ---------------------------------------------------------------- resources
+
+# These are local-first guards, not a security boundary: they make runaway or
+# abusive *volume* visible and bounded, and they survive process restarts because
+# the accounting lives in the database rather than in the process.
+DEFAULT_MAX_WRITES_PER_HOUR = 20000     # generous: normal use is far below this
+DEFAULT_MAX_DB_BYTES = 512 * 1024 * 1024  # 512 MiB: a warning, not a hard stop
+
+
+def max_writes_per_hour() -> int:
+    raw = os.environ.get("HUNGRY_HIPPA_MAX_WRITES_PER_HOUR", "")
+    try:
+        value = int(raw)
+    except ValueError:
+        return DEFAULT_MAX_WRITES_PER_HOUR
+    return value if value > 0 else DEFAULT_MAX_WRITES_PER_HOUR
+
+
+def max_db_bytes() -> int:
+    raw = os.environ.get("HUNGRY_HIPPA_MAX_DB_BYTES", "")
+    try:
+        value = int(raw)
+    except ValueError:
+        return DEFAULT_MAX_DB_BYTES
+    return value if value > 0 else DEFAULT_MAX_DB_BYTES
+
+
+def db_size_report(path: str) -> Dict[str, Any]:
+    """Database size and whether it has passed the warning threshold."""
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return {"path": path, "bytes": 0, "limit_bytes": max_db_bytes(),
+                "over_limit": False, "note": "database not found"}
+    limit = max_db_bytes()
+    return {
+        "path": path,
+        "bytes": size,
+        "limit_bytes": limit,
+        "over_limit": size > limit,
+        "warning": (f"database is {size / 1048576:.0f} MiB, over the "
+                    f"{limit / 1048576:.0f} MiB warning threshold; consider "
+                    f"'hermes living-cortex consolidate' and a fresh export"
+                    if size > limit else ""),
+        "note": "a warning, not a quota: nothing is deleted and nothing is refused",
+    }
+
+
+def check_write_quota(db, actor_id: str, *, limit: Optional[int] = None,
+                      now: Optional[float] = None) -> Tuple[bool, Dict[str, Any]]:
+    """Cross-process write accounting, stored in the database.
+
+    A per-process counter resets when the client starts a new process, which is
+    trivial for a caller to do. The window is therefore kept in the database, so
+    the count survives restarts, and it is keyed by actor as well as window.
+    """
+    limit = limit if limit is not None else max_writes_per_hour()
+    window = int((now if now is not None else time.time()) // 3600)
+
+    def _check(conn) -> Dict[str, Any]:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS write_quota ("
+            "window_start INTEGER NOT NULL, actor TEXT NOT NULL, count INTEGER NOT NULL,"
+            " PRIMARY KEY (window_start, actor))")
+        row = conn.execute(
+            "SELECT count FROM write_quota WHERE window_start = ? AND actor = ?",
+            (window, actor_id)).fetchone()
+        used = int(row[0]) if row else 0
+        allowed = used < limit
+        if allowed:
+            conn.execute(
+                "INSERT INTO write_quota(window_start, actor, count) VALUES (?,?,1)"
+                " ON CONFLICT(window_start, actor) DO UPDATE SET count = count + 1",
+                (window, actor_id))
+        return {"allowed": allowed, "used": used, "limit": limit,
+                "window_start": window, "actor_id": actor_id}
+
+    try:
+        report = db._run(_check, write=True) or {"allowed": True, "used": 0,
+                                                 "limit": limit}
+    except Exception as e:  # never let accounting break a write path
+        logger.warning("write quota check failed: %s", e)
+        return True, {"allowed": True, "used": -1, "limit": limit,
+                      "error": str(e)[:120]}
+    if not report["allowed"]:
+        return False, report
+    return True, report
+
+
+def backup_space_multiplier() -> float:
+    raw = os.environ.get("HUNGRY_HIPPA_BACKUP_SPACE_MULTIPLIER", "")
+    try:
+        value = float(raw)
+    except ValueError:
+        return 2.0
+    return value if value > 0 else 2.0
+
+
+def backup_space_ok(src: str, *, need_multiplier: Optional[float] = None) -> Tuple[bool, str]:
+    """Is there room for a full copy of *src* next to it?
+
+    A migration backup in a full filesystem is how a routine upgrade turns into
+    data loss, so the caller refuses rather than half-writing a copy.
+    """
+    try:
+        size = os.path.getsize(src)
+        probe_dir = os.path.dirname(os.path.abspath(src)) or "."
+        free = shutil.disk_usage(probe_dir).free
+    except OSError as e:
+        return True, f"could not measure free space ({e}); proceeding"
+    need = int(size * (need_multiplier if need_multiplier is not None
+                       else backup_space_multiplier()))
+    if free < need:
+        return False, (f"need about {need / 1048576:.0f} MiB free for the backup, "
+                       f"{free / 1048576:.0f} MiB available in {probe_dir}")
+    return True, f"{free / 1048576:.0f} MiB free, need {need / 1048576:.0f} MiB"

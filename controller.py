@@ -134,6 +134,13 @@ class MemoryController:
         """
         if not self.writes_enabled:
             return {"error": "writes disabled for this agent context"}
+        allowed, quota = _limits.check_write_quota(self.db, self.actor_id)
+        if not allowed:
+            self.db.log_mutation("write_quota_exceeded", "episode", "",
+                                 f"actor={self.actor_id} used={quota['used']} "
+                                 f"limit={quota['limit']}", self.session_id)
+            return {"error": "write quota exceeded for this actor this hour",
+                    "quota": quota}
         importance = fields.pop("importance", None)
         signals = fields.pop("importance_signals", None)
         if importance is None:

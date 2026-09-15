@@ -12,6 +12,7 @@ Core rules:
 
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, List, Optional
 
 from . import db as _db
@@ -29,6 +30,9 @@ RELATIONSHIP_TYPES = {
     "REQUIRES", "PRODUCED", "OBSERVED_IN", "SUPPORTED_BY", "CONTRADICTED_BY",
     "DERIVED_FROM", "LEARNED_FROM", "APPLIES_TO",
 }
+
+
+_MAX_HOPS = int(os.environ.get("HUNGRY_HIPPA_MAX_HOPS", "4") or 4)
 
 
 class KnowledgeGraph:
@@ -202,7 +206,12 @@ class KnowledgeGraph:
 
     def traverse(self, start_entity: str, hop_limit: int = 2,
                  limit: int = 30) -> List[Dict[str, Any]]:
-        """BFS from an entity name across active edges, up to hop_limit hops."""
+        """BFS from an entity name across active edges, up to hop_limit hops.
+
+        ``hop_limit`` is clamped to MAX_HOPS_MIN/MAX: traversal cost grows with
+        the frontier, so an unbounded hop count from a caller is not offered.
+        """
+        hop_limit = max(1, min(int(hop_limit or 1), _MAX_HOPS))
         seen_edges: set = set()
         frontier = [start_entity]
         seen_nodes = {start_entity}

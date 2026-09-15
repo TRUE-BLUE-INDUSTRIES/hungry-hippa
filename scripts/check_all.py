@@ -35,6 +35,7 @@ STEPS: Sequence[Tuple[str, List[str]]] = (
     ("injection framing", ["python", "tests/test_injection_framing.py"]),
     ("supersession", ["python", "tests/test_supersession.py"]),
     ("confused deputy", ["python", "tests/test_confused_deputy.py"]),
+    ("resource limits", ["python", "tests/test_resource_limits.py"]),
     ("security", ["python", "tests/test_security.py"]),
     ("demo transcript", ["python", "demo/demo.py", "--tmp", "--check"]),
     ("eval result drift", ["python", "eval/check_results.py"]),

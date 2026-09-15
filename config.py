@@ -95,6 +95,10 @@ DEFAULTS: Dict[str, Any] = {
         "procedural_min_success_ratio": 0.6,
         "procedural_promote_confidence": 0.85,
         "belief_min_confidence_for_knowledge": 0.70,
+        # bounded work per run: consolidation is O(rows scanned), so the scan is
+        # capped rather than the runtime racing a growing database
+        "max_beliefs_scan": 500,
+        "max_episodes_scan": 500,
     },
     # --- procedural learning (§12) ---
     "procedural": {
