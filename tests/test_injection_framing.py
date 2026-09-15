@@ -29,7 +29,8 @@ import types
 from pathlib import Path
 from typing import Any, Dict, List
 
-PLUGIN_DIR = Path(__file__).resolve().parent.parent
+REPO_DIR = Path(__file__).resolve().parent.parent
+PLUGIN_DIR = REPO_DIR / "src" / "hungry_hippa"   # src layout
 
 
 def _import_plugin():
@@ -205,7 +206,7 @@ def check_provenance_travels_into_the_compiled_context():
 
 def check_limitation_is_documented():
     """Do not claim prompt injection is solved; the docs must say what is promised."""
-    doc = (PLUGIN_DIR / "docs" / "SECURITY.md").read_text(encoding="utf-8")
+    doc = (REPO_DIR / "docs" / "SECURITY.md").read_text(encoding="utf-8")
     low = doc.lower()
     assert "recalled memory is data" in low or "memory is data" in low, \
         "SECURITY.md does not state the data/instruction separation"

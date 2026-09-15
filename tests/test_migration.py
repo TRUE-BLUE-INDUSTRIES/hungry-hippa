@@ -13,7 +13,8 @@ import types
 import warnings
 from pathlib import Path
 
-PLUGIN_DIR = Path(__file__).resolve().parent.parent
+REPO_DIR = Path(__file__).resolve().parent.parent
+PLUGIN_DIR = REPO_DIR / "src" / "hungry_hippa"   # src layout
 
 
 def _import_plugin():
@@ -163,7 +164,7 @@ def test_migrate_backs_up_and_preserves_memories():
 
 
 def test_rollback_instructions_exist():
-    doc = (PLUGIN_DIR / "docs" / "MIGRATION.md").read_text(encoding="utf-8")
+    doc = (REPO_DIR / "docs" / "MIGRATION.md").read_text(encoding="utf-8")
     assert "Rollback" in doc
     assert "living_cortex.db" in doc
     assert "Hungry Hippa" in doc

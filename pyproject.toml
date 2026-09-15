@@ -27,13 +27,11 @@ dependencies = [
 [project.urls]
 Repository = "https://github.com/TRUE-BLUE-INDUSTRIES/hungry-hippa"
 
-[tool.setuptools]
-# The runtime is a flat package at the repository root: modules like controller.py
-# live beside __init__.py rather than in a subdirectory.
-packages = ["hungry_hippa"]
-
-[tool.setuptools.package-dir]
-hungry_hippa = "."
+[tool.setuptools.packages.find]
+# src layout: the runtime package lives at src/hungry_hippa/ and is discovered from
+# src/, so the checkout root stays free of importable modules.
+where = ["src"]
+include = ["hungry_hippa*"]
 
 [project.scripts]
 hungry-hippa = "hungry_hippa.cli:main"

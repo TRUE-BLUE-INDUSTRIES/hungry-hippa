@@ -5,7 +5,8 @@ into a host's own CLI tree via :func:`register_cli`. ``migrate`` backs up and
 upgrades an older database in place.
 
 Commands: status | recall | episodes | graph | why | consolidate | learned |
-changed | forgotten | export | selftest | migrate
+changed | forgotten | export | quarantine | selftest | migrate | owner-token |
+fix-permissions | verify
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from typing import Any, Dict, List, Optional
 
 from .config import load_config, resolve_db_path
 from .controller import MemoryController
+from . import policy as _policy
 from . import trust as _trust
 from .observability import Observability
 
@@ -46,6 +48,8 @@ def hungry_hippa_command(args) -> None:
         return _cmd_fix_permissions(args)
     if sub == "verify":
         return _cmd_verify(args)
+    if sub == "quarantine":
+        return _cmd_quarantine(args)
     c = _controller()
     obs = Observability(c.db, c.cfg, controller=c)
     if sub == "status":
@@ -115,7 +119,13 @@ def _cmd_selftest(args) -> None:
     import tempfile
     from pathlib import Path
 
-    test_file = Path(__file__).resolve().parent / "tests" / "test_acceptance.py"
+    # src layout: walk up to the checkout that holds tests/ (installed wheels do
+    # not ship the suites, in which case selftest reports that plainly)
+    here = Path(__file__).resolve().parent
+    test_file = next(
+        (c / "tests" / "test_acceptance.py"
+         for c in (here, *here.parents) if (c / "tests" / "test_acceptance.py").is_file()),
+        here / "tests" / "test_acceptance.py")
     spec = importlib.util.spec_from_file_location("lc_selftest", str(test_file))
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -146,7 +156,12 @@ def _cmd_migrate(args) -> None:
 
 
 def _cmd_owner_token(args) -> None:
-    """Create (or show) the owner token that lets an MCP client act as owner."""
+    """Create (or show) the owner token an MCP *server instance* is launched with.
+
+    The token authorizes the server process, not the caller: it is supplied in the
+    environment of ``hungry-hippa-mcp`` when the host starts it. No MCP tool takes
+    a token argument, and a model is never asked to handle it.
+    """
     from . import trust
 
     token = trust.ensure_owner_token()
@@ -156,8 +171,12 @@ def _cmd_owner_token(args) -> None:
         "token_file": str(path),
         "mode": oct(mode) if mode is not None else None,
         "created": True,
-        "how_to_use": ("pass the token as the owner_token argument to an MCP tool "
-                       "call; without it an MCP caller is untrusted"),
+        "how_to_use": ("set HUNGRY_HIPPA_OWNER_TOKEN in the *launch environment* of "
+                       "the hungry-hippa-mcp server process, e.g. "
+                       '{"mcpServers": {"hungry-hippa": {"command": '
+                       '"hungry-hippa-mcp", "env": {"HUNGRY_HIPPA_OWNER_TOKEN": '
+                       '"<token>"}}}}. No MCP tool takes a token argument; an '
+                       "instance launched without it is untrusted"),
     }
     if getattr(args, "print_token", False):
         report["token"] = token
@@ -167,6 +186,9 @@ def _cmd_owner_token(args) -> None:
         report["warning"] = (
             f"token file mode {oct(mode)} is readable by other local users; "
             "run `chmod 600 <file>`")
+    report["storage_note"] = ("the memory database itself is plaintext SQLite; 0600 "
+                              "permissions are not encryption — use OS or disk "
+                              "encryption if the memories are sensitive")
     _print_json(report)
 
 
@@ -221,9 +243,6 @@ def _cmd_verify(args) -> None:
     text to ``user_explicit``; the operator, at their own terminal, can state that
     a memory is indeed something they said.
     """
-    from . import db as _db
-    from . import trust as _trust
-
     ctrl = _controller()
     b = ctrl.semantic.get_belief(args.belief_id)
     if not b:
@@ -235,16 +254,10 @@ def _cmd_verify(args) -> None:
                               "tool_result"})
         sys.exit(1)
 
-    def _upd(conn) -> int:
-        cur = conn.execute(
-            "UPDATE beliefs SET source_class = ?, verified_source_class = ?,"
-            " source_actor = ?, ingestion_channel = 'operator_cli', updated_at = ?"
-            " WHERE belief_id = ?",
-            (source_class, source_class, _trust.CHANNEL_CLI, _db.now_iso(),
-             args.belief_id))
-        return cur.rowcount
-
-    changed = ctrl.db._run(_upd, write=True)
+    # One implementation of the promotion write: the same call quarantine
+    # approval makes, so the two entry points cannot drift apart.
+    changed = ctrl.semantic.set_verified_class(args.belief_id, source_class,
+                                                source_actor=ctrl.actor_id)
     ctrl.db.log_mutation("verify_provenance", "belief", args.belief_id,
                          f"operator set verified_source_class={source_class} "
                          f"(claimed was {b.get('claimed_source_class', '')})",
@@ -255,6 +268,186 @@ def _cmd_verify(args) -> None:
         "verified_source_class": source_class,
         "rows_changed": changed,
         "note": "verified provenance is what the trust weighting uses",
+    })
+
+
+_QUARANTINE_SOURCE_CLASSES = ("user_explicit", "document", "tool_result")
+
+
+def _shorten(text: Any, limit: int = 120) -> str:
+    """One-line, length-capped rendering for list output."""
+    flat = " ".join(str(text or "").split())
+    return flat if len(flat) <= limit else flat[: max(0, limit - 1)] + "\u2026"
+
+
+def _resolve_quarantined(ctrl, target_id: str):
+    """Find one belief or episode by id. Returns ``(kind, row)`` or ``("", None)``."""
+    b = ctrl.semantic.get_belief(target_id)
+    if b:
+        return "belief", b
+    e = ctrl.episodic.get_episode(target_id)
+    if e:
+        return "episode", e
+    return "", None
+
+
+def _quarantine_is_operator_action(ctrl) -> bool:
+    """Quarantine review is an operator action; a model channel may never do it.
+
+    The CLI binds owner/user locally, so this is a guard rather than the only
+    control: it exists so a host that mounts these commands cannot accidentally
+    expose approval to an agent channel.
+    """
+    return bool(_policy.may_capability(_policy.CAP_APPROVE,
+                                       provenance=ctrl.provenance,
+                                       identity=ctrl.identity))
+
+
+def _cmd_quarantine(args) -> None:
+    """Operator review of memories an untrusted writer left in quarantine."""
+    action = getattr(args, "quarantine_command", "") or ""
+    if action == "list":
+        return _cmd_quarantine_list(args)
+    if action == "show":
+        return _cmd_quarantine_show(args)
+    if action == "approve":
+        return _cmd_quarantine_approve(args)
+    if action == "reject":
+        return _cmd_quarantine_reject(args)
+    print("Usage: hungry-hippa quarantine {list|show|approve|reject}")
+    return None
+
+
+def _cmd_quarantine_list(args) -> None:
+    ctrl = _controller()
+    limit = int(getattr(args, "limit", 50) or 50)
+    kind = (getattr(args, "kind", "") or "").strip()
+    rows: List[Dict[str, Any]] = []
+    if kind in ("", "belief"):
+        rows += [dict(r, kind="belief") for r in ctrl.semantic.list_quarantined(limit)]
+    if kind in ("", "episode"):
+        rows += [dict(r, kind="episode") for r in ctrl.episodic.list_quarantined(limit)]
+    rows.sort(key=lambda r: str(r.get("created_at") or ""), reverse=True)
+    items = [{
+        "id": r.get("belief_id") or r.get("episode_id") or "",
+        "kind": r.get("kind", ""),
+        "actor": r.get("actor_id", ""),
+        "claimed_source_class": r.get("claimed_source_class", ""),
+        "verified_source_class": r.get("verified_source_class", ""),
+        "content": _shorten(r.get("claim") or r.get("context")),
+        "created_at": r.get("created_at", ""),
+    } for r in rows[:limit]]
+    _print_json({
+        "quarantined": items,
+        "count": len(items),
+        "note": ("held from an untrusted writer; excluded from recall, belief "
+                 "listing and consolidation until approved"),
+    })
+
+
+def _cmd_quarantine_show(args) -> None:
+    ctrl = _controller()
+    target_id = getattr(args, "target_id", "") or ""
+    kind, row = _resolve_quarantined(ctrl, target_id)
+    if not row:
+        _print_json({"error": f"unknown memory {target_id}"})
+        sys.exit(1)
+    quarantined = bool(row.get("quarantined"))
+    _print_json({
+        "id": target_id,
+        "kind": kind,
+        "quarantined": quarantined,
+        "content": row.get("claim") or row.get("context") or "",
+        "actor": row.get("actor_id", ""),
+        "source_actor": row.get("source_actor", ""),
+        "claimed_source_class": row.get("claimed_source_class", ""),
+        "verified_source_class": row.get("verified_source_class", ""),
+        "ingestion_channel": row.get("ingestion_channel", ""),
+        "kind_detail": row.get("kind", "") if kind == "belief" else row.get("outcome", ""),
+        "confidence": row.get("confidence"),
+        "importance": row.get("importance"),
+        "sensitivity": row.get("sensitivity", ""),
+        "status": row.get("status", ""),
+        "evidence_ids": row.get("evidence_ids", []),
+        "created_at": row.get("created_at", ""),
+        "updated_at": row.get("updated_at", ""),
+        "note": ("review only: approve to release it into normal recall, or reject "
+                 "to archive it" if quarantined
+                 else "this row is not quarantined; nothing to approve or reject"),
+    })
+
+
+def _cmd_quarantine_approve(args) -> None:
+    ctrl = _controller()
+    target_id = getattr(args, "target_id", "") or ""
+    source_class = getattr(args, "source_class", "user_explicit") or "user_explicit"
+    if not _quarantine_is_operator_action(ctrl):
+        _print_json({"error": "quarantine approval is an operator action"})
+        sys.exit(1)
+    kind, row = _resolve_quarantined(ctrl, target_id)
+    if not row:
+        _print_json({"error": f"unknown memory {target_id}"})
+        sys.exit(1)
+    if source_class not in _QUARANTINE_SOURCE_CLASSES:
+        _print_json({"error": "source_class must be one of "
+                              + ", ".join(_QUARANTINE_SOURCE_CLASSES)})
+        sys.exit(1)
+    claimed_before = row.get("claimed_source_class", "")
+    # The verification rule is not re-implemented here: the operator channel may
+    # assert the origin of a memory, which is what trust.verified_source_class
+    # already decides, and set_verified_class is the single promotion write.
+    verified = _trust.verified_source_class(source_class, _trust.PROVENANCE_USER)
+    if kind == "belief":
+        changed = ctrl.semantic.set_verified_class(target_id, verified,
+                                                   source_actor=ctrl.actor_id,
+                                                   clear_quarantine=True)
+    else:
+        changed = ctrl.episodic.set_verified_class(target_id, verified,
+                                                   source_actor=ctrl.actor_id,
+                                                   clear_quarantine=True)
+    ctrl.db.log_mutation("quarantine_approved", kind, target_id,
+                         f"operator released from quarantine; "
+                         f"verified_source_class={verified} "
+                         f"(claimed was {claimed_before})", ctrl.session_id)
+    _print_json({
+        "approved": bool(changed),
+        "id": target_id,
+        "kind": kind,
+        "claimed_source_class": claimed_before,
+        "verified_source_class": verified,
+        "rows_changed": changed,
+        "note": "the row is no longer quarantined and is recall-visible again",
+    })
+
+
+def _cmd_quarantine_reject(args) -> None:
+    ctrl = _controller()
+    target_id = getattr(args, "target_id", "") or ""
+    mode = (getattr(args, "mode", "archival") or "archival").strip().lower()
+    kind, row = _resolve_quarantined(ctrl, target_id)
+    if not row:
+        _print_json({"error": f"unknown memory {target_id}"})
+        sys.exit(1)
+    if mode != "archival":
+        # Deliberate: rejection archives. Purge exists only as an explicit,
+        # separate operator action on a row the operator chose to destroy.
+        _print_json({"error": "reject supports only --mode archival; "
+                              "use `hungry-hippa forget` for a confirmed purge"})
+        sys.exit(1)
+    outcome = ctrl.forget(kind, target_id, mode="archival",
+                          reason="quarantine rejected by operator")
+    if outcome.get("error"):
+        _print_json({"rejected": False, "id": target_id, **outcome})
+        sys.exit(1)
+    ctrl.db.log_mutation("quarantine_rejected", kind, target_id,
+                         f"mode={mode}", ctrl.session_id)
+    _print_json({
+        "rejected": bool(outcome.get("archived")),
+        "id": target_id,
+        "kind": kind,
+        "mode": mode,
+        "note": ("archived, not purged: it leaves recall but stays in the database "
+                 "and is audited as an archival"),
     })
 
 
@@ -271,7 +464,8 @@ def register_cli(subparser) -> None:
     subs.add_parser("selftest", help="Run acceptance tests on a throwaway DB")
     otok = subs.add_parser(
         "owner-token",
-        help="Show or create the owner token that lets an MCP client act as owner",
+        help=("Show or create the owner token: set it in the hungry-hippa-mcp "
+              "server's launch environment (no tool takes it as an argument)"),
     )
     otok.add_argument("--print", dest="print_token", action="store_true",
                       help="Also print the token value (it is a secret: shell history!)")
@@ -328,6 +522,32 @@ def register_cli(subparser) -> None:
 
     forgotten = subs.add_parser("forgotten", help="Recent forgetting actions")
     forgotten.add_argument("--limit", type=int, default=20)
+
+    q = subs.add_parser(
+        "quarantine",
+        help="Operator review of memories held from untrusted writers",
+    )
+    qsubs = q.add_subparsers(dest="quarantine_command")
+    qlist = qsubs.add_parser("list", help="List quarantined memories")
+    qlist.add_argument("--limit", type=int, default=50)
+    qlist.add_argument("--kind", default="", choices=["", "belief", "episode"])
+    qshow = qsubs.add_parser("show", help="Show one quarantined memory in full")
+    qshow.add_argument("target_id")
+    qappr = qsubs.add_parser(
+        "approve",
+        help="Release a quarantined memory into normal recall (operator only)",
+    )
+    qappr.add_argument("target_id")
+    qappr.add_argument("--source-class", dest="source_class", default="user_explicit",
+                       choices=list(_QUARANTINE_SOURCE_CLASSES),
+                       help="the class the operator is asserting for this memory")
+    qrej = qsubs.add_parser(
+        "reject",
+        help="Archive a quarantined memory (reversible; never purges)",
+    )
+    qrej.add_argument("target_id")
+    qrej.add_argument("--mode", default="archival", choices=["archival"],
+                      help="archival only: rejection never purges")
 
     exp = subs.add_parser("export", help="Export memory as JSON")
     exp.add_argument("--path", default="hungry_hippa_export.json")

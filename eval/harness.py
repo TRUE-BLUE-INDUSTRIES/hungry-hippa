@@ -44,7 +44,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 EVAL_DIR = Path(__file__).resolve().parent
-PLUGIN_DIR = EVAL_DIR.parent
+REPO_DIR = EVAL_DIR.parent
+PLUGIN_DIR = REPO_DIR / "src" / "hungry_hippa"   # src layout
 FIXTURES = json.loads((EVAL_DIR / "fixtures.json").read_text(encoding="utf-8"))
 
 HARNESS_NAME = "hungry-hippa-memory-challenge"
@@ -650,7 +651,7 @@ UNSUPPORTED = [
 
 def _git(*args: str) -> str:
     try:
-        out = subprocess.run(["git", *args], cwd=str(PLUGIN_DIR),
+        out = subprocess.run(["git", *args], cwd=str(REPO_DIR),
                              capture_output=True, text=True, timeout=20)
         return out.stdout.strip() if out.returncode == 0 else ""
     except Exception:

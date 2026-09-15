@@ -8,9 +8,9 @@ Hungry Hippa owns the tools, the limits and the trust boundary.
 
 ```bash
 python -m pip install -e .        # installs the project and the official mcp SDK
-python mcp_server.py             # serve over stdio
-hungry-hippa-mcp                 # the same thing, as a console script
-python mcp_server.py --print-schemas   # diagnostic: dump the tool schemas
+hungry-hippa-mcp                 # serve over stdio (console script)
+python src/hungry_hippa/mcp_server.py  # the same thing, from the checkout
+hungry-hippa-mcp --print-schemas       # diagnostic: dump the tool schemas
 ```
 
 | Property | Value |

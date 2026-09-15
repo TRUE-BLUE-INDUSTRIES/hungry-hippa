@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- `hungry-hippa quarantine list|show|approve|reject`: operator review of memories held
+  from untrusted writers. Approval reuses the existing verification semantics
+  (`trust.verified_source_class` plus the single promotion write
+  `SemanticMemory.set_verified_class`); rejection reuses the archival path and never
+  purges. Audited as `quarantine_approved` / `quarantine_rejected`. MCP is untouched:
+  still exactly six tools, and no tool can approve or reject anything.
+- `tests/test_quarantine_cli.py` (8 checks) in `scripts/check_all.py` and CI.
+
+### Changed
+- Runtime package moved to `src/hungry_hippa/` with package discovery from `src/` in
+  `pyproject.toml`. `pip install -e .`, both console scripts, `hungry_hippa.register`,
+  `HungryHippaProvider`, the compatibility aliases and legacy database discovery are
+  unchanged; test/demo/eval/script path anchors were updated for the layout.
+- `owner-token` help no longer suggests passing the token as a tool argument: it explains
+  that `HUNGRY_HIPPA_OWNER_TOKEN` is set in the hungry-hippa-mcp **launch environment**.
+- Documentation states plainly that the store is plaintext SQLite and that `0600`
+  permissions are not encryption (use OS/disk encryption for sensitive memories).
+
 All notable changes to this project are recorded here. The project was formerly named
 **Living Cortex**; entries below the rename line describe the pre-rename state.
 

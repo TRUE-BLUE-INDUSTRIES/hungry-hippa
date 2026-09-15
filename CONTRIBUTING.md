@@ -22,6 +22,7 @@ python tests/test_acceptance.py           # 10/10 — spec acceptance tests T1-T
 python tests/test_migration.py            # 7/7  — rename + DB migration compatibility
 python tests/test_memory_architecture.py  # 8/8  — quarantine, explain, context budget
 python tests/test_mcp_integration.py      # 14/14 — real MCP client session (official SDK, subprocess)
+python tests/test_quarantine_cli.py       # 8/8  — quarantine review CLI (list/show/approve/reject)
 python tests/test_trust_boundary.py       # 6/6  — identity binding
 python tests/test_trust_token.py          # 9/9  — owner token: creation, mode, recovery
 python tests/test_existence_oracle.py     # 5/5  — exclusion shapes do not confirm existence
@@ -37,7 +38,11 @@ python eval/harness.py                    # regenerates eval/results.json + REPO
 ```
 
 Each file is standalone: it has a `run_all()` function and a `__main__` block, and exits
-non-zero on failure. Pytest is optional and not required. `scripts/check_all.py` fails if
+non-zero on failure. Pytest is optional and not required.
+
+The runtime lives in `src/hungry_hippa/` (installed as the `hungry_hippa` package). Suites
+import it from `src/` through a small loader at the top of each file, so they run against
+the checkout whether or not it is installed. `scripts/check_all.py` fails if
 a `tests/test_*.py` file exists that no step runs, so a new suite cannot be forgotten.
 
 If your change alters behaviour, update the relevant document (`README.md`,
@@ -59,7 +64,9 @@ If your change alters behaviour, update the relevant document (`README.md`,
 5. **Do not print secrets or private memories**, in tests, logs, commits or issues.
    Fixtures must be invented (`Operator`, `Project A`, `Vendor A`), not scraped.
 6. **Do not call the project** unhackable, conscious, self-learning, enterprise-ready, or
-   a healthcare product. The name is *Hungry Hippa*, not HIPAA.
+   a healthcare product. The name is *Hungry Hippa*, not HIPAA. Do not describe `0600`
+   file permissions as encryption or the store as encrypted: memory is plaintext SQLite,
+   and disk encryption is the operator's OS-level choice.
 7. **Additive compatibility.** The in-process adapter, the `cortex` tool name, the
    documented environment aliases (`LIVING_CORTEX_DB`, `HUNGRY_HIPPA_OWNER_TOKEN_FILE`,
    legacy `living_cortex.db` discovery) and existing table names stay. New behaviour goes

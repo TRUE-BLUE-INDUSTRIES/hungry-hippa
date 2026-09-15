@@ -182,6 +182,46 @@ class EpisodicMemory:
 
     # ------------------------------------------------------------- mutate
 
+    # ------------------------------------------------------ quarantine review
+
+    def list_quarantined(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Episodes held in quarantine, newest first — an operator review view.
+
+        Read-only; quarantined episodes stay excluded from default recall.
+        """
+        def _list(conn) -> List[Dict[str, Any]]:
+            return [dict(r) for r in conn.execute(
+                "SELECT episode_id, context, outcome, actor_id, claimed_source_class,"
+                " verified_source_class, sensitivity, created_at"
+                " FROM episodes WHERE quarantined = 1"
+                " ORDER BY created_at DESC LIMIT ?", (int(limit),))]
+
+        return self.db._run(_list) or []
+
+    def set_verified_class(self, episode_id: str, source_class: str, *,
+                           source_actor: str = "",
+                           clear_quarantine: bool = False) -> int:
+        """Promote an episode's verified provenance, optionally leaving quarantine.
+
+        Episodes carry the same provenance columns as beliefs, so approval reuses
+        the same rule (``trust.verified_source_class``) rather than inventing one.
+        """
+        fields = ["source_class = ?", "verified_source_class = ?", "source_actor = ?",
+                  "ingestion_channel = ?"]
+        actor = str(source_actor or _policy.DEFAULT_ACTOR)
+        params: List[Any] = [source_class, source_class, actor, _trust.CHANNEL_CLI]
+        if clear_quarantine:
+            fields.append("quarantined = 0")
+        fields.append("updated_at = ?")
+        params.append(_db.now_iso())
+        params.append(episode_id)
+        sql = f"UPDATE episodes SET {', '.join(fields)} WHERE episode_id = ?"
+
+        def _upd(conn) -> int:
+            return conn.execute(sql, params).rowcount
+
+        return self.db._run(_upd, write=True) or 0
+
     def touch(self, episode_id: str, session_id: str = "") -> None:
         """Mark as accessed (reinforcement) — boosts retrieval ranking."""
         def _touch(conn) -> None:

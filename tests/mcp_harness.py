@@ -27,6 +27,8 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 REPO = Path(__file__).resolve().parent.parent
+PACKAGE_DIR = REPO / "src" / "hungry_hippa"   # src layout
+MCP_SERVER = PACKAGE_DIR / "mcp_server.py"
 PACKAGE = "hungry_hippa"
 
 
@@ -36,11 +38,11 @@ def import_package():
             sys.modules[PACKAGE], "__file__", None):
         return sys.modules[PACKAGE]
     pkg = types.ModuleType(PACKAGE)
-    pkg.__path__ = [str(REPO)]
-    pkg.__file__ = str(REPO / "__init__.py")
+    pkg.__path__ = [str(PACKAGE_DIR)]
+    pkg.__file__ = str(PACKAGE_DIR / "__init__.py")
     sys.modules[PACKAGE] = pkg
     spec = importlib.util.spec_from_file_location(
-        PACKAGE, str(REPO / "__init__.py"), submodule_search_locations=[str(REPO)])
+        PACKAGE, str(PACKAGE_DIR / "__init__.py"), submodule_search_locations=[str(PACKAGE_DIR)])
     mod = importlib.util.module_from_spec(spec)
     sys.modules[PACKAGE] = mod
     spec.loader.exec_module(mod)
@@ -52,7 +54,7 @@ def import_mcp_server():
     name = "hungry_hippa_mcp_server_under_test"
     if sys.modules.get(name) is not None:
         return sys.modules[name]
-    spec = importlib.util.spec_from_file_location(name, str(REPO / "mcp_server.py"))
+    spec = importlib.util.spec_from_file_location(name, str(MCP_SERVER))
     mod = importlib.util.module_from_spec(spec)
     sys.modules[name] = mod
     spec.loader.exec_module(mod)
@@ -119,7 +121,7 @@ async def _run_calls_async(db_path: str, calls: Iterable[Tuple[str, Dict[str, An
     """Start the server, initialise, run each call, and return everything seen."""
     params = StdioServerParameters(
         command=sys.executable,
-        args=[str(REPO / "mcp_server.py")],
+        args=[str(MCP_SERVER)],
         env=session_env(db_path, token_file, token),
         cwd=str(cwd or REPO),
     )

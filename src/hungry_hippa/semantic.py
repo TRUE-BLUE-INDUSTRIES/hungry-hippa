@@ -240,6 +240,52 @@ class SemanticMemory:
         self.db._run(_r, write=True)
         return self.get_belief(belief_id)
 
+    # ------------------------------------------------------ quarantine review
+
+    def list_quarantined(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Beliefs held in quarantine, newest first — an operator review view.
+
+        Read-only: quarantined rows stay excluded from default recall, belief
+        listing and consolidation input. This only lets a human see what was held.
+        """
+        def _list(conn) -> List[Dict[str, Any]]:
+            return [dict(r) for r in conn.execute(
+                "SELECT belief_id, claim, kind, actor_id, claimed_source_class,"
+                " verified_source_class, confidence, sensitivity, created_at"
+                " FROM beliefs WHERE quarantined = 1"
+                " ORDER BY created_at DESC LIMIT ?", (int(limit),))]
+
+        return self.db._run(_list) or []
+
+    def set_verified_class(self, belief_id: str, source_class: str, *,
+                           source_actor: str = "",
+                           clear_quarantine: bool = False) -> int:
+        """The single write that promotes a belief's verified provenance.
+
+        This is the operator trust boundary: the model cannot promote its own text
+        to ``user_explicit``, the operator at their own terminal can. Both the
+        ``verify`` command and quarantine approval call this method, so the
+        verification semantics cannot drift between the two entry points.
+
+        ``clear_quarantine`` additionally releases the row from quarantine; it does
+        not decide the source class, which the caller must have already decided.
+        """
+        fields = ["source_class = ?", "verified_source_class = ?", "source_actor = ?",
+                  "ingestion_channel = ?"]
+        actor = str(source_actor or _policy.DEFAULT_ACTOR)
+        params: List[Any] = [source_class, source_class, actor, _trust.CHANNEL_CLI]
+        if clear_quarantine:
+            fields.append("quarantined = 0")
+        fields.append("updated_at = ?")
+        params.append(_db.now_iso())
+        params.append(belief_id)
+        sql = f"UPDATE beliefs SET {', '.join(fields)} WHERE belief_id = ?"
+
+        def _upd(conn) -> int:
+            return conn.execute(sql, params).rowcount
+
+        return self.db._run(_upd, write=True) or 0
+
     def supersede(self, belief_id: str, replacement_claim: str, *,
                   reason: str = "", keep_confidence: Optional[float] = None,
                   source_class: str = "agent_inference",

@@ -17,7 +17,8 @@ import types
 import importlib.util
 from pathlib import Path
 
-PLUGIN = Path(__file__).resolve().parent.parent
+REPO_DIR = Path(__file__).resolve().parent.parent
+PLUGIN = REPO_DIR / "src" / "hungry_hippa"   # src layout
 pkg = types.ModuleType("hungry_hippa")
 pkg.__path__ = [str(PLUGIN)]
 sys.modules["hungry_hippa"] = pkg

@@ -23,7 +23,8 @@ import types
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-PLUGIN_DIR = Path(__file__).resolve().parent.parent
+REPO_DIR = Path(__file__).resolve().parent.parent
+PLUGIN_DIR = REPO_DIR / "src" / "hungry_hippa"   # src layout
 
 
 def _import_plugin():

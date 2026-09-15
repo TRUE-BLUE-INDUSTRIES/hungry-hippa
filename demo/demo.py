@@ -34,7 +34,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 DEMO_DIR = Path(__file__).resolve().parent
-PLUGIN_DIR = DEMO_DIR.parent
+REPO_DIR = DEMO_DIR.parent
+PLUGIN_DIR = REPO_DIR / "src" / "hungry_hippa"   # src layout
 SEED_PATH = DEMO_DIR / "seed.json"
 EXPECTED_PATH = DEMO_DIR / "expected_output.txt"
 DEFAULT_DB_DIR = DEMO_DIR / ".demo_db"
@@ -184,7 +185,7 @@ def mcp_calls(db_path: str, calls, *, token_file: str = "", token: str = ""):
 
     params = StdioServerParameters(
         command=sys.executable, args=[str(PLUGIN_DIR / "mcp_server.py")],
-        env=env, cwd=str(PLUGIN_DIR))
+        env=env, cwd=str(REPO_DIR))
 
     async def _run():
         out = []

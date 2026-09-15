@@ -78,6 +78,11 @@ encryption at rest (use your OS), tamper-evident audit chain. See
 Requires Python 3.10+ and SQLite. The only third-party dependency is the official MCP
 SDK, declared in `pyproject.toml`; no network calls are required at runtime.
 
+**The store is plaintext.** Hungry Hippa keeps memory in a local SQLite database (created
+`0600`, under `$XDG_DATA_HOME/hungry-hippa/`) with no application-level encryption. Use
+OS or disk encryption if the memories are sensitive: `0600` is a permission, not
+encryption, and any process running as you can read the file.
+
 ```bash
 # 1. Install (a virtualenv is recommended; PEP 668 systems refuse a system install)
 python -m venv .venv && . .venv/bin/activate
@@ -267,13 +272,14 @@ This is the part people get wrong, so it is spelled out.
 
 ## MCP server
 
-`mcp_server.py` exposes the same runtime over **local stdio** for other MCP-capable
+The MCP server (`src/hungry_hippa/mcp_server.py`; console script `hungry-hippa-mcp`)
+exposes the same runtime over **local stdio** for other MCP-capable
 clients. No network listener, no socket, no HTTP.
 
 ```bash
-python mcp_server.py                  # serve on stdio
-hungry-hippa-mcp                      # the same thing, as a console script
-python mcp_server.py --print-schemas  # diagnostic: dump the tool schemas
+hungry-hippa-mcp                              # serve on stdio (console script)
+python src/hungry_hippa/mcp_server.py         # the same thing, from the checkout
+hungry-hippa-mcp --print-schemas              # diagnostic: dump the tool schemas
 ```
 
 | Tool | Purpose |
@@ -313,11 +319,30 @@ Caller identity defaults to `mcp-untrusted`: untrusted writers get quarantine, u
 readers get only their own unclassified, non-quarantined rows, and purge is denied. This
 is an actor/policy check, not capability-based security.
 
+### Reviewing quarantined memories (operator CLI)
+
+A write from an untrusted caller is stored but held back: recall, belief listing and
+consolidation all skip it until a human decides. The decision lives in the CLI, not in
+MCP — no tool can approve or reject anything, and the six-tool surface is unchanged.
+
+```bash
+hungry-hippa quarantine list [--limit N] [--kind belief|episode]   # what is held
+hungry-hippa quarantine show <id>                                  # full row + provenance
+hungry-hippa quarantine approve <id> [--source-class user_explicit|document|tool_result]
+hungry-hippa quarantine reject <id> [--mode archival]              # reversible; never purges
+```
+
+`approve` releases the row and records the class the operator asserts as its verified
+provenance (the original claim is kept beside it), audited as `quarantine_approved`.
+`reject` reuses the ordinary archival path — the memory leaves recall but stays in the
+database — audited as `quarantine_rejected`. Memory that is only quarantined is still
+never deleted implicitly, and there is no path from quarantine review to purge.
+
 ## Troubleshooting
 
 | Symptom | Cause and fix |
 |---|---|
-| An MCP host cannot reach the server | Check the host's `command` resolves (`hungry-hippa-mcp`, or `python /path/to/hungry-hippa/mcp_server.py`) and that the process can write the database directory. `python mcp_server.py --print-schemas` should list six tools. |
+| An MCP host cannot reach the server | Check the host's `command` resolves (`hungry-hippa-mcp`, or `python /path/to/hungry-hippa/src/hungry_hippa/mcp_server.py`) and that the process can write the database directory. `hungry-hippa-mcp --print-schemas` should list six tools. |
 | Calls that should be owner-only are refused | The instance was launched without `HUNGRY_HIPPA_OWNER_TOKEN`, or the value does not match `$XDG_STATE_HOME/hungry-hippa/owner.token`. Check the server's stderr: it logs which instance it is serving as. Do **not** try to fix this by setting `actor_id` — that is a label and grants nothing. |
 | A `DeprecationWarning` about `LIVING_CORTEX_DB` | You are using the old environment key. Switch to `HUNGRY_HIPPA_DB`; the old key still works. |
 | Recall returns nothing for something you know is stored | Common causes: the query has no matching tokens (FTS is keyword-based; enable vectors for paraphrases), a `project` filter excludes it, the item is **quarantined** (untrusted write — review with `hungry-hippa recall "<topic>" --quarantined`), or the row is `archived`/`superseded` and correctly no longer current. |
@@ -359,35 +384,38 @@ metrics that need an LLM judge as unsupported rather than estimating them.
 
 ```
 hungry-hippa/
-├── __init__.py          # HungryHippaProvider (in-process adapter) + register()
-├── controller.py        # MemoryController — the central abstraction
-├── policy.py            # actor + policy checks (not capability security)
-├── limits.py            # request/result caps, call budget, log redaction
-├── episodic.py          # episodes
-├── graph.py             # temporal knowledge graph
-├── semantic.py          # beliefs, provenance, contradictions
-├── procedural.py        # procedural learning + validation
-├── retrieval.py         # hybrid retrieval + context compiler
-├── vectors.py           # optional local embeddings (Ollama, fail-safe)
-├── consolidation.py     # "sleep" pass
-├── forgetting.py        # decay / compression / archival
-├── attention.py         # importance scoring
-├── vision.py            # visual episodic memory (privacy-gated)
-├── neural.py            # neural-memory interface (stub, no model weights)
-├── trust.py             # channel-derived identity, provenance, owner token
-├── observability.py     # why / changed / forgotten / export
-├── tools.py             # `cortex` tool schema + dispatch (in-process adapter)
-├── cli.py               # `hungry-hippa` CLI
-├── mcp_server.py        # local stdio MCP server (official SDK)
-├── schema.py            # SQLite schema + reversible migrations
-├── db.py                # connections, mutation log, FTS reindex
-├── config.py            # config resolution + privacy defaults
-├── version.py           # single version source (pyproject asserts it matches)
-├── tests/               # acceptance, migration, memory, MCP, trust, security suites
-├── eval/                # memory challenge harness, results, report
-├── demo/                # scripted 8-step demo + expected output
-├── scripts/             # seed example, build recording
-└── docs/                # baseline, migration, MCP, security, threat model, report
+├── src/hungry_hippa/     # the runtime package (installed as `hungry_hippa`)
+│   ├── __init__.py       # HungryHippaProvider (in-process adapter) + register()
+│   ├── controller.py     # MemoryController — the central abstraction
+│   ├── policy.py         # actor + policy checks (not capability security)
+│   ├── limits.py         # request/result caps, call budget, log redaction
+│   ├── episodic.py       # episodes
+│   ├── graph.py          # temporal knowledge graph
+│   ├── semantic.py       # beliefs, provenance, contradictions
+│   ├── procedural.py     # procedural learning + validation
+│   ├── retrieval.py      # hybrid retrieval + context compiler
+│   ├── vectors.py        # optional local embeddings (Ollama, fail-safe)
+│   ├── consolidation.py  # "sleep" pass
+│   ├── forgetting.py     # decay / compression / archival
+│   ├── attention.py      # importance scoring
+│   ├── vision.py         # visual episodic memory (privacy-gated)
+│   ├── neural.py         # neural-memory interface (stub, no model weights)
+│   ├── trust.py          # channel-derived identity, provenance, owner token
+│   ├── observability.py  # why / changed / forgotten / export
+│   ├── tools.py          # `cortex` tool schema + dispatch (in-process adapter)
+│   ├── cli.py            # `hungry-hippa` CLI (incl. `quarantine` review commands)
+│   ├── mcp_server.py     # local stdio MCP server (official SDK)
+│   ├── schema.py         # SQLite schema + reversible migrations
+│   ├── db.py             # connections, mutation log, FTS reindex
+│   ├── config.py         # config resolution + privacy defaults
+│   └── version.py        # single version source (pyproject asserts it matches)
+├── tests/                # acceptance, migration, memory, MCP, trust, quarantine,
+│                         # security suites (standalone: run_all() + __main__)
+├── eval/                 # memory challenge harness, results, report
+├── demo/                 # scripted 8-step demo + expected output
+├── scripts/              # seed example, build recording, check_all runner
+├── docs/                 # baseline, migration, MCP, security, threat model, report
+└── pyproject.toml        # packaging: packages are discovered from src/
 ```
 
 ## Contributing

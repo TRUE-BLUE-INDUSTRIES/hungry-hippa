@@ -54,26 +54,24 @@ SERVER_NAME = "hungry-hippa"
 
 
 def _load_package():
-    """Register this directory as the ``hungry_hippa`` package for standalone use.
+    """Make ``import hungry_hippa`` work when this file is run as a script.
 
-    Running ``python mcp_server.py`` has no parent package, so the flat module set
-    is registered under its canonical name. Importing the package normally (as a
-    dependency, or ``python -m hungry_hippa.mcp_server``) skips this entirely.
+    Running ``python src/hungry_hippa/mcp_server.py`` has no parent package, so the
+    source tree is put on ``sys.path`` and the real package is imported normally.
+    Importing through the package (as a dependency, or
+    ``python -m hungry_hippa.mcp_server``) skips this entirely.
     """
-    import importlib.util
     from pathlib import Path
 
     if sys.modules.get(PACKAGE_NAME) is not None and getattr(
             sys.modules[PACKAGE_NAME], "__file__", None):
         return sys.modules[PACKAGE_NAME]
-    here = Path(__file__).resolve().parent
-    spec = importlib.util.spec_from_file_location(
-        PACKAGE_NAME, str(here / "__init__.py"),
-        submodule_search_locations=[str(here)])
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[PACKAGE_NAME] = mod
-    spec.loader.exec_module(mod)
-    return mod
+    source_root = str(Path(__file__).resolve().parent.parent)   # .../src
+    if source_root not in sys.path:
+        sys.path.insert(0, source_root)
+    import importlib
+
+    return importlib.import_module(PACKAGE_NAME)
 
 
 if __package__:

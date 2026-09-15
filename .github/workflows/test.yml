@@ -76,12 +76,15 @@ jobs:
       - name: Security suite
         run: python tests/test_security.py
 
+      - name: quarantine review CLI
+        run: python tests/test_quarantine_cli.py
+
       - name: Demo transcript check (throwaway database)
         run: python demo/demo.py --tmp --check
 
       - name: MCP server advertises its tools through the SDK
         run: |
-          python mcp_server.py --print-schemas > /tmp/schemas.json
+          python src/hungry_hippa/mcp_server.py --print-schemas > /tmp/schemas.json
           python - <<'PY'
           import json
           d = json.load(open("/tmp/schemas.json"))

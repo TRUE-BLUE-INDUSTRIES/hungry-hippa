@@ -17,7 +17,7 @@ feeling. Nothing on this list publishes anything by itself.
 - [ ] `python demo/demo.py --tmp --check` → same (proves it runs against a temp DB)
 - [ ] `python eval/harness.py` → completes and rewrites `eval/results.json` +
       `eval/REPORT.md`; the numbers in `docs/TECHNICAL_REPORT.md` still match
-- [ ] `python mcp_server.py --print-schemas` → six tools, `export` absent
+- [ ] `hungry-hippa-mcp --print-schemas` → six tools, `export` absent
 
 ## 2. Superseded or unverified statements
 

@@ -224,7 +224,7 @@ def check_stdout_is_protocol_only():
     """Item 15: nothing but protocol traffic on stdout; logs on stderr."""
     db = H.fresh_db("itc_stdout_")
     env = H.session_env(db)
-    proc = subprocess.Popen([sys.executable, str(H.REPO / "mcp_server.py")],
+    proc = subprocess.Popen([sys.executable, str(H.MCP_SERVER)],
                             cwd=str(H.REPO), env=env, stdin=subprocess.PIPE,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     # communicate(input="") closes stdin (EOF) and collects the streams; closing
@@ -247,7 +247,7 @@ def check_malformed_line_does_not_pollute_stdout():
     """Garbage on stdin is handled by the SDK, not by us, and stays off stdout."""
     db = H.fresh_db("itc_garbage_")
     env = H.session_env(db)
-    proc = subprocess.Popen([sys.executable, str(H.REPO / "mcp_server.py")],
+    proc = subprocess.Popen([sys.executable, str(H.MCP_SERVER)],
                             cwd=str(H.REPO), env=env, stdin=subprocess.PIPE,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     assert proc.stdin and proc.stdout
@@ -336,7 +336,7 @@ def check_status_is_counts_only_and_quarantine_stays_hidden():
 
 def check_no_network_transport_is_offered():
     """stdio is the only transport wired up: no HTTP, no socket, no listener."""
-    source = (H.REPO / "mcp_server.py").read_text(encoding="utf-8")
+    source = (H.MCP_SERVER).read_text(encoding="utf-8")
     assert 'transport="stdio"' in source, "the stdio transport is not selected"
     for banned in ("streamable-http", "streamable_http", "transport=\"sse\"",
                    "uvicorn", "socketserver", "http.server"):

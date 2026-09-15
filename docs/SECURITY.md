@@ -332,7 +332,9 @@ Additional requirements if you enable them:
    is owner-authorized, look at whether **its server instance was launched with a
    matching `HUNGRY_HIPPA_OWNER_TOKEN`** — and only point a client at such an instance
    if it genuinely runs as you.
-3. Encrypt the disk holding the XDG data directory if the memories matter.
+3. Encrypt the disk (or the home directory) holding the XDG data directory if the
+   memories matter. Hungry Hippa stores memory in plaintext SQLite; `0600` permissions are
+   a permission, not encryption, and adding an encryption library is out of scope.
 4. Set `HUNGRY_HIPPA_MAX_MCP_CALLS` when a session is long-lived.
 5. Review quarantined rows periodically:
    `hungry-hippa recall "<topic>" --quarantined`, then decide to keep or

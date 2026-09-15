@@ -20,7 +20,8 @@ import types
 from pathlib import Path
 from typing import Any, Dict, List
 
-PLUGIN_DIR = Path(__file__).resolve().parent.parent
+REPO_DIR = Path(__file__).resolve().parent.parent
+PLUGIN_DIR = REPO_DIR / "src" / "hungry_hippa"   # src layout
 
 
 def _import_plugin():
@@ -397,7 +398,7 @@ def check_repo_contains_no_secrets():
 
     # In a checkout, scan exactly what is tracked. Installed as a plugin there is
     # no git repo, so fall back to walking this directory instead of failing.
-    proc = subprocess.run(["git", "ls-files"], cwd=str(PLUGIN_DIR),
+    proc = subprocess.run(["git", "ls-files"], cwd=str(REPO_DIR),
                           capture_output=True, text=True)
     if proc.returncode == 0 and proc.stdout.split():
         tracked = proc.stdout.split()
@@ -405,8 +406,8 @@ def check_repo_contains_no_secrets():
     else:
         skip_dirs = {"__pycache__", ".git", ".demo_db", "node_modules"}
         tracked = sorted(
-            str(p.relative_to(PLUGIN_DIR))
-            for p in PLUGIN_DIR.rglob("*")
+            str(p.relative_to(REPO_DIR))
+            for p in REPO_DIR.rglob("*")
             if p.is_file()
             and not any(part in skip_dirs for part in p.parts)
         )
