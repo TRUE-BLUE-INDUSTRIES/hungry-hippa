@@ -159,14 +159,17 @@ def check_trust_weighting_uses_verified_class():
     rival = ctrl.contradict(truth["belief_id"], "the crane slot is Thursday",
                             confidence=0.95, source_class="user_explicit")
     after_truth = _row(db, truth["belief_id"])
-    after_rival = _row(db, rival["belief_id"])
-    assert after_rival["verified_source_class"] == "agent_reported", after_rival
-    # 0.95 confidence on an agent_reported claim must not silently retire the
-    # operator's own statement; the resolution is recorded, not hidden
-    assert after_truth["status"] in ("active", "contradicted"), after_truth
-    assert "contradictions" in after_rival, after_rival
-    return (f"rival weighed as {after_rival['verified_source_class']} "
-            f"(confidence {after_rival['confidence']}); history kept")
+    # The operator's statement is protected: the model's 0.95-confidence claim is
+    # held as a quarantined agent_reported candidate and cannot retire it (see
+    # tests/test_supersession.py). Its confidence is capped by the verified class.
+    assert rival.get("blocked") is True, rival
+    candidate = _row(db, rival["candidate"])
+    assert candidate["verified_source_class"] == "agent_reported", candidate
+    assert candidate["quarantined"] == 1, candidate
+    assert candidate["confidence"] <= 0.55, candidate
+    assert after_truth["status"] == "active", after_truth
+    return (f"rival stored as {candidate['verified_source_class']} "
+            f"(confidence {candidate['confidence']}), quarantined; truth untouched")
 
 
 def check_provenance_is_inspectable_and_audited():

@@ -40,6 +40,25 @@ _SOURCE_PRIORITY = {
 }
 
 
+# A memory the model may not silently rewrite. Either the operator attested to it
+# (verified user_explicit) or it is a high-confidence, non-quarantined canonical
+# fact. Changing one of these is an operator action, not a model action; see
+# docs/SECURITY.md and the false-correction finding in the red-team report.
+PROTECTED_CONFIDENCE = 0.90
+
+
+def protection_reason(belief: Dict[str, Any]) -> str:
+    """Why this row is protected from a non-operator rewrite ("" if it is not)."""
+    if not belief:
+        return ""
+    if str(belief.get("verified_source_class")
+           or belief.get("source_class") or "") in _trust.TRUSTED_SOURCE_CLASSES:
+        return "operator-attested"
+    if not belief.get("quarantined") and float(belief.get("confidence") or 0) >= PROTECTED_CONFIDENCE:
+        return "high-confidence canonical"
+    return ""
+
+
 class SemanticMemory:
     def __init__(self, database: _db.Database, config: Dict):
         self.db = database
@@ -75,11 +94,7 @@ class SemanticMemory:
         # ``source_class`` is a claim. The effective class — the one the trust
         # weighting uses — is decided by the channel (trust.py), and the claim is
         # kept beside it so provenance stays inspectable instead of rewritten.
-        if provenance is None:
-            provenance = (_trust.PROVENANCE_EXTERNAL
-                          if (identity is not None
-                              and not _policy.is_owner_identity(identity))
-                          else _trust.PROVENANCE_USER)
+        provenance = _trust.resolve_provenance(provenance, identity)
         claimed_source_class = source_class
         source_class = _trust.verified_source_class(claimed_source_class, provenance)
         # Confidence is capped by the trust of the channel: a claim from the model
@@ -224,6 +239,19 @@ class SemanticMemory:
         old = self.get_belief(belief_id)
         if not old:
             return {"error": f"unknown belief {belief_id}"}
+        provenance = _trust.resolve_provenance(provenance, identity)
+        protected = protection_reason(old)
+        if protected and provenance != _trust.PROVENANCE_USER:
+            self.db.log_mutation(
+                "supersede_denied", "belief", belief_id,
+                f"actor={_policy.normalize_actor(actor_id)} provenance={provenance} "
+                f"reason=protected:{protected}", session_id)
+            return {"error": "supersede of a protected memory requires the operator",
+                    "protected": protected, "actor_id": _policy.normalize_actor(actor_id),
+                    "provenance": provenance,
+                    "hint": "the operator can do this from their own terminal: "
+                            "hermes living-cortex verify / cortex submit with "
+                            "an owner token"}
         now = _db.now_iso()
 
         def _upd(conn) -> None:
@@ -234,8 +262,9 @@ class SemanticMemory:
 
         self.db._run(_upd, write=True)
         self.db.log_mutation("supersede_belief", "belief", belief_id,
-                             f"{reason}: {old['claim'][:120]} -> {replacement_claim[:120]}",
-                             session_id)
+                             f"{reason}: {old['claim'][:120]} -> {replacement_claim[:120]}"
+                             f" actor={_policy.normalize_actor(actor_id)}"
+                             f" provenance={provenance}", session_id)
         new_confidence = keep_confidence if keep_confidence is not None else \
             max(0.6, self.default_confidence(source_class))
         return self.add_belief(
@@ -264,6 +293,29 @@ class SemanticMemory:
         old = self.get_belief(belief_id)
         if not old:
             return {"error": f"unknown belief {belief_id}"}
+        provenance = _trust.resolve_provenance(provenance, identity)
+        protected = protection_reason(old)
+        if protected and provenance != _trust.PROVENANCE_USER:
+            # A non-operator channel cannot retire a protected fact. The claim is
+            # kept as a quarantined candidate for the operator to see, and the
+            # protected row is left exactly as it was.
+            candidate = self.add_belief(
+                counter_claim, kind="hypothesis",
+                confidence=confidence, importance=old["importance"],
+                source_class=source_class, related_entities=old["related_entities"],
+                quarantined=True, actor_id=actor_id, identity=identity,
+                provenance=provenance, channel=channel, session_id=session_id)
+            self.db.log_mutation(
+                "contradict_blocked", "belief", belief_id,
+                f"actor={_policy.normalize_actor(actor_id)} provenance={provenance} "
+                f"reason=protected:{protected} candidate="
+                f"{candidate.get('belief_id', '')}", session_id)
+            return {"blocked": True, "protected": protected,
+                    "candidate": candidate.get("belief_id", ""),
+                    "belief_id": belief_id,
+                    "quarantined": True,
+                    "error": "a protected memory cannot be contradicted by this channel; "
+                             "the claim was stored as a quarantined candidate"}
         new_conf = confidence if confidence is not None else \
             self.default_confidence(source_class)
         new = self.add_belief(counter_claim, kind="hypothesis",
