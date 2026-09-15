@@ -1,0 +1,118 @@
+"""Actor policy checks for Hungry Hippa.
+
+This module implements **identity + policy checks**, not capability-based
+security. Callers pass an ``actor_id`` string; the runtime applies a fixed,
+documented read/write policy. There are no unforgeable, revocable,
+time-limited capability tokens here, and the code and docs must not claim
+otherwise.
+
+Policy (v1, deterministic, no ML):
+
+  * The operator-facing agent runs as the owner actor (``primary``/``owner``).
+    Owner reads everything except quarantined rows unless it explicitly asks
+    for them while reviewing.
+  * Every other actor is untrusted. Untrusted actors may read only rows they
+    wrote themselves, only when the row is ``unclassified`` and not
+    quarantined. They may never read another actor's quarantined row.
+  * Writes from an untrusted actor are stored quarantined (see
+    ``write_quarantine``), so a poisoned memory does not enter normal recall.
+  * Purge (irreversible delete) is owner-only.
+
+Sensitivity labels are a coarse ordering used for read policy only. They are
+not an encryption boundary; encryption at rest is the operating system's job
+(see ``docs/SECURITY.md``).
+"""
+
+from __future__ import annotations
+
+from typing import Any, Dict, Tuple
+
+DEFAULT_ACTOR = "primary"
+OWNER_ACTORS = frozenset({"primary", "owner"})
+UNTRUSTED_ACTOR = "mcp-untrusted"
+
+# Coarse ordering: unclassified < internal < private < restricted.
+SENSITIVITIES = ("unclassified", "internal", "private", "restricted")
+
+# Reasons returned by may_read(); used in explain/excluded payloads. They are
+# content-free by construction.
+REASON_QUARANTINED = "quarantined"
+REASON_QUARANTINED_OTHER_ACTOR = "quarantined-other-actor"
+REASON_OTHER_ACTOR = "other-actor"
+REASON_SENSITIVITY = "sensitivity"
+REASON_INACTIVE = "inactive"
+
+VALID_STATUSES = ("active", "archived", "compressed", "purged",
+                  "superseded", "contradicted")
+
+
+def normalize_actor(actor_id: Any) -> str:
+    """Return a usable actor id; empty/None becomes the owner actor."""
+    a = str(actor_id or "").strip()
+    return a or DEFAULT_ACTOR
+
+
+def is_owner(actor_id: Any) -> bool:
+    return normalize_actor(actor_id) in OWNER_ACTORS
+
+
+def normalize_sensitivity(value: Any) -> str:
+    v = str(value or "").strip().lower()
+    return v if v in SENSITIVITIES else "unclassified"
+
+
+def write_quarantine(actor_id: Any, requested: bool = False) -> bool:
+    """Whether a write should be stored quarantined.
+
+    Untrusted actors always write quarantined; the owner may request
+    quarantine explicitly (e.g. reviewing a suspect memory).
+    """
+    return bool(requested) or not is_owner(actor_id)
+
+
+def may_read(item: Dict[str, Any], actor_id: Any, *,
+             include_quarantined: bool = False) -> Tuple[bool, str]:
+    """Return ``(allowed, reason)`` for reading one memory row.
+
+    ``item`` is a row dict (episode, belief or relationship). Missing columns
+    are treated as their migration-v4 defaults, so this is safe to call on
+    rows fetched before the columns existed.
+    """
+    actor = normalize_actor(actor_id)
+    owner = is_owner(actor)
+    row_actor = normalize_actor(item.get("actor_id"))
+    quarantined = bool(item.get("quarantined", 0))
+    sensitivity = normalize_sensitivity(item.get("sensitivity"))
+
+    if quarantined:
+        if not include_quarantined:
+            return False, REASON_QUARANTINED
+        # Reviewing quarantined rows is allowed for the owner, or for the
+        # actor that wrote the row. Never for third parties.
+        if not owner and row_actor != actor:
+            return False, REASON_QUARANTINED_OTHER_ACTOR
+
+    if not owner:
+        if row_actor != actor:
+            return False, REASON_OTHER_ACTOR
+        if sensitivity != "unclassified":
+            return False, REASON_SENSITIVITY
+    return True, ""
+
+
+def may_purge(actor_id: Any) -> bool:
+    """Irreversible deletion is owner-only. Over MCP it is denied by default."""
+    return is_owner(actor_id)
+
+
+def policy_summary() -> Dict[str, Any]:
+    """Content-free description of the active policy, for status output."""
+    return {
+        "model": "actor + policy checks (not capability-based security)",
+        "owner_actors": sorted(OWNER_ACTORS),
+        "untrusted_actor_default": UNTRUSTED_ACTOR,
+        "sensitivities": list(SENSITIVITIES),
+        "quarantine_on_untrusted_write": True,
+        "purge_owner_only": True,
+        "untrusted_can_read": "own rows only, unclassified, not quarantined",
+    }

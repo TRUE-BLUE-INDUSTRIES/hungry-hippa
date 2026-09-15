@@ -22,7 +22,10 @@ CORTEX_SCHEMA = {
         "significant tasks (problems found, decisions made, things that worked). "
         "Use relate() to connect people/projects/devices/problems/solutions. "
         "Use add_belief() for durable facts with a source; contradict() when "
-        "evidence conflicts. why() traces a belief to its evidence."
+        "evidence conflicts. why() traces a belief to its evidence. "
+        "recall(..., explain=true) returns the score parts behind each result "
+        "(relevance, recency, salience, confidence, provenance class) without "
+        "echoing memory contents."
     ),
     "parameters": {
         "type": "object",
@@ -32,8 +35,9 @@ CORTEX_SCHEMA = {
                 "enum": [
                     "recall", "remember_episode", "relate", "graph",
                     "episodes", "add_belief", "update_belief", "contradict",
-                    "procedures", "reinforce", "forget", "consolidate",
-                    "why", "changed", "forgotten", "status", "export",
+                    "procedures", "record_outcome", "reinforce", "forget",
+                    "consolidate", "why", "changed", "forgotten", "status",
+                    "export",
                 ],
                 "description": "What to do.",
             },
@@ -85,7 +89,12 @@ CORTEX_SCHEMA = {
             "counter_claim": {"type": "string",
                               "description": "contradict: the conflicting claim."},
             "episode_id": {"type": "string", "description": "episodes/reinforce/forget target."},
-            "procedure_id": {"type": "string", "description": "procedures/reinforce target."},
+            "procedure_id": {"type": "string",
+                             "description": "procedures/reinforce/record_outcome target."},
+            "success": {"type": "boolean",
+                        "description": "record_outcome: did the procedure work?"},
+            "explain": {"type": "boolean",
+                        "description": "recall: include per-item score parts (no contents)."},
             "name": {"type": "string", "description": "procedures: create — procedure name."},
             "description": {"type": "string", "description": "procedures: create — what it does."},
             "steps": {"type": "array", "items": {"type": "string"},
@@ -111,13 +120,18 @@ def handle(cortex_controller, observability, action: str, args: Dict[str, Any]) 
         c = cortex_controller
         if action == "recall":
             out = c.recall(args.get("query", ""), project=args.get("project", ""),
-                           limit=args.get("limit"))
-            return json.dumps({
+                           limit=args.get("limit"),
+                           explain=bool(args.get("explain")))
+            payload = {
                 "count": out.get("count", 0),
                 "context": out.get("context", ""),
                 "entities": out.get("entities", []),
                 "sources": out.get("sources", []),
-            }, ensure_ascii=False)
+                "excluded": out.get("excluded", []),
+            }
+            if args.get("explain"):
+                payload["explain"] = out.get("explain", [])
+            return json.dumps(payload, ensure_ascii=False)
 
         if action == "remember_episode":
             fields = {k: args.get(k, "") for k in
@@ -188,6 +202,22 @@ def handle(cortex_controller, observability, action: str, args: Dict[str, Any]) 
                 return json.dumps(r, ensure_ascii=False)
             rows = c.procedural.list_procedures(limit=args.get("limit") or 30)
             return json.dumps({"procedures": rows}, ensure_ascii=False, default=str)
+
+        if action == "record_outcome":
+            pid = args.get("procedure_id", "")
+            if not pid:
+                return json.dumps({"error": "record_outcome needs procedure_id"},
+                                  ensure_ascii=False)
+            r = c.record_outcome(pid, bool(args.get("success")))
+            if not r:
+                return json.dumps({"error": f"unknown procedure {pid}"},
+                                  ensure_ascii=False)
+            return json.dumps({
+                "procedure_id": r["procedure_id"], "name": r["name"],
+                "status": r["status"], "confidence": r["confidence"],
+                "success_count": r["success_count"],
+                "failure_count": r["failure_count"],
+            }, ensure_ascii=False)
 
         if action == "reinforce":
             ok = c.reinforce(args.get("target_kind", ""), args.get("belief_id") or

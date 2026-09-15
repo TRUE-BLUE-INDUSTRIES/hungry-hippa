@@ -313,6 +313,15 @@ class Database:
                     counts[table] = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
                 except Exception:
                     counts[table] = -1
+            # quarantine visibility (counts only, never row contents)
+            for table in ("episodes", "beliefs"):
+                key = f"{table}_quarantined"
+                try:
+                    counts[key] = conn.execute(
+                        f"SELECT COUNT(*) FROM {table} WHERE quarantined = 1"
+                    ).fetchone()[0]
+                except Exception:
+                    counts[key] = -1
             return {
                 "path": self.path,
                 "counts": counts,

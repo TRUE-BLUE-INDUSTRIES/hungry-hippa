@@ -104,6 +104,8 @@ class ProceduralMemory:
         p = self.get_procedure(procedure_id)
         if p:
             self._reevaluate(p, session_id)
+            # return the post-reevaluation snapshot, not the stale pre-write copy
+            p = self.get_procedure(procedure_id) or p
         return p
 
     def _reevaluate(self, p: Dict[str, Any], session_id: str = "") -> None:

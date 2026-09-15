@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from . import db as _db
+from . import policy as _policy
 from .attention import AttentionScorer
 from .consolidation import Consolidator
 from .episodic import EpisodicMemory
@@ -51,6 +52,7 @@ class MemoryController:
         self.session_id = ""
         self.platform = ""
         self.agent_context = "primary"
+        self.actor_id = _policy.DEFAULT_ACTOR
         self.writes_enabled = True
 
     def _resolve_db(self) -> str:
@@ -62,10 +64,12 @@ class MemoryController:
 
     def bind_session(self, session_id: str = "", platform: str = "",
                      agent_context: str = "primary",
-                     parent_session_id: str = "") -> None:
+                     parent_session_id: str = "",
+                     actor_id: str = "") -> None:
         self.session_id = session_id
         self.platform = platform
         self.agent_context = agent_context or "primary"
+        self.actor_id = _policy.normalize_actor(actor_id or self.agent_context)
         self.writes_enabled = (
             self.agent_context == "primary" and not parent_session_id
         )
@@ -73,7 +77,11 @@ class MemoryController:
     # ------------------------------------------------------------- §14 API
 
     def remember_episode(self, *, embed: bool = True, **fields: Any) -> Dict[str, Any]:
-        """Create an episode (attention-gated by the caller via importance)."""
+        """Create an episode (attention-gated by the caller via importance).
+
+        Actor policy: writes from a non-owner actor are stored quarantined so
+        an untrusted caller cannot inject a memory into normal recall.
+        """
         if not self.writes_enabled:
             return {"error": "writes disabled for this agent context"}
         importance = fields.pop("importance", None)
@@ -83,6 +91,10 @@ class MemoryController:
             importance = scored["importance"]
             signals = scored["signals"]
         fields["importance"] = importance
+        actor = _policy.normalize_actor(fields.get("actor_id") or self.actor_id)
+        fields["actor_id"] = actor
+        fields["quarantined"] = _policy.write_quarantine(
+            actor, bool(fields.get("quarantined")))
         fields["session_id"] = self.session_id
         result = self.episodic.remember_episode(**fields)
         eid = result.get("episode_id")
@@ -95,9 +107,24 @@ class MemoryController:
         return result
 
     def recall(self, query: str, *, project: str = "",
-               limit: Optional[int] = None) -> Dict[str, Any]:
+               limit: Optional[int] = None, actor_id: str = "",
+               explain: bool = False, include_quarantined: bool = False,
+               max_context_chars: Optional[int] = None) -> Dict[str, Any]:
+        """Hybrid recall under actor policy.
+
+        Quarantined rows are excluded for everyone by default; only the owner
+        may ask for them while reviewing, and an untrusted actor never sees
+        rows it did not write.
+        """
+        actor = _policy.normalize_actor(actor_id or self.actor_id)
+        if include_quarantined and not _policy.is_owner(actor):
+            include_quarantined = False
         out = self.retrieval.recall(query, project=project, limit=limit,
-                                    session_id=self.session_id)
+                                    session_id=self.session_id, actor_id=actor,
+                                    explain=explain,
+                                    include_quarantined=include_quarantined,
+                                    max_context_chars=max_context_chars)
+
         def _log(conn) -> None:
             conn.execute(
                 "INSERT INTO retrieval_log(ts, query, recalled, session_id) VALUES (?,?,?,?)",
@@ -109,6 +136,22 @@ class MemoryController:
 
         self.db._run(_log, write=True)
         return out
+
+    def build_context(self, query: str, **kwargs: Any) -> Dict[str, Any]:
+        """Recall and return the compiled context package (Phase 3 compiler).
+
+        ``{items, rendering, token_estimate, excluded}`` plus the recall
+        metadata. Kept separate from ``recall`` so callers that only want the
+        package (MCP ``hippa_build_context``) do not have to unpack a recall.
+        """
+        out = self.recall(query, **kwargs)
+        pkg = dict(out.get("context_package") or {})
+        pkg["sources"] = out.get("sources", [])
+        pkg["entities"] = out.get("entities", [])
+        pkg["actor_id"] = out.get("actor_id", self.actor_id)
+        if out.get("error"):
+            pkg["error"] = out["error"]
+        return pkg
 
     def relate(self, src: str, rel: str, dst: str, **kwargs: Any) -> Dict[str, Any]:
         return self.graph.relate(src, rel, dst, session_id=self.session_id, **kwargs)
@@ -182,8 +225,16 @@ class MemoryController:
 
     def forget(self, kind: str, target_id: str, *, mode: str = "archival",
                reason: str = "") -> Dict[str, Any]:
-        """forget() — memory-management operation, never silent deletion."""
+        """forget() — memory-management operation, never silent deletion.
+
+        ``purge`` (irreversible delete) is owner-only; untrusted actors get
+        archival at most. Over MCP, purge is denied unless explicitly
+        confirmed by an owner (see mcp_server.py).
+        """
         if mode == "purge":
+            if not _policy.may_purge(self.actor_id):
+                return {"error": "purge denied for this actor",
+                        "actor_id": self.actor_id, "target": target_id}
             if kind == "episode":
                 ok = self.episodic.purge(target_id, self.session_id)
             elif kind == "belief":
@@ -327,4 +378,6 @@ class MemoryController:
         health["vectors"] = self.vectors.health()
         health["writes_enabled"] = self.writes_enabled
         health["session_id"] = self.session_id
+        health["actor_id"] = self.actor_id
+        health["policy"] = _policy.policy_summary()
         return health

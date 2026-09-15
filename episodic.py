@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from . import db as _db
+from . import policy as _policy
 
 VALID_OUTCOMES = {"success", "failure", "mixed", "unknown", "unexpected"}
 
@@ -34,6 +35,9 @@ class EpisodicMemory:
                          source_refs: Optional[List[str]] = None,
                          evidence_ids: Optional[List[str]] = None,
                          ts_start: Optional[str] = None, ts_end: Optional[str] = None,
+                         sensitivity: str = "unclassified",
+                         quarantined: bool = False,
+                         actor_id: str = "",
                          session_id: str = "") -> Dict[str, Any]:
         if outcome not in VALID_OUTCOMES:
             outcome = "unknown"
@@ -48,6 +52,8 @@ class EpisodicMemory:
         confidence = confidence if confidence is not None else 0.8
         rel = _db.jdump([e for e in (related_entities or []) if e])
         refs = _db.jdump([r for r in (source_refs or []) if r])
+        sens = _policy.normalize_sensitivity(sensitivity)
+        actor = _policy.normalize_actor(actor_id)
 
         def _insert(conn) -> None:
             conn.execute(
@@ -56,12 +62,14 @@ class EpisodicMemory:
                      visual_entities, audio_transcript, user_request, actions_taken,
                      tools_used, files_used, decisions, result, outcome, importance,
                      confidence, project, related_entities, source_refs, status,
+                     sensitivity, quarantined, actor_id,
                      created_at, updated_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (episode_id, ts_start, ts_end, context, participants, location,
                  visual_entities, audio_transcript, user_request, actions_taken,
                  tools_used, files_used, decisions, result, outcome, importance,
-                 confidence, project, rel, refs, "active", now, now),
+                 confidence, project, rel, refs, "active",
+                 sens, 1 if quarantined else 0, actor, now, now),
             )
 
         ok = self.db._run(_insert, write=True)
@@ -74,9 +82,13 @@ class EpisodicMemory:
             context, user_request, actions_taken, decisions, result, project,
             visual_entities, audio_transcript, participants))
         self.db.log_mutation("remember_episode", "episode", episode_id,
-                             f"importance={importance:.2f} outcome={outcome} project={project}",
+                             f"importance={importance:.2f} outcome={outcome} project={project}"
+                             f" actor={actor} sensitivity={sens}"
+                             f"{' quarantined' if quarantined else ''}",
                              session_id)
-        return {"episode_id": episode_id, "importance": importance, "outcome": outcome}
+        return {"episode_id": episode_id, "importance": importance,
+                "outcome": outcome, "quarantined": bool(quarantined),
+                "sensitivity": sens, "actor_id": actor}
 
     def _field_importance(self, fields: Dict) -> float:
         # kept local to avoid circular import with attention; the provider
@@ -112,10 +124,12 @@ class EpisodicMemory:
         return self.db._run(_get)
 
     def list_episodes(self, project: str = "", status: str = "active",
-                      limit: int = 20) -> List[Dict[str, Any]]:
+                      limit: int = 20, include_quarantined: bool = False) -> List[Dict[str, Any]]:
         def _list(conn) -> List[Dict[str, Any]]:
-            sql = "SELECT episode_id, ts_start, context, user_request, result, outcome, importance, project, status FROM episodes WHERE status = ?"
+            sql = "SELECT episode_id, ts_start, context, user_request, result, outcome, importance, project, status, quarantined, actor_id FROM episodes WHERE status = ?"
             params: List[Any] = [status]
+            if not include_quarantined:
+                sql += " AND quarantined = 0"
             if project:
                 sql += " AND project = ?"
                 params.append(project)
@@ -126,11 +140,18 @@ class EpisodicMemory:
         return self.db._run(_list) or []
 
     def list_episodes_full(self, project: str = "", status: str = "active",
-                           limit: int = 500) -> List[Dict[str, Any]]:
-        """All columns — for consolidation passes that need full rows."""
+                           limit: int = 500,
+                           include_quarantined: bool = False) -> List[Dict[str, Any]]:
+        """All columns — for consolidation passes that need full rows.
+
+        Quarantined episodes are excluded by default so an untrusted write
+        cannot be laundered into a derived belief by the consolidation pass.
+        """
         def _list(conn) -> List[Dict[str, Any]]:
             sql = "SELECT * FROM episodes WHERE status = ?"
             params: List[Any] = [status]
+            if not include_quarantined:
+                sql += " AND quarantined = 0"
             if project:
                 sql += " AND project = ?"
                 params.append(project)

@@ -274,6 +274,33 @@ VALUES (1, 'Hungry Hippa', 'Living Cortex', datetime('now'));
 DROP TABLE IF EXISTS product_meta;
 """,
     },
+    4: {
+        "description": "Hungry Hippa memory architecture: sensitivity label, quarantine flag and actor_id on episodes and beliefs. Constant defaults only; existing rows and ids are unchanged.",
+        "up": """
+ALTER TABLE episodes ADD COLUMN sensitivity TEXT NOT NULL DEFAULT 'unclassified';
+ALTER TABLE episodes ADD COLUMN quarantined INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE episodes ADD COLUMN actor_id TEXT NOT NULL DEFAULT 'primary';
+ALTER TABLE beliefs ADD COLUMN sensitivity TEXT NOT NULL DEFAULT 'unclassified';
+ALTER TABLE beliefs ADD COLUMN quarantined INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE beliefs ADD COLUMN actor_id TEXT NOT NULL DEFAULT 'primary';
+CREATE INDEX ix_episodes_quarantined ON episodes(quarantined);
+CREATE INDEX ix_beliefs_quarantined ON beliefs(quarantined);
+CREATE INDEX ix_episodes_actor ON episodes(actor_id);
+CREATE INDEX ix_beliefs_actor ON beliefs(actor_id);
+""",
+        "down": """
+DROP INDEX IF EXISTS ix_beliefs_actor;
+DROP INDEX IF EXISTS ix_episodes_actor;
+DROP INDEX IF EXISTS ix_beliefs_quarantined;
+DROP INDEX IF EXISTS ix_episodes_quarantined;
+ALTER TABLE beliefs DROP COLUMN actor_id;
+ALTER TABLE beliefs DROP COLUMN quarantined;
+ALTER TABLE beliefs DROP COLUMN sensitivity;
+ALTER TABLE episodes DROP COLUMN actor_id;
+ALTER TABLE episodes DROP COLUMN quarantined;
+ALTER TABLE episodes DROP COLUMN sensitivity;
+""",
+    },
 }
 
 CURRENT_VERSION = max(MIGRATIONS.keys())

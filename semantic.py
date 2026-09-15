@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from . import db as _db
+from . import policy as _policy
 
 KINDS = {"fact", "belief", "hypothesis", "procedural_belief"}
 SOURCE_CLASSES = {
@@ -50,7 +51,11 @@ class SemanticMemory:
                    related_entities: Optional[List[str]] = None,
                    derived_from: Optional[List[str]] = None,
                    evidence_ids: Optional[List[str]] = None,
-                   valid_from: Optional[str] = None, session_id: str = "") -> Dict[str, Any]:
+                   valid_from: Optional[str] = None,
+                   sensitivity: str = "unclassified",
+                   quarantined: bool = False,
+                   actor_id: str = "",
+                   session_id: str = "") -> Dict[str, Any]:
         claim = (claim or "").strip()
         if not claim:
             return {"error": "empty claim"}
@@ -62,17 +67,21 @@ class SemanticMemory:
             confidence = self.default_confidence(source_class)
         belief_id = self.db.next_id("belief")
         now = _db.now_iso()
+        sens = _policy.normalize_sensitivity(sensitivity)
+        actor = _policy.normalize_actor(actor_id)
 
         def _insert(conn) -> None:
             conn.execute(
                 """INSERT INTO beliefs(
                      belief_id, kind, claim, confidence, importance, status,
                      derived_from, related_entities, valid_from, source_class,
-                     contradictions, created_at, updated_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                     contradictions, sensitivity, quarantined, actor_id,
+                     created_at, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (belief_id, kind, claim, confidence, importance, "active",
                  _db.jdump(derived_from or []), _db.jdump(related_entities or []),
-                 valid_from or now, source_class, "[]", now, now),
+                 valid_from or now, source_class, "[]", sens,
+                 1 if quarantined else 0, actor, now, now),
             )
 
         ok = self.db._run(_insert, write=True)
@@ -82,9 +91,13 @@ class SemanticMemory:
             self.db.link_evidence("belief", belief_id, evidence_ids, session_id)
         self.db.fts_insert("belief", belief_id, claim)
         self.db.log_mutation("add_belief", "belief", belief_id,
-                             f"[{kind}|{source_class}|c={confidence:.2f}] {claim[:160]}",
+                             f"[{kind}|{source_class}|c={confidence:.2f}] {claim[:160]}"
+                             f" actor={actor} sensitivity={sens}"
+                             f"{' quarantined' if quarantined else ''}",
                              session_id)
-        return {"belief_id": belief_id, "confidence": confidence, "source_class": source_class}
+        return {"belief_id": belief_id, "confidence": confidence,
+                "source_class": source_class, "quarantined": bool(quarantined),
+                "sensitivity": sens, "actor_id": actor}
 
     # ---------------------------------------------------------------- read
 
@@ -106,21 +119,30 @@ class SemanticMemory:
         return self.db._run(_get)
 
     def search_beliefs(self, query: str, status: str = "active",
-                       limit: int = 10) -> List[Dict[str, Any]]:
+                       limit: int = 10, actor_id: str = "primary",
+                       include_quarantined: bool = False) -> List[Dict[str, Any]]:
         hits = self.db.fts_search(query, kinds=["belief"], limit=limit)
         out = []
         for h in hits:
             b = self.get_belief(h["target_id"])
-            if b and b["status"] == status:
-                b["score"] = h["score"]
-                out.append(b)
+            if not b or b["status"] != status:
+                continue
+            allowed, _reason = _policy.may_read(b, actor_id,
+                                                include_quarantined=include_quarantined)
+            if not allowed:
+                continue
+            b["score"] = h["score"]
+            out.append(b)
         return out
 
     def list_beliefs(self, kind: str = "", status: str = "active",
-                     limit: int = 30) -> List[Dict[str, Any]]:
+                     limit: int = 30, actor_id: str = "primary",
+                     include_quarantined: bool = False) -> List[Dict[str, Any]]:
         def _list(conn) -> List[Dict[str, Any]]:
             sql = "SELECT * FROM beliefs WHERE status = ?"
             params: List[Any] = [status]
+            if not include_quarantined:
+                sql += " AND quarantined = 0"
             if kind:
                 sql += " AND kind = ?"
                 params.append(kind)
@@ -128,7 +150,10 @@ class SemanticMemory:
             params.append(limit)
             return [dict(r) for r in conn.execute(sql, params)]
 
-        return self.db._run(_list) or []
+        rows = self.db._run(_list) or []
+        return [r for r in rows
+                if _policy.may_read(r, actor_id,
+                                    include_quarantined=include_quarantined)[0]]
 
     # -------------------------------------------------------------- revise
 
