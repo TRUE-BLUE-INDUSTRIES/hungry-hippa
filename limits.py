@@ -1,6 +1,6 @@
 """Request limits and log redaction for Hungry Hippa (§ security phase).
 
-Small, standard-library guards applied at the two boundaries (the Hermes
+Small, standard-library guards applied at the two boundaries (the in-process
 ``cortex`` tool and the MCP server):
 
   * argument length caps — a query, a claim or an episode body cannot be
@@ -157,7 +157,7 @@ class CallBudget:
 
     A blunt resource guard: it stops a runaway client loop, it does not
     identify or authorise callers. Thread-safe because the MCP server and the
-    Hermes tool can both hit it from different threads in one process.
+    in-process tool can both hit it from different threads in one process.
     """
 
     def __init__(self, max_calls: int = DEFAULT_MAX_CALLS):

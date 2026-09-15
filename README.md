@@ -161,7 +161,7 @@ python -m pip install -e .
 
 ## Configuration
 
-Defaults live in `config.py`. Override them in Hermes config under the plugin section,
+Defaults live in `config.py`. Override them in `$XDG_CONFIG_HOME/hungry-hippa/config.json`
 or with environment variables for the database path.
 
 ```yaml
@@ -278,7 +278,7 @@ metrics that need an LLM judge as unsupported rather than estimating them.
 
 ```
 hungry-hippa/
-├── __init__.py          # LivingCortexProvider (Hermes MemoryProvider)
+├── __init__.py          # HungryHippaProvider (in-process adapter)
 ├── controller.py        # MemoryController — the central abstraction
 ├── policy.py            # actor + policy checks (not capability security)
 ├── limits.py            # request/result caps, call budget, log redaction

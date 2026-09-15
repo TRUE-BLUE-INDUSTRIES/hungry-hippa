@@ -8,8 +8,8 @@ security issue.
 
 Open a private report through GitHub:
 
-- **Security advisories:** https://github.com/TRUE-BLUE-INDUSTRIES/living-cortex/security/advisories/new
-- **Issues (for non-sensitive reports):** https://github.com/TRUE-BLUE-INDUSTRIES/living-cortex/issues
+- **Security advisories:** https://github.com/TRUE-BLUE-INDUSTRIES/hungry-hippa/security/advisories/new
+- **Issues (for non-sensitive reports):** https://github.com/TRUE-BLUE-INDUSTRIES/hungry-hippa/issues
 
 There is no dedicated security email address, and none should be assumed.
 
@@ -18,7 +18,7 @@ Please include:
 - the affected version or commit,
 - what you ran (exact commands, MCP tool calls, or CLI invocations),
 - what you expected and what happened,
-- whether the database, the MCP surface, or the Hermes plugin is involved,
+- whether the database, the MCP surface, or the in-process adapter is involved,
 - and, if relevant, a minimal reproduction using a throwaway database.
 
 **Please do not attach a real memory database, real credentials, or private

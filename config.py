@@ -111,7 +111,7 @@ DEFAULTS: Dict[str, Any] = {
     },
     # --- procedural learning (§12) ---
     "procedural": {
-        "skill_promotion_requires_user": True,  # never auto-write Hermes skills
+        "skill_promotion_requires_user": True,  # never auto-write host skills
         "validation_min_confidence": 0.80,
     },
     # --- privacy (§20) ---

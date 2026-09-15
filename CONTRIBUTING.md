@@ -46,7 +46,7 @@ If your change alters behaviour, update the relevant document (`README.md`,
    Fixtures must be invented (`Operator`, `Project A`, `Vendor A`), not scraped.
 6. **Do not call the project** unhackable, conscious, self-learning, enterprise-ready, or
    a healthcare product. The name is *Hungry Hippa*, not HIPAA.
-7. **Additive compatibility.** The Hermes plugin name (`living-cortex`), the `cortex`
+7. **Additive compatibility.** The in-process adapter, the `cortex`
    tool name and existing table names stay. New behaviour goes behind new fields,
    new actions or new modules.
 8. **Migrations are reversible.** Every entry in `schema.py`'s `MIGRATIONS` needs a
@@ -96,7 +96,7 @@ same shape (`run_all()` + `__main__`) so CI can just call the file.
 ## Reporting a bug
 
 Include: the command you ran, what you expected, what happened, and whether the memory
-database, the MCP surface or the Hermes plugin is involved. **Do not attach a real
+database, the MCP surface or the in-process adapter is involved. **Do not attach a real
 memory database or real credentials.** A redacted or invented reproduction is enough.
 
 Security issues: see [SECURITY.md](SECURITY.md).

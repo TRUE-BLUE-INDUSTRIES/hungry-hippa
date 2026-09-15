@@ -62,7 +62,7 @@ def _is_trivial(text: Optional[str]) -> bool:
         return bool(TRIVIAL_RE.match(stripped))
 
 
-class LivingCortexProvider:
+class HungryHippaProvider:
     """MemoryProvider-compatible plugin class.
 
     Kept duck-typed (not hard-subclassed) so the plugin loads even if the
@@ -113,7 +113,7 @@ class LivingCortexProvider:
         platform = str(kwargs.get("platform", "cli"))
         agent_context = str(kwargs.get("agent_context", "primary"))
         parent = str(kwargs.get("parent_session_id", "") or "")
-        # The Hermes plugin runs inside the operator's own process, so it has
+        # The in-process adapter runs inside the operator's own process, so it has
         # owner identity — but it is the *model*, not the user, so what it writes
         # carries agent provenance (see trust.py and docs/SECURITY.md).
         self._ctrl.bind_session(session_id=session_id, platform=platform,
@@ -379,5 +379,9 @@ class LivingCortexProvider:
 # ---------------------------------------------------------------- register
 
 def register(ctx) -> None:
-    provider = LivingCortexProvider()
+    provider = HungryHippaProvider()
     ctx.register_memory_provider(provider)
+
+
+#: Former name of the in-process adapter, kept so existing hosts keep importing it.
+LivingCortexProvider = HungryHippaProvider

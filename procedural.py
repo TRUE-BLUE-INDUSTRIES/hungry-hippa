@@ -1,7 +1,7 @@
 """Procedural memory (§12) — learning procedures from outcomes.
 
 Ladder: experience (episodes) -> procedural belief -> validated procedure ->
-Hermes skill (only with explicit user approval; we never auto-write skills).
+host-registered skill (only with explicit user approval; we never auto-write skills).
 
 Validation thresholds are configurable. Weak evidence produces a *candidate*
 with low confidence, never an executable artifact.
@@ -138,7 +138,7 @@ class ProceduralMemory:
             )
 
     def promote_to_skill(self, procedure_id: str, session_id: str = "") -> Dict[str, Any]:
-        """Mark a validated procedure as promoted to a Hermes skill.
+        """Mark a validated procedure as promoted to a host skill.
 
         The actual skill file is created by the agent with user approval —
         this only records the promotion so the lineage is preserved.
@@ -158,5 +158,5 @@ class ProceduralMemory:
 
         self.db._run(_upd, write=True)
         self.db.log_mutation("promote_to_skill", "procedure", procedure_id,
-                             f"{p['name']} promoted to Hermes skill", session_id)
+                             f"{p['name']} promoted to host skill", session_id)
         return {"procedure_id": procedure_id, "status": "skill_promoted"}

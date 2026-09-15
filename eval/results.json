@@ -1,9 +1,9 @@
 {
   "harness": "hungry-hippa-memory-challenge",
   "harness_version": "1.0",
-  "generated_at": "2026-09-15T14:23:28Z",
-  "git_rev": "e1fea4eaaafc823337f3c2071bfb3693eb154748",
-  "git_dirty": false,
+  "generated_at": "2026-09-15T20:52:41Z",
+  "git_rev": "7edf59e368e7baab46213eee1ed0c80c75d5ee72",
+  "git_dirty": true,
   "git_rev_note": "git_rev is the commit the measurement ran against, recorded from a clean tree. This file is normally committed afterwards, so the commit that contains it is one commit newer; that commit changes only eval/REPORT.md and eval/results.json, so the measured code is exactly git_rev. Check with `git show --stat <containing commit>`.",
   "python": "3.14.7",
   "platform": "Linux 7.1.9-arch1-2",
@@ -11,7 +11,7 @@
   "embedding": "disabled (offline, repeatable)",
   "baseline": "session-transcript-only agent (no memory runtime)",
   "fixtures": "eval/fixtures.json",
-  "wall_ms": 2335.2,
+  "wall_ms": 2345.0,
   "unsupported": [
     {
       "metric": "natural-language answer quality",
@@ -48,7 +48,7 @@
         "context_token_estimate": 72,
         "items": 1,
         "excluded": 0,
-        "latency_ms": 2.077,
+        "latency_ms": 2.061,
         "budget_chars": 1500,
         "answered": true,
         "answer": "45Nm",
@@ -71,18 +71,18 @@
       },
       "metrics": {},
       "notes": "Same deterministic reader; the only difference is that the with-arm reopens the store in a new session.",
-      "wall_ms": 6.2
+      "wall_ms": 6.1
     },
     {
       "id": 2,
       "name": "decision_and_rationale_recall",
       "question": "why did Project A choose method B?",
       "with": {
-        "context_chars": 488,
+        "context_chars": 487,
         "context_token_estimate": 122,
         "items": 2,
         "excluded": 0,
-        "latency_ms": 1.235,
+        "latency_ms": 1.255,
         "budget_chars": 1500,
         "answered": true,
         "answer": "warped",
@@ -112,11 +112,11 @@
       "name": "avoid_previously_failed_solution",
       "question": "should we use solvent X to free the seized housing?",
       "with": {
-        "context_chars": 382,
+        "context_chars": 381,
         "context_token_estimate": 96,
         "items": 1,
         "excluded": 0,
-        "latency_ms": 1.063,
+        "latency_ms": 1.028,
         "budget_chars": 1500,
         "answered": true,
         "answer": "cracked",
@@ -143,7 +143,7 @@
       },
       "metrics": {},
       "notes": "'repeated_failed_attempt' is derived: the prior failure is absent from the context, so the agent has nothing to stop it.",
-      "wall_ms": 4.8
+      "wall_ms": 4.6
     },
     {
       "id": 4,
@@ -154,7 +154,7 @@
         "context_token_estimate": 81,
         "items": 1,
         "excluded": 0,
-        "latency_ms": 1.039,
+        "latency_ms": 0.989,
         "budget_chars": 1500,
         "answered": true,
         "answer": "steel",
@@ -179,18 +179,18 @@
       },
       "metrics": {},
       "notes": "The baseline holds both statements and no supersession state, so the stale token remains in its context.",
-      "wall_ms": 6.0
+      "wall_ms": 5.9
     },
     {
       "id": 5,
       "name": "retrieval_within_a_fixed_budget",
       "question": "summarise the Project A alignment procedure",
       "with": {
-        "context_chars": 342,
+        "context_chars": 341,
         "context_token_estimate": 86,
         "items": 1,
         "excluded": 5,
-        "latency_ms": 3.23,
+        "latency_ms": 2.846,
         "budget_chars": 400,
         "answered": true,
         "answer": "alignment",
@@ -217,7 +217,7 @@
         "budget_chars": 400
       },
       "notes": "The baseline has no budget mechanism, so it supplies the whole session transcript; the with-arm is capped by the compiler.",
-      "wall_ms": 43.7
+      "wall_ms": 41.9
     },
     {
       "id": 6,
@@ -228,7 +228,7 @@
         "context_token_estimate": 71,
         "items": 1,
         "excluded": 0,
-        "latency_ms": 0.835,
+        "latency_ms": 0.822,
         "budget_chars": 1500,
         "answered": true,
         "answer": "Vendor A",
@@ -253,7 +253,7 @@
         "separate_controller_instances": 2
       },
       "notes": "Two independent MemoryController instances on the same SQLite file, i.e. two client processes. Cross-agent sharing for the owner actor only; see scenario 9 for the untrusted case.",
-      "wall_ms": 4.8
+      "wall_ms": 4.4
     },
     {
       "id": 7,
@@ -269,7 +269,7 @@
         "context_chars": 0,
         "items": 0,
         "excluded": 0,
-        "latency_ms": 0.773,
+        "latency_ms": 0.763,
         "before_context_chars": 297
       },
       "without": {
@@ -297,7 +297,7 @@
         "context_token_estimate": 0,
         "items": 0,
         "excluded": 0,
-        "latency_ms": 0.787,
+        "latency_ms": 0.795,
         "budget_chars": 1500,
         "poison_leaked": false,
         "correct": true,
@@ -313,7 +313,7 @@
         "write_quarantined": true
       },
       "notes": "An untrusted actor's write is quarantined and never reaches the owner's context. The baseline arm is marked unsupported rather than scored zero.",
-      "wall_ms": 4.4
+      "wall_ms": 4.8
     },
     {
       "id": 9,
@@ -325,7 +325,7 @@
           "context_token_estimate": 0,
           "items": 0,
           "excluded": 0,
-          "latency_ms": 0.894,
+          "latency_ms": 0.773,
           "budget_chars": 1500,
           "answered": false,
           "answer": "",
@@ -338,7 +338,7 @@
           "context_token_estimate": 81,
           "items": 1,
           "excluded": 0,
-          "latency_ms": 0.814,
+          "latency_ms": 0.802,
           "budget_chars": 1500,
           "answered": true,
           "answer": "secure cabinet",
@@ -354,7 +354,7 @@
         "context_chars": 0,
         "items": 0,
         "excluded": 0,
-        "latency_ms": 0.894
+        "latency_ms": 0.773
       },
       "without": {
         "supported": false,
@@ -366,7 +366,7 @@
         "owner_read_accuracy": 1.0
       },
       "notes": "Sensitivity is a read-policy label, not encryption.",
-      "wall_ms": 5.5
+      "wall_ms": 5.1
     },
     {
       "id": 10,
@@ -377,18 +377,18 @@
           "episodes": 100,
           "db_bytes": 311296,
           "bytes_per_episode": 3113.0,
-          "ingest_ms_total": 83.1,
-          "ingest_ms_per_episode": 0.831,
-          "retrieval_latency_ms_median": 3.539,
-          "retrieval_latency_ms_p95": 3.559,
-          "with_context_chars": 1112,
+          "ingest_ms_total": 85.3,
+          "ingest_ms_per_episode": 0.853,
+          "retrieval_latency_ms_median": 3.485,
+          "retrieval_latency_ms_p95": 3.55,
+          "with_context_chars": 1106,
           "without_context_chars": 4153,
           "with": {
-            "context_chars": 1112,
-            "context_token_estimate": 278,
+            "context_chars": 1106,
+            "context_token_estimate": 277,
             "items": 6,
             "excluded": 0,
-            "latency_ms": 3.547,
+            "latency_ms": 3.49,
             "budget_chars": 1500,
             "answered": false,
             "answer": "",
@@ -414,18 +414,18 @@
           "episodes": 500,
           "db_bytes": 614400,
           "bytes_per_episode": 1228.8,
-          "ingest_ms_total": 415.3,
-          "ingest_ms_per_episode": 0.831,
-          "retrieval_latency_ms_median": 3.704,
-          "retrieval_latency_ms_p95": 3.753,
-          "with_context_chars": 1112,
+          "ingest_ms_total": 421.4,
+          "ingest_ms_per_episode": 0.843,
+          "retrieval_latency_ms_median": 3.662,
+          "retrieval_latency_ms_p95": 3.749,
+          "with_context_chars": 1106,
           "without_context_chars": 21024,
           "with": {
-            "context_chars": 1112,
-            "context_token_estimate": 278,
+            "context_chars": 1106,
+            "context_token_estimate": 277,
             "items": 6,
             "excluded": 0,
-            "latency_ms": 3.683,
+            "latency_ms": 3.644,
             "budget_chars": 1500,
             "answered": false,
             "answer": "",
@@ -451,18 +451,18 @@
           "episodes": 2000,
           "db_bytes": 1671168,
           "bytes_per_episode": 835.6,
-          "ingest_ms_total": 1670.3,
-          "ingest_ms_per_episode": 0.835,
-          "retrieval_latency_ms_median": 3.996,
-          "retrieval_latency_ms_p95": 4.079,
-          "with_context_chars": 1112,
+          "ingest_ms_total": 1674.7,
+          "ingest_ms_per_episode": 0.837,
+          "retrieval_latency_ms_median": 3.989,
+          "retrieval_latency_ms_p95": 4.04,
+          "with_context_chars": 1106,
           "without_context_chars": 85274,
           "with": {
-            "context_chars": 1112,
-            "context_token_estimate": 278,
+            "context_chars": 1106,
+            "context_token_estimate": 277,
             "items": 6,
             "excluded": 0,
-            "latency_ms": 3.944,
+            "latency_ms": 3.99,
             "budget_chars": 1500,
             "answered": false,
             "answer": "",
@@ -492,9 +492,9 @@
           2000
         ],
         "retrieval_latency_ms_median": [
-          3.539,
-          3.704,
-          3.996
+          3.485,
+          3.662,
+          3.989
         ],
         "db_bytes": [
           311296,
@@ -502,9 +502,9 @@
           1671168
         ],
         "with_context_chars": [
-          1112,
-          1112,
-          1112
+          1106,
+          1106,
+          1106
         ],
         "without_context_chars": [
           4153,
@@ -513,7 +513,7 @@
         ]
       },
       "notes": "Latency is the median of 5 build_context calls on the same store; ingest is single-threaded with embeddings disabled. The baseline's context grows with the session because it has no budget.",
-      "wall_ms": 2246.1
+      "wall_ms": 2258.1
     }
   ],
   "aggregate": {
@@ -552,7 +552,7 @@
       "with_hungry_hippa": 323,
       "without": 0
     },
-    "retrieval_latency_ms_median": 1.063,
+    "retrieval_latency_ms_median": 1.028,
     "permission_denial_accuracy": 1.0,
     "repeat_failed_attempt_rate": {
       "with_hungry_hippa": 0.0,
@@ -570,9 +570,9 @@
         1671168
       ],
       "retrieval_latency_ms_median": [
-        3.539,
-        3.704,
-        3.996
+        3.485,
+        3.662,
+        3.989
       ]
     }
   }
