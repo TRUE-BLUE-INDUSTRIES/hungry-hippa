@@ -57,6 +57,10 @@ jobs:
         run: python tests/test_provenance.py
       - name: Injection framing
         run: python tests/test_injection_framing.py
+      - name: Supersession
+        run: python tests/test_supersession.py
+      - name: Confused deputy
+        run: python tests/test_confused_deputy.py
 
       - name: Security suite
         run: python tests/test_security.py

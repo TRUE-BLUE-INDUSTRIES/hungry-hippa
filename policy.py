@@ -153,6 +153,81 @@ def may_purge(actor_id: Any, identity: Any = None) -> bool:
     return is_owner(actor_id, identity)
 
 
+# ---------------------------------------------------------------- capabilities
+
+# Operations, cheapest to most dangerous. The mapping to channels is deliberately
+# narrow: memory a model wrote must never gain the authority of memory the
+# operator confirmed, and a model's tool call must not be able to rewrite or
+# remove something the operator relies on. See docs/SECURITY.md.
+CAP_READ = "read"
+CAP_WRITE_CANDIDATE = "write_candidate"
+CAP_APPROVE = "approve"
+CAP_CORRECT = "correct"
+CAP_FORGET = "forget"
+CAP_PURGE = "purge"
+
+CAPABILITY_ORDER = (CAP_READ, CAP_WRITE_CANDIDATE, CAP_APPROVE, CAP_CORRECT,
+                    CAP_FORGET, CAP_PURGE)
+
+
+def may_capability(capability: str, *, provenance: Any = None,
+                   identity: Any = None, protected: bool = False) -> bool:
+    """Whether a channel may perform an operation.
+
+    ``provenance`` is the channel (``user`` = the human's own terminal or an MCP
+    caller holding the owner token; ``agent`` = the model; ``external`` = anyone
+    else). ``protected`` marks the target as operator-attested or high-confidence
+    canonical.
+
+      * read              — any owner-identity channel (untrusted callers read
+                            only their own rows, enforced by ``may_read``)
+      * write_candidate   — anything; an agent write is recorded as
+                            ``agent_reported`` and an external write is
+                            quarantined
+      * approve           — operator only: only a human channel may attest what
+                            the operator said
+      * correct           — operator only when the target is protected, else any
+                            owner-identity channel
+      * forget            — same rule as correct: reversible, but it still takes
+                            a memory out of recall
+      * purge             — operator only, always
+    """
+    prov = str(provenance if provenance is not None else "").strip().lower()
+    user = prov == "user"
+    agent = prov == "agent"
+    owner_identity = is_owner_identity(identity) if identity is not None else True
+
+    if capability == CAP_READ:
+        return owner_identity or prov == "external"  # untrusted reads own rows
+    if capability == CAP_WRITE_CANDIDATE:
+        return True
+    if capability == CAP_APPROVE:
+        return user
+    if capability in (CAP_CORRECT, CAP_FORGET):
+        if protected:
+            return user
+        return (user or agent) and owner_identity
+    if capability == CAP_PURGE:
+        return user and owner_identity
+    return False
+
+
+def capability_summary() -> Dict[str, Any]:
+    """Content-free capability table for status output and tests."""
+    return {
+        "model": "capabilities are channel-derived, not requested",
+        "caps": list(CAPABILITY_ORDER),
+        "table": {
+            CAP_READ: "owner identity: everything; untrusted: own rows only",
+            CAP_WRITE_CANDIDATE: "any channel; agent -> agent_reported, external -> quarantined",
+            CAP_APPROVE: "operator channel only",
+            CAP_CORRECT: "operator only for protected targets, else owner identity",
+            CAP_FORGET: "operator only for protected targets, else owner identity",
+            CAP_PURGE: "operator channel + owner identity only",
+        },
+    }
+
+
 def policy_summary() -> Dict[str, Any]:
     """Content-free description of the active policy, for status output."""
     if normalize_actor(None) not in OWNER_ACTORS:  # pragma: no cover - invariant

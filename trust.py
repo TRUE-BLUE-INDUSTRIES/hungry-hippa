@@ -104,6 +104,23 @@ def normalize_provenance(value: Any) -> str:
         else PROVENANCE_EXTERNAL
 
 
+def resolve_provenance(value: Any, identity: Any = None) -> str:
+    """Provenance for a write, with the in-process default spelled out.
+
+    ``None``/``""`` means "the caller did not declare a channel" — which happens
+    only for code already running inside the operator's process (the write paths
+    in the controller and the MCP server always pass one explicitly). Such a call
+    inherits the identity's default rather than being read as external: an
+    untrusted identity still resolves to ``external``. ``normalize_provenance``
+    keeps its stricter default for constructing bindings.
+    """
+    if value is None or str(value).strip() == "":
+        if identity is not None and not _policy.is_owner_identity(identity):
+            return PROVENANCE_EXTERNAL
+        return PROVENANCE_USER
+    return normalize_provenance(value)
+
+
 # ------------------------------------------------------------ the owner token
 
 def token_path() -> Path:

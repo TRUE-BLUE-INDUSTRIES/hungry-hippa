@@ -23,6 +23,7 @@ from .graph import KnowledgeGraph
 from .procedural import ProceduralMemory
 from .retrieval import RetrievalRouter
 from .semantic import SemanticMemory
+from .semantic import protection_reason as _protection_reason
 from .vectors import VectorStore
 
 
@@ -314,7 +315,21 @@ class MemoryController:
             return False, f"forget unsupported for {kind}"
         if not row:
             return False, f"{kind} {target_id} not found"
-        return _policy.may_read(row, self.actor_id, include_quarantined=True)
+        allowed, reason = _policy.may_read(row, self.actor_id,
+                                           include_quarantined=True,
+                                           identity=self.identity)
+        if not allowed:
+            return False, reason
+        # Reversible or not, forgetting takes a memory out of recall, so a
+        # protected row needs the operator channel (capability ladder).
+        protected = _protection_reason(row) if kind == "belief" else ""
+        if not _policy.may_capability(_policy.CAP_FORGET,
+                                      provenance=self.provenance,
+                                      identity=self.identity,
+                                      protected=bool(protected)):
+            return False, (f"protected:{protected}" if protected
+                           else "capability denied for this channel")
+        return True, ""
 
     def forget(self, kind: str, target_id: str, *, mode: str = "archival",
                reason: str = "") -> Dict[str, Any]:
@@ -326,7 +341,15 @@ class MemoryController:
         authorized per record: an actor may archive only what it may read.
         """
         if mode == "purge":
-            if not _policy.may_purge(self.actor_id):
+            # Purge needs owner identity AND an operator channel: a model tool
+            # call is not an operator decision (capability ladder, policy.py).
+            if not (_policy.may_purge(self.actor_id, self.identity)
+                    and _policy.may_capability(_policy.CAP_PURGE,
+                                               provenance=self.provenance,
+                                               identity=self.identity)):
+                self.db.log_mutation("purge_denied", kind, target_id,
+                                     f"actor={self.actor_id} provenance={self.provenance}",
+                                     self.session_id)
                 return {"error": "purge denied for this actor",
                         "actor_id": self.actor_id, "target": target_id}
             if kind == "episode":

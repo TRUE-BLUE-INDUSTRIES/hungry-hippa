@@ -66,11 +66,7 @@ class EpisodicMemory:
         quarantined = _policy.write_quarantine(actor, quarantined, identity)
         # Episodes have no legacy source_class column, so the claim arrives as an
         # explicit argument; the verified class is channel-derived either way.
-        if provenance is None:
-            provenance = (_trust.PROVENANCE_EXTERNAL
-                          if (identity is not None
-                              and not _policy.is_owner_identity(identity))
-                          else _trust.PROVENANCE_USER)
+        provenance = _trust.resolve_provenance(provenance, identity)
         claimed = str(claimed_source_class or "").strip()
         verified = _trust.verified_source_class(claimed or "hermes_inference",
                                                 provenance)

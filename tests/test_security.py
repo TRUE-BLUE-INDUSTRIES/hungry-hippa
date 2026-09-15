@@ -485,13 +485,18 @@ def check_untrusted_archival_denied_per_record():
                                 "reason": "regression test"}, ctrl, owner=True)
     assert ok["ok"] is True and ok["archived"] is True, ok
 
-    # an untrusted actor may still archive its own quarantined row
+    # An untrusted actor may write a candidate, but not remove anything at all —
+    # not even its own candidate. Removal is an operator decision (capability
+    # ladder in policy.py); the operator sees candidates in the quarantine review.
     wrote = _call("hippa_remember", {"actor_id": "mcp-untrusted", "memory_type": "semantic",
                                      "content": "untrusted own row"}, ctrl)
     assert wrote["ok"] is True and wrote["quarantined"] is True, wrote
     mine = _call("hippa_forget", {"actor_id": "mcp-untrusted", "target_kind": "belief",
                                   "target_id": wrote["belief_id"], "mode": "archival"}, ctrl)
-    assert mine["ok"] is True and mine["archived"] is True, mine
+    assert mine["ok"] is False, mine
+    assert "capability" in mine.get("policy_reason", ""), mine
+    # the row is untouched
+    assert ctrl.semantic.get_belief(wrote["belief_id"])["status"] != "archived", "row changed"
 
     # a nonexistent target is reported, not silently "archived"
     missing = _call("hippa_forget", {"actor_id": "owner", "target_kind": "belief",
