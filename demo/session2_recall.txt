@@ -1,0 +1,10 @@
+You have a local MCP memory server called "hungry-hippa" (tools: hippa_remember, hippa_recall, hippa_build_context, hippa_record_outcome, hippa_forget, hippa_status).
+
+You have no prior conversation history. Use only that memory server.
+
+Task:
+1. Call hippa_recall with query "how should I free a seized housing on Project A" and actor_id "primary".
+2. Report verbatim the memory text you got back about Project A, including the attempt that failed and why.
+3. State in one sentence whether the failed approach worked.
+Use no other tools and do not touch the filesystem.
+Finally print one line: RECALLED <what the failed attempt used and what happened to the housing>.

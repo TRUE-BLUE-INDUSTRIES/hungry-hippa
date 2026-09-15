@@ -639,6 +639,55 @@ branch was followed only as input: the eval and demo in this tree were built and
 here, and the comparison was rewritten against this tree's code and measurements instead of
 copying the baseline version.
 
+---
+
+## Phase 10 — post-audit hardening (operator-requested)
+
+Objective: fix every finding raised by the 2026-09-15 compliance audit
+(Hermes, three passes on fresh clones) and its independent Codex verification.
+
+Files: `controller.py`, `policy.py`, `db.py`, `mcp_server.py`, `tools.py`,
+`tests/test_security.py`, `tests/test_mcp_schema.py`, `tests/test_migration.py`,
+`tests/test_acceptance.py`, docs and eval outputs.
+
+Committed as `3e3a2b0`, `19eae23`, `72749e3`, `093ed5a`, `898a07a`, `a604ad3`.
+
+| Finding | Fix | Regression test |
+|---|---|---|
+| Untrusted caller could archive another actor's private memory | `Controller._may_forget` applies the read policy per record; denials audited as `forget_denied` | `test_security.py::untrusted_archival_denied_per_record` |
+| Whitespace `actor_id` resolved to the owner actor | `policy.normalize_actor` returns the untrusted actor for whitespace-only input | `test_security.py::whitespace_actor_does_not_elevate` |
+| Ordinary open migrated an old database without a backup | `Database._ensure_schema` writes `*.pre-migration-<UTC>.bak` before pending migrations | `test_migration.py::implicit_open_backs_up_before_upgrading` |
+| Legacy `cortex` export wrote a raw dump for any actor | owner-only + audited (`export` / `export_denied`) | `test_security.py::export_is_operator_only` |
+| No MCP `outputSchema`; `null` accepted; array item bounds unenforced | all six tools advertise `outputSchema`; nulls rejected; per-item `maxLength` enforced | `test_security.py::schema_enforcement` |
+| Real personal identifiers in `tests/test_acceptance.py` | genericised to `Operator`/`Project_V`/`Printer_A` | acceptance suite unchanged and green |
+| Docs claimed the repository was unpushed/unpublished | corrected in COMPARISON, PHASE_STATUS, CHANGELOG, baseline; threats 13/14 added | doc review |
+| Eval results recorded `git_dirty=true` | regenerated at `093ed5a` with a clean tree | `eval/check_results.py` stable |
+
+Validation actually run after the fixes (this checkout, Python 3.14.7):
+`python scripts/check_all.py` → all 7 steps passed (acceptance 10/10, migration 7/7,
+memory architecture 8/8, MCP 11/11, security 14/14, demo transcript match, eval stable).
+The installed plugin copy was re-synced and passes `test_acceptance.py` 10/10,
+`test_migration.py` 7/7, `test_security.py` 14/14 from
+`/home/djr/.hermes/plugins/living-cortex`.
+
+MCP client status after this phase:
+- Grok CLI: registered (`grok mcp add hungry-hippa -s user -e HUNGRY_HIPPA_DB=… -- python
+  mcp_server.py`); `grok mcp doctor` → server started, handshake OK (protocol 2024-11-05),
+  6 tools discovered. A two-session Grok conversation is still NOT run: `grok -p` returns
+  `402 Payment Required — Grok Build usage balance exhausted`, a client-side billing block.
+- Codex CLI: registered the same way and used for the two-session check. Session 1 (fresh
+  process) stored `E-0001` over MCP; session 2 (separate process, no history) recalled it
+  verbatim and reported the failed approach. Both point at
+  `~/.grok/hungry-hippa-demo/hungry_hippa.db`, not the live database.
+
+Rollback: `git revert` the six commits above; each is independent. The behaviour changes
+are documented in `CHANGELOG.md` under "Security (post-audit hardening)".
+
+Still open, and stated rather than implied: the Grok two-session demonstration (blocked on
+Grok billing, not on the runtime), encryption at rest, tamper-evident audit chain,
+per-caller quotas, authenticated MCP transport, multi-tenant isolation, LLM-judged eval
+metrics, and a recorded demo video.
+
 
 
 

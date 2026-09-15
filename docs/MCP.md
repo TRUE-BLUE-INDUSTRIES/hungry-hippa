@@ -11,9 +11,25 @@ Honest status of this document:
   (in-process tool calls + a full JSON-RPC stdio exchange) and was also exercised
   as a real subprocess (`python mcp_server.py`, `python -m mcp_server`) while
   writing this file.
-- **No external client has been run against it.** Nobody has pointed Grok CLI (or
-  Claude Code, Cursor, etc.) at this server yet, so every client-side snippet below
-  is *illustrative and untested*. The Grok `[mcp_servers.*]` schema is copied from
+- **External clients have now been run against it** (2026-09-15):
+  - *Grok CLI*: registered as a user-scope stdio server
+    (`grok mcp add hungry-hippa -s user -e HUNGRY_HIPPA_DB=... -- python mcp_server.py`).
+    `grok mcp doctor` reports `✓ server started`, `✓ handshake OK (protocol
+    2024-11-05)`, `✓ 6 tools discovered`. **A two-session agent conversation through
+    Grok has NOT been run yet**: `grok -p` returned `402 Payment Required — Grok Build
+    usage balance exhausted`, which is an account/billing block on the client, not a
+    server result. The prompts to run it are in the repository history's session notes
+    (`/tmp/hh_grok_session/session{1,2}_prompt.txt`) and take one command each.
+  - *Codex CLI*: registered the same way and used for the two-session check, which
+    passed end to end — session 1 (fresh process, no history) stored an episodic
+    memory (`actor_id: primary`) over MCP; session 2 (separate process, no history)
+    recalled it verbatim: `[EPISODE E-0001 ...] tried to free the seized housing on
+    Project A with solvent X — outcome: failure | result: the housing cracked` and
+    correctly reported that the approach failed. Both clients point at a dedicated
+    demo database (`~/.grok/hungry-hippa-demo/hungry_hippa.db`), never the operator's
+    live database.
+- Client-side snippets for other clients (Claude Code, Cursor, …) remain
+  *illustrative and untested*. The Grok `[mcp_servers.*]` schema was checked against
   the Grok user guide installed on this machine
   (`~/.grok/docs/user-guide/07-mcp-servers.md`) — check your own client's docs,
   since config formats change between releases.
