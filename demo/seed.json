@@ -1,0 +1,62 @@
+{
+  "_comment": "Generic demo fixture. No personal information: the operator is 'Operator', the project is 'Project A'/'Project B', and every component/vendor is a generic label. 'background' is what reset seeds into the demo database; the rest is what the scripted demo itself records during the run.",
+  "version": "1.0",
+
+  "project": "Project A",
+  "actor": "Operator",
+
+  "background": [
+    {
+      "type": "episode",
+      "context": "deburred the Project B bracket set at the bench",
+      "result": "bracket set finished",
+      "outcome": "success",
+      "project": "Project B"
+    },
+    {
+      "type": "episode",
+      "context": "logged the fastener delivery for Project B",
+      "result": "delivery matched the product list",
+      "outcome": "success",
+      "project": "Project B"
+    },
+    {
+      "type": "belief",
+      "claim": "vendor A supplies the fasteners for Project B",
+      "source_class": "document",
+      "confidence": 0.85
+    }
+  ],
+
+  "decision": {
+    "claim": "Project A chose method B over method A",
+    "rationale": "method A warped the housing during the dry run",
+    "confidence": 0.9
+  },
+
+  "failed_attempt": {
+    "context": "attempted to free the seized housing with solvent X on Project A",
+    "user_request": "free the seized housing quickly",
+    "actions_taken": "soaked the housing in solvent X for twenty minutes",
+    "result": "the housing cracked",
+    "outcome": "failure",
+    "importance": 0.9
+  },
+
+  "working_attempt": {
+    "context": "freed the seized housing with a controlled warm soak on Project A",
+    "user_request": "free the seized housing without damage",
+    "actions_taken": "warm soak at low temperature, then a slow pull",
+    "result": "housing released intact",
+    "outcome": "success",
+    "importance": 0.85
+  },
+
+  "corrected_claim": "Project A chose method B over method A, and the housing is now freed with a warm soak",
+
+  "questions": {
+    "restore": "what did we already try on the seized housing, and why did we choose method B?",
+    "decision": "why did Project A choose method B?",
+    "inspect": "which method did Project A choose?"
+  }
+}

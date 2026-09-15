@@ -3,3 +3,4 @@ __pycache__/
 living_cortex.db*
 hungry_hippa.db*
 scripts/seed_initial.local.py
+demo/.demo_db/

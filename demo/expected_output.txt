@@ -1,0 +1,79 @@
+Hungry Hippa demo — local-first memory runtime for AI agents
+========================================================================
+demo database: /home/djr/Work/living-cortex/demo/.demo_db/hungry_hippa.db
+(throwaway; the production database is never opened)
+
+STEP 1 — an agent starts work on a small project
+------------------------------------------------------------------------
+session A begins. The agent is asked to free a seized housing on Project A.
+  project: Project A   actor: Operator
+
+STEP 2 — it records a decision, an attempted fix and the outcome
+------------------------------------------------------------------------
+  recorded decision  B-0002: Project A chose method B over method A
+  recorded attempt   E-0003: attempted to free the seized housing with solvent X on Project A
+                     outcome=failure result=the housing cracked
+
+STEP 3 — the session ends
+------------------------------------------------------------------------
+session A ends. Its context window is discarded. 5 audit rows remain.
+
+STEP 4 — a new session begins with no conversation history
+------------------------------------------------------------------------
+session B starts empty: no messages, no summary, only the memory runtime.
+
+STEP 5 — Hungry Hippa restores the relevant context
+------------------------------------------------------------------------
+  agent asks: what did we already try on the seized housing, and why did we choose method B?
+  restored context:
+    [EPISODE E-0003 2026-09-15] attempted to free the seized housing with solvent X on Project A — outcome: failure | result: the housing cracked | project: Project A | importance 0.90
+    [EPISODE E-0001 2026-09-15] deburred the Project B bracket set at the bench — outcome: success | result: bracket set finished | project: Project B | importance 0.60
+    [EPISODE E-0002 2026-09-15] logged the fastener delivery for Project B — outcome: success | result: delivery matched the product list | project: Project B | importance 0.60
+    [BELIEF B-0002 fact/user_explicit conf 0.90] Project A chose method B over method A
+    [BELIEF B-0001 fact/document conf 0.85] vendor A supplies the fasteners for Project B
+  items: 5  chars: 688  token_estimate: 172
+
+STEP 6 — the agent avoids repeating the failed fix
+------------------------------------------------------------------------
+  the restored context contains the failed attempt (attempted to free the seized housing with solvent X on Project A -> the housing cracked).
+  the agent does not repeat it; it proposes the warm-soak approach instead.
+  selected approach recorded as E-0004 (outcome=success)
+
+STEP 7 — a second compatible agent gets only what it is authorized to read
+------------------------------------------------------------------------
+  starting a separate MCP client process (stdio, local only)...
+  untrusted client   -> count=0 items=0 denied=6 by={'other-actor': 6}
+  owner-authorized   -> count=6 items=[('E-0003', 'episode'), ('E-0004', 'episode'), ('E-0001', 'episode'), ('E-0002', 'episode'), ('B-0002', 'belief'), ('B-0001', 'belief')]
+  status (counts only) -> {'episodes': 4, 'entities': 0, 'relationships': 0, 'beliefs': 2, 'procedures': 0, 'evidence': 0, 'vectors': 0, 'episodes_quarantined': 0, 'beliefs_quarantined': 0}
+  the untrusted client received nothing; the owner client received the history.
+
+STEP 8 — the operator can inspect, correct and forget a memory
+------------------------------------------------------------------------
+  inspect : B-0002 = "Project A chose method B over method A" (confidence 0.90, source user_explicit)
+  why     : verdict=well-evidenced
+  correct : B-0002 is now status=superseded
+            B-0003 = "Project A chose method B over method A, and the housing is now freed with a warm soak"
+  recall  : current answer only ->
+            [EPISODE E-0003 2026-09-15] attempted to free the seized housing with solvent X on Project A — outcome: failure | result: the housing cracked | project: Project A | importance 0.90
+            [EPISODE E-0004 2026-09-15] freed the seized housing with a controlled warm soak on Project A — outcome: success | result: housing released intact | project: Project A | importance 0.85
+            [EPISODE E-0001 2026-09-15] deburred the Project B bracket set at the bench — outcome: success | result: bracket set finished | project: Project B | importance 0.60
+            [EPISODE E-0002 2026-09-15] logged the fastener delivery for Project B — outcome: success | result: delivery matched the product list | project: Project B | importance 0.60
+            [BELIEF B-0003 fact/user_explicit conf 0.95] Project A chose method B over method A, and the housing is now freed with a warm soak | derived_from: supersedes:B-0002
+            [BELIEF B-0001 fact/document conf 0.85] vendor A supplies the fasteners for Project B
+            excluded=[]
+  forget  : archived=True (reversible; the row is retained as status='archived')
+            the corrected claim is now recalled: False (other memories for the project stay)
+            recall returns 5 item(s)
+
+STEP 8b — the audit trail explains what happened
+------------------------------------------------------------------------
+  2026-09-15T05:20:11Z  forget             belief   B-0003   action=archival reason=operator asked to forget
+  2026-09-15T05:20:11Z  add_belief         belief   B-0003   [fact|user_explicit|c=0.95] Project A chose method B over me
+  2026-09-15T05:20:11Z  supersede_belief   belief   B-0002   operator correction during the demo: Project A chose method 
+  2026-09-15T05:20:11Z  remember_episode   episode  E-0004   importance=0.85 outcome=success project=Project A actor=prim
+  2026-09-15T05:20:11Z  remember_episode   episode  E-0003   importance=0.90 outcome=failure project=Project A actor=prim
+  2026-09-15T05:20:11Z  add_belief         belief   B-0002   [fact|user_explicit|c=0.90] Project A chose method B over me
+
+========================================================================
+demo complete. Nothing was sent anywhere; the database above is a throwaway.
+Reset it with: python demo/demo.py --reset

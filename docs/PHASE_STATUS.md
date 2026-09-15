@@ -375,6 +375,85 @@ Not done: no LLM-judge metrics, no concurrency measurements, no cross-machine
 benchmarking. `results.json` records `git_dirty: true` because the harness and its
 outputs were uncommitted at run time; that is provenance, not a failure.
 
+---
+
+## Phase 7 — reproducible demonstration
+
+Objective: an eight-step local demo proving the cross-session story (record a decision,
+a failed attempt and an outcome, end the session, restore context in a cold session,
+avoid the failed fix, keep a second agent inside its permissions, then inspect/correct/
+forget) that runs against a throwaway database and can be re-run by anyone.
+
+Files in scope: `demo/demo.py` (new), `demo/seed.json` (new), `demo/README.md` (new),
+`demo/expected_output.txt` (new, captured from a real run), `.gitignore` (ignore
+`demo/.demo_db/`). No runtime files changed.
+
+Validation commands:
+
+```
+python demo/demo.py --reset            # recreate the demo database from the seed
+python demo/demo.py                    # play the demo
+python demo/demo.py --check            # play and diff against expected_output.txt
+python demo/demo.py --tmp --check      # same, on a throwaway temp database
+```
+
+Expected evidence: `--check` exits 0 with "transcript matches expected_output.txt";
+the demo database lives under `demo/.demo_db` (gitignored) or a temp dir, never
+`$HERMES_HOME`.
+
+Rollback: delete `demo/`. Nothing imports it.
+
+Status: see the "Phase 7 results" section at the bottom.
+
+---
+
+## Phase 7 results — COMMIT `docs: add reproducible Hungry Hippa demo`
+
+Files: `demo/demo.py`, `demo/seed.json`, `demo/README.md`, `demo/expected_output.txt`,
+`.gitignore` (one line). No runtime module changed.
+
+What the demo does: eight steps, each printed as it runs — agent starts work; records a
+decision, a failed attempt (`solvent X` → `the housing cracked`) and a working outcome;
+session A ends; session B starts with no conversation history; Hungry Hippa restores the
+decision plus the failure inside a character budget; the agent does not repeat the failed
+fix; a **separate local MCP client process** (spawned by the demo over stdio) is denied
+everything as `mcp-untrusted` (count=0, 6 denials, all `other-actor`) while the owner
+actor receives the history; and finally the operator inspects a belief, corrects it
+(supersession), archives it (reversible), and reads the audit trail.
+
+Reproducibility work: `--check` resets first (so a comparison always starts from the
+seed), and the comparison normalises the database path, dates/timestamps and the closing
+cleanup note. The seed holds only background history; the demo records its own decision
+and failure at run time, so no ids are duplicated.
+
+Actual verification run (2026-09-15, this working tree), starting from a deleted
+`demo/.demo_db` (clean state):
+
+```
+python demo/demo.py --check        -> exit 0, "transcript matches expected_output.txt"
+python demo/demo.py --tmp --check  -> exit 0, matched the same expected output
+python demo/demo.py --check        -> exit 0 again against an existing database
+```
+
+Nothing was sent anywhere: no network, no LLM (the "agent" is a deterministic script),
+embeddings disabled. The only cross-process element is the local stdio MCP client in
+step 7.
+
+Actual test results after this phase:
+
+```
+python tests/test_acceptance.py            -> 10/10 passed
+python tests/test_migration.py             ->  6/6 passed
+python tests/test_memory_architecture.py   ->  8/8 passed
+python tests/test_mcp_schema.py            -> 11/11 passed
+python tests/test_security.py              -> 10/10 passed
+```
+
+Not done: no video was recorded (the two-minute script is in `demo/README.md`), and the
+demo does not drive a real Grok CLI session — step 7 uses our own MCP client process, so
+"a second compatible agent" is demonstrated with a generic MCP client, not with Grok.
+
+
 
 
 ---
