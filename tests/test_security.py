@@ -235,11 +235,18 @@ def check_forget_purge_denied_over_mcp():
                                     "confirmation": confirm}, ctrl)
         assert out["ok"] is False and expect in out["error"], (actor, confirm, out)
         assert ctrl.episodic.get_episode(eid) is not None, (actor, confirm)
-    archived = _call("hippa_forget", {"actor_id": "mcp-untrusted",
-                                     "target_kind": "episode", "target_id": eid,
-                                     "reason": "security test"}, ctrl)
+    # archival is authorized per record too: an untrusted actor may not remove
+    # another actor's memory from recall, and the owner still can.
+    denied = _call("hippa_forget", {"actor_id": "mcp-untrusted",
+                                    "target_kind": "episode", "target_id": eid,
+                                    "reason": "security test"}, ctrl)
+    assert denied["ok"] is False and "denied" in denied["error"], denied
+    assert ctrl.episodic.get_episode(eid)["status"] != "archived", "row was archived"
+    archived = _call("hippa_forget", {"actor_id": "primary",
+                                      "target_kind": "episode", "target_id": eid,
+                                      "reason": "security test"}, ctrl)
     assert archived["ok"] and archived["archived"], archived
-    return "purge denied for every unconfirmed/non-owner case; archival still allowed"
+    return "purge denied for every unconfirmed/non-owner case; archival is owner-only here"
 
 
 def check_sql_injection_attempts_are_inert():
@@ -403,6 +410,148 @@ def check_sensitivity_not_an_encryption_claim():
     return "sensitivity is a read-policy label stored in plain text (documented)"
 
 
+def check_untrusted_archival_denied_per_record():
+    """An untrusted actor must not archive a row it cannot read.
+
+    Regression for the hole where `hippa_forget` with mode=archival delegated
+    straight to `forgetting.archive` with no per-record authorization, letting a
+    caller who could not read a private row remove it from normal recall.
+    """
+    ctrl, _db = _fresh("hh_sec_arch_")
+    own = ctrl.semantic.add_belief("owner-only archival target", kind="fact",
+                                   source_class="user_explicit",
+                                   sensitivity="private", actor_id="owner")
+    bid = own["belief_id"]
+
+    # untrusted caller: cannot read it, and now cannot archive it either
+    denied = _call("hippa_forget", {"actor_id": "mcp-untrusted", "target_kind": "belief",
+                                    "target_id": bid, "mode": "archival"}, ctrl)
+    assert denied["ok"] is False, denied
+    assert denied["error"] == "forget denied for this actor", denied
+    assert denied.get("policy_reason") in ("other-actor", "sensitivity"), denied
+    assert ctrl.semantic.get_belief(bid)["status"] == "active", "row was modified"
+
+    # the denial is auditable
+    conn = sqlite3.connect(ctrl.db.path)
+    try:
+        n = conn.execute("SELECT COUNT(*) FROM mutation_log WHERE action = 'forget_denied'"
+                         ).fetchone()[0]
+    finally:
+        conn.close()
+    assert n >= 1, "forget_denied was not written to the audit log"
+
+    # the owner still can
+    ok = _call("hippa_forget", {"actor_id": "owner", "target_kind": "belief",
+                                "target_id": bid, "mode": "archival",
+                                "reason": "regression test"}, ctrl)
+    assert ok["ok"] is True and ok["archived"] is True, ok
+
+    # an untrusted actor may still archive its own quarantined row
+    wrote = _call("hippa_remember", {"actor_id": "mcp-untrusted", "memory_type": "semantic",
+                                     "content": "untrusted own row"}, ctrl)
+    assert wrote["ok"] is True and wrote["quarantined"] is True, wrote
+    mine = _call("hippa_forget", {"actor_id": "mcp-untrusted", "target_kind": "belief",
+                                  "target_id": wrote["belief_id"], "mode": "archival"}, ctrl)
+    assert mine["ok"] is True and mine["archived"] is True, mine
+
+    # a nonexistent target is reported, not silently "archived"
+    missing = _call("hippa_forget", {"actor_id": "owner", "target_kind": "belief",
+                                     "target_id": "B-9999", "mode": "archival"}, ctrl)
+    assert missing["ok"] is False and missing["policy_reason"] == "belief B-9999 not found", missing
+    return "archival is authorized per record; untrusted denial is audited"
+
+
+def check_whitespace_actor_does_not_elevate():
+    """A whitespace-only actor_id must never be treated as the owner actor."""
+    from livingcortex import policy
+
+    assert policy.normalize_actor(None) == "primary"
+    assert policy.normalize_actor("") == "primary"
+    assert policy.normalize_actor("   ") == policy.UNTRUSTED_ACTOR, "whitespace elevated"
+    assert policy.normalize_actor("\t\n") == policy.UNTRUSTED_ACTOR
+    assert policy.is_owner(None) is True and policy.is_owner(" ") is False
+
+    ctrl, _db = _fresh("hh_sec_ws_")
+    ctrl.semantic.add_belief("private owner note for whitespace test", kind="fact",
+                             source_class="user_explicit", sensitivity="private",
+                             actor_id="owner")
+    # the old behaviour returned actor_id 'primary' (owner) plus the db path
+    st = _call("hippa_status", {"actor_id": " "}, ctrl)
+    assert st["ok"] is True, st
+    assert st["actor_id"] == policy.UNTRUSTED_ACTOR, st
+    assert "db_path" not in st, "whitespace actor was granted the owner's db path"
+    rec = _call("hippa_recall", {"actor_id": " ", "query": "private owner note whitespace"}, ctrl)
+    assert rec["count"] == 0, rec
+    summary = policy.policy_summary()
+    assert "not authentication" in summary["identity_model"], summary
+    return "whitespace actor is untrusted; identity model is documented as a selector"
+
+
+def check_schema_enforcement():
+    """Advertised schemas must actually be enforced, and outputs described."""
+    tools = {t["name"]: t for t in MCP.tool_schemas()}
+    assert set(tools) == {"hippa_remember", "hippa_recall", "hippa_build_context",
+                          "hippa_record_outcome", "hippa_forget", "hippa_status"}, tools
+    for name, t in tools.items():
+        assert "outputSchema" in t, f"{name} has no outputSchema"
+        out = t["outputSchema"]
+        assert out["type"] == "object" and "ok" in out["properties"], out
+        assert t["inputSchema"]["additionalProperties"] is False, name
+
+    ctrl, _db = _fresh("hh_sec_schema_")
+    # a null actor_id must not fall through to the default owner actor
+    null_actor = _call("hippa_status", {"actor_id": None}, ctrl)
+    assert null_actor["ok"] is False and "null" in null_actor["error"], null_actor
+    # array items over their advertised maxLength are refused
+    long_item = _call("hippa_remember", {"actor_id": "primary", "memory_type": "semantic",
+                                         "content": "array bound check",
+                                         "related_entities": ["x" * 257]}, ctrl)
+    assert long_item["ok"] is False, long_item
+    assert "exceed" in long_item["error"], long_item
+    at_bound = _call("hippa_remember", {"actor_id": "primary", "memory_type": "semantic",
+                                        "content": "array bound check ok",
+                                        "related_entities": ["x" * 256]}, ctrl)
+    assert at_bound["ok"] is True, at_bound
+    # unknown fields are still refused
+    unknown = _call("hippa_status", {"actor_id": "primary", "sql": "SELECT 1"}, ctrl)
+    assert unknown["ok"] is False and "unknown field" in unknown["error"], unknown
+    return "outputSchema on all six tools; null and item-length bounds enforced"
+
+
+def check_export_is_operator_only():
+    """The legacy cortex export action is owner-only and audited."""
+    from livingcortex.observability import Observability
+    from livingcortex.tools import handle
+
+    ctrl, _db = _fresh("hh_sec_export_")
+    obs = Observability(ctrl.db, ctrl.cfg, controller=ctrl)
+
+    ctrl.bind_session(session_id="s", platform="cli", agent_context="primary",
+                      actor_id="mcp-untrusted")
+    out = json.loads(handle(ctrl, obs, "export", {"action": "export",
+                                                  "path": "/tmp/hh_should_not_exist.json"}))
+    assert "error" in out and "operator-only" in out["error"], out
+    assert not os.path.exists("/tmp/hh_should_not_exist.json"), "untrusted export wrote a file"
+
+    ctrl.bind_session(session_id="s", platform="cli", agent_context="primary",
+                      actor_id="primary")
+    dest = os.path.join(tempfile.mkdtemp(prefix="hh_export_"), "out.json")
+    ok = json.loads(handle(ctrl, obs, "export", {"action": "export", "path": dest,
+                                                 "export_kind": "beliefs"}))
+    assert "exported" in ok, ok
+    assert os.path.exists(dest), ok
+
+    conn = sqlite3.connect(ctrl.db.path)
+    try:
+        actions = [r[0] for r in conn.execute(
+            "SELECT action FROM mutation_log WHERE target_kind = 'database'")]
+    finally:
+        conn.close()
+    assert "export_denied" in actions, actions
+    assert "export" in actions, actions
+    return "legacy export is owner-only, audited, and not exposed over MCP"
+
+
 def run_all() -> List[Dict[str, Any]]:
     results: List[Dict[str, Any]] = []
 
@@ -428,6 +577,11 @@ def run_all() -> List[Dict[str, Any]]:
     check("repo_contains_no_secrets", check_repo_contains_no_secrets)
     check("sensitivity_is_a_label_not_encryption",
           check_sensitivity_not_an_encryption_claim)
+    check("untrusted_archival_denied_per_record",
+          check_untrusted_archival_denied_per_record)
+    check("whitespace_actor_does_not_elevate", check_whitespace_actor_does_not_elevate)
+    check("schema_enforcement", check_schema_enforcement)
+    check("export_is_operator_only", check_export_is_operator_only)
     return results
 
 

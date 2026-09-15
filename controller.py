@@ -9,7 +9,7 @@ that a learned policy can later replace through the same interface.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from . import db as _db
 from . import limits as _limits
@@ -225,7 +225,30 @@ class MemoryController:
         return False
 
     def archive(self, kind: str, target_id: str, reason: str = "") -> bool:
+        allowed, _reason = self._may_forget(kind, target_id)
+        if not allowed:
+            return False
         return self.forgetting.archive(kind, target_id, reason, self.session_id)
+
+    def _may_forget(self, kind: str, target_id: str) -> Tuple[bool, str]:
+        """Per-record authorization for archival/forget.
+
+        Forget is a write to *another actor's* memory if the caller cannot read
+        that record, so the read policy is applied first: an actor may archive
+        only a row it is allowed to read (its own unclassified rows, its own
+        quarantined rows, or anything when it is the owner). This closes the
+        hole where an untrusted caller could remove a private row from recall
+        without ever being able to read it.
+        """
+        if kind == "episode":
+            row = self.episodic.get_episode(target_id)
+        elif kind == "belief":
+            row = self.semantic.get_belief(target_id)
+        else:
+            return False, f"forget unsupported for {kind}"
+        if not row:
+            return False, f"{kind} {target_id} not found"
+        return _policy.may_read(row, self.actor_id, include_quarantined=True)
 
     def forget(self, kind: str, target_id: str, *, mode: str = "archival",
                reason: str = "") -> Dict[str, Any]:
@@ -233,7 +256,8 @@ class MemoryController:
 
         ``purge`` (irreversible delete) is owner-only; untrusted actors get
         archival at most. Over MCP, purge is denied unless explicitly
-        confirmed by an owner (see mcp_server.py).
+        confirmed by an owner (see mcp_server.py). Archival is also
+        authorized per record: an actor may archive only what it may read.
         """
         if mode == "purge":
             if not _policy.may_purge(self.actor_id):
@@ -246,6 +270,14 @@ class MemoryController:
             else:
                 return {"error": f"purge unsupported for {kind}"}
             return {"purged": bool(ok), "target": target_id}
+        allowed, why = self._may_forget(kind, target_id)
+        if not allowed:
+            self.db.log_mutation("forget_denied", kind, target_id,
+                                 f"actor={self.actor_id} reason={why}",
+                                 self.session_id)
+            return {"error": "forget denied for this actor",
+                    "actor_id": self.actor_id, "target": target_id,
+                    "reason": why}
         ok = self.forgetting.archive(kind, target_id, reason or "manual forget",
                                      self.session_id)
         return {"archived": bool(ok), "target": target_id}

@@ -47,9 +47,24 @@ VALID_STATUSES = ("active", "archived", "compressed", "purged",
 
 
 def normalize_actor(actor_id: Any) -> str:
-    """Return a usable actor id; empty/None becomes the owner actor."""
-    a = str(actor_id or "").strip()
-    return a or DEFAULT_ACTOR
+    """Return a usable actor id.
+
+    ``None`` or the empty string means "no actor supplied" and falls back to the
+    local owner actor (the operator-facing agent). A **whitespace-only** string
+    is a supplied-but-invalid identity and must never be elevated to owner: it is
+    treated as the untrusted actor instead. Otherwise the trimmed value is used
+    verbatim.
+    """
+    if actor_id is None:
+        return DEFAULT_ACTOR
+    raw = str(actor_id)
+    if raw == "":
+        return DEFAULT_ACTOR
+    trimmed = raw.strip()
+    if not trimmed:
+        # supplied, non-empty, but not a usable identity: do not grant owner.
+        return UNTRUSTED_ACTOR
+    return trimmed
 
 
 def is_owner(actor_id: Any) -> bool:
@@ -107,8 +122,13 @@ def may_purge(actor_id: Any) -> bool:
 
 def policy_summary() -> Dict[str, Any]:
     """Content-free description of the active policy, for status output."""
+    if normalize_actor(None) not in OWNER_ACTORS:  # pragma: no cover - invariant
+        raise AssertionError("default actor must be an owner actor")
     return {
         "model": "actor + policy checks (not capability-based security)",
+        "identity_model": ("caller-supplied actor_id; a policy selector, not "
+                           "authentication - a caller that claims an owner "
+                           "actor is treated as the owner"),
         "owner_actors": sorted(OWNER_ACTORS),
         "untrusted_actor_default": UNTRUSTED_ACTOR,
         "sensitivities": list(SENSITIVITIES),

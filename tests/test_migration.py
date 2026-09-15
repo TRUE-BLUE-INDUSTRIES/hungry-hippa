@@ -170,6 +170,67 @@ def test_rollback_instructions_exist():
     assert "formerly living cortex" in doc.lower()
 
 
+def test_implicit_open_backs_up_before_upgrading():
+    """Opening an old database must not upgrade it without a backup first.
+
+    Regression: `migrate_database()` backed up, but an ordinary `Database()`
+    open (status, plugin start, MCP server startup) ran the pending migration
+    scripts directly, so a discovered old database could be upgraded before the
+    operator ever ran the documented backup command.
+    """
+    from livingcortex import schema as _schema
+    from livingcortex.db import Database
+
+    with tempfile.TemporaryDirectory(prefix="hh_mig_implicit_") as tmp:
+        path = os.path.join(tmp, "old.db")
+        conn = sqlite3.connect(path)
+        conn.execute(
+            "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY,"
+            " applied_at TEXT NOT NULL, description TEXT NOT NULL,"
+            " down_sql TEXT NOT NULL DEFAULT '')"
+        )
+        for version in (1, 2, 3):
+            mig = _schema.MIGRATIONS[version]
+            conn.executescript(mig["up"])
+            conn.execute("INSERT INTO schema_migrations VALUES (?,?,?,?)",
+                         (version, "2020-01-01T00:00:00Z", mig["description"], mig["down"]))
+        conn.commit()
+        conn.close()
+
+        db = Database(path)  # ordinary open, exactly what status/startup does
+        backups = [f for f in os.listdir(tmp) if f.endswith(".bak")]
+        assert backups, "implicit migration created no backup"
+        assert db.last_backup and db.last_backup.endswith(".bak"), db.last_backup
+
+        conn = sqlite3.connect(db.last_backup)
+        try:
+            versions = {r[0] for r in conn.execute("SELECT version FROM schema_migrations")}
+        finally:
+            conn.close()
+        assert versions == {1, 2, 3}, f"backup is not the pre-migration state: {versions}"
+
+        conn = sqlite3.connect(path)
+        try:
+            after = {r[0] for r in conn.execute("SELECT version FROM schema_migrations")}
+        finally:
+            conn.close()
+        assert after >= {1, 2, 3, 4}, after
+
+        # a second open has nothing pending: no new backup files pile up
+        before = len([f for f in os.listdir(tmp) if f.endswith(".bak")])
+        Database(path)
+        after_count = len([f for f in os.listdir(tmp) if f.endswith(".bak")])
+        assert before == after_count, "a fully-migrated database produced another backup"
+
+        # a brand-new database is not backed up (nothing to lose)
+        fresh_dir = tempfile.mkdtemp(prefix="hh_mig_fresh_")
+        Database(os.path.join(fresh_dir, "new.db"))
+        assert not [f for f in os.listdir(fresh_dir) if f.endswith(".bak")], \
+            "new database was backed up"
+
+    return "implicit migration backs up first; no backup on new or current databases"
+
+
 def run_all() -> list:
     results = []
 
@@ -192,6 +253,8 @@ def run_all() -> list:
     check("existing_living_cortex_file_is_discovered", test_existing_living_cortex_file_is_discovered)
     check("new_install_defaults_to_hungry_hippa_db", test_new_install_defaults_to_hungry_hippa_db)
     check("migrate_backs_up_and_preserves_memories", test_migrate_backs_up_and_preserves_memories)
+    check("implicit_open_backs_up_before_upgrading",
+          test_implicit_open_backs_up_before_upgrading)
     check("rollback_instructions_exist", test_rollback_instructions_exist)
     return results
 

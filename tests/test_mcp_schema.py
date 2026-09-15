@@ -243,7 +243,14 @@ def check_purge_denied_over_mcp():
     assert untrusted["ok"] is False and "denied" in untrusted["error"], untrusted
     assert ctrl.episodic.get_episode(eid) is not None, "row must survive a denied purge"
 
-    archived = _call("hippa_forget", {"actor_id": "mcp-untrusted",
+    denied_archival = _call("hippa_forget", {"actor_id": "mcp-untrusted",
+                                             "target_kind": "episode", "target_id": eid,
+                                             "mode": "archival", "reason": "test"}, ctrl)
+    assert denied_archival["ok"] is False and "denied" in denied_archival["error"], \
+        denied_archival
+    assert ctrl.episodic.get_episode(eid)["status"] != "archived", "row must survive"
+
+    archived = _call("hippa_forget", {"actor_id": "primary",
                                       "target_kind": "episode", "target_id": eid,
                                       "mode": "archival", "reason": "test"}, ctrl)
     assert archived["ok"] and archived["archived"] is True, archived
@@ -254,7 +261,7 @@ def check_purge_denied_over_mcp():
                                     "confirmation": True}, ctrl)
     assert purged["ok"] and purged["purged"] is True, purged
     assert ctrl.episodic.get_episode(eid) is None
-    return "purge default-denied; archival works; owner+confirmation purges"
+    return "purge default-denied; archival is owner-only; owner+confirmation purges"
 
 
 def check_status_counts_only():

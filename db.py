@@ -60,6 +60,7 @@ class Database:
     def __init__(self, path: str):
         self.path = path
         self.failures = 0
+        self.last_backup: Optional[str] = None
         self._lock = threading.Lock()
         self._ensure_schema()
 
@@ -79,6 +80,12 @@ class Database:
             parent = os.path.dirname(os.path.abspath(self.path))
             if parent:
                 os.makedirs(parent, exist_ok=True)
+            # A pre-existing, non-empty file is somebody's database: if this open
+            # is going to apply migrations to it, back it up first. Brand-new
+            # (or empty) paths are skipped, and a fully-migrated database never
+            # produces a backup on ordinary opens.
+            pre_existing = (os.path.exists(self.path)
+                            and os.path.getsize(self.path) > 0)
             conn = self._connect()
             try:
                 conn.execute(
@@ -87,6 +94,15 @@ class Database:
                     "description TEXT NOT NULL, down_sql TEXT NOT NULL DEFAULT '')"
                 )
                 applied = {r["version"] for r in conn.execute("SELECT version FROM schema_migrations")}
+                pending = [v for v in sorted(_schema.MIGRATIONS) if v not in applied]
+                if pending and pre_existing and applied:
+                    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+                    backup = f"{self.path}.pre-migration-{ts}.bak"
+                    backup_sqlite(self.path, backup)
+                    self.last_backup = backup
+                    logger.warning(
+                        "schema upgrade on an existing database: backed up %s -> %s "
+                        "(pending migrations %s)", self.path, backup, pending)
                 for version in sorted(_schema.MIGRATIONS):
                     if version in applied:
                         continue
