@@ -1,27 +1,47 @@
 # Hungry Hippa
 
-**Hungry Hippa is a local-first memory runtime that helps AI agents retain
-experience across sessions, retrieve relevant history and share explicitly
-authorized context without surrendering the underlying memory database to a model
-provider.**
+**One memory. Any AI. Your machine.**
 
-This repository was formerly **Living Cortex**. It is now a standalone local-first
-package — `hungry-hippa` — that speaks MCP through the official SDK. An existing
-database written by the former release is still found (read-only discovery, so
-memories are not stranded); see [docs/MIGRATION.md](docs/MIGRATION.md).
+Hungry Hippa gives AI a memory you own. It keeps useful memory on your machine and
+lets connected AI tools remember it later. The model can change. The provider can
+change. The memory layer stays yours.
 
-Episodic memory, a temporal knowledge graph, semantic beliefs with provenance,
-contradiction and supersession handling, a context compiler, consolidation, reversible
-forgetting, procedural learning, quarantine for untrusted writes, and a local MCP
-server built on the **official MCP Python SDK** — on top of plain SQLite.
+Hungry Hippa is **not** an AI model. It is the memory layer *underneath* AI models and
+agents — a local database plus the runtime that reads and writes it:
+
+- Different MCP-capable AI clients can use the **same** locally controlled memory.
+- **You** own and control the store. It is one SQLite file on your disk; deleting it
+  deletes the memory, and nothing is uploaded anywhere.
+- Switching models or providers does not inherently require abandoning the memory
+  layer, because the memory is not stored inside the model.
+- **MCP** (Model Context Protocol) is the interoperability mechanism today. Clients
+  that do not speak MCP are out of scope for now, and this README says so rather than
+  implying otherwise.
 
 Not a vector database, not chat-history search, not a bigger `MEMORY.md`.
+
+Simply put: if you have ever lost an agent's hard-won experience because you changed
+models, changed tools, or hit a context limit, that is the problem this solves.
+
+## Under the hood
+
+The plain version above is the point; this is how it is built. Hungry Hippa is a
+local-first memory runtime: episodic memory, a temporal knowledge graph, semantic
+beliefs with provenance, contradiction and supersession handling, a context compiler,
+consolidation, reversible forgetting, procedural learning, quarantine for untrusted
+writes, and a local MCP server built on the **official MCP Python SDK** — on top of
+plain SQLite.
 
 ```
 PERCEIVE → ATTEND → RECALL → COMPILE CONTEXT → REASON → ACT → OBSERVE
     ↑                                                            ↓
     └──────── CHANGE ← CONSOLIDATE ← FORGET ← LEARN ← REMEMBER ──┘
 ```
+
+This repository was formerly **Living Cortex**. It is now a standalone local-first
+package, `hungry-hippa`, that speaks MCP through the official SDK. An existing database
+written by the former release is still found (read-only discovery, so memories are not
+stranded); see [docs/MIGRATION.md](docs/MIGRATION.md).
 
 ## What it does, and what is tested
 
@@ -40,7 +60,7 @@ PERCEIVE → ATTEND → RECALL → COMPILE CONTEXT → REASON → ACT → OBSERV
 | Procedural memory | Experience → procedural candidate → validated procedure → skill promotion (needs explicit user approval) | T6, `test_memory_architecture.py` |
 | Local MCP server | Six `hippa_*` tools over stdio, official MCP SDK, no network listener | `test_mcp_integration.py` |
 | Request limits | Argument, result and frame caps; per-process call budget; database-backed write quota; audit-log redaction | `test_security.py`, `test_resource_limits.py` |
-| Identity binding | Identity and provenance resolved from the channel; owner token in the launch environment; no secret in any tool schema | `test_trust_boundary.py`, `test_trust_token.py` |
+| Identity binding | Identity and provenance resolved from the launch channel; owner token in the server's environment; no secret in any tool schema | `test_trust_boundary.py`, `test_trust_token.py` |
 
 Explicitly **not** implemented, and not claimed: model training, model-weight updates,
 consciousness, self-learning, "unhackable", enterprise-ready, multi-tenant isolation,
@@ -49,8 +69,8 @@ encryption at rest (use your OS), tamper-evident audit chain. See
 
 ## Quick start
 
-Requires Python 3.10+ and SQLite. The only third-party dependency is the official
-MCP SDK, declared in `pyproject.toml`; no network calls are required at runtime.
+Requires Python 3.10+ and SQLite. The only third-party dependency is the official MCP
+SDK, declared in `pyproject.toml`; no network calls are required at runtime.
 
 ```bash
 # 1. Install (a virtualenv is recommended; PEP 668 systems refuse a system install)
@@ -64,18 +84,24 @@ hungry-hippa owner-token --print      # paste the value into your MCP host confi
 hungry-hippa status                   # database health + counts (no row contents)
 ```
 
-Point your MCP host at the server, passing the token in the **server's**
-environment (see [docs/MCP.md](docs/MCP.md) for host-ready snippets):
+Point your MCP host at the server, passing the token in the **server's** environment
+(see [docs/MCP.md](docs/MCP.md) for host-ready snippets):
 
-```jsonc
+```json
 {"mcpServers": {"hungry-hippa": {"command": "hungry-hippa-mcp",
                                  "env": {"HUNGRY_HIPPA_OWNER_TOKEN": "…"}}}}
 ```
 
-Without the token the instance is untrusted: it can write candidates and read only
-its own rows. An in-process host can instead use the local agent adapter
-(`hungry_hippa.MemoryProvider`), which binds with owner identity and agent
-provenance.
+Without the token in that environment the instance is untrusted: it can write candidates
+and read only its own rows. An in-process host can instead load the bundle and register
+the adapter (`hungry_hippa.HungryHippaProvider` via `hungry_hippa.register`), which binds
+with owner identity and agent provenance.
+
+No always-on daemon is required. MCP hosts launch Hungry Hippa locally over stdio when
+they need it and it exits with them; the CLI is a one-shot command. Consolidation ("the
+sleep pass") runs when a host or the CLI triggers it — `hungry-hippa consolidate`, or at
+session end for a host that wires the adapter. The `consolidation.cron_schedule` key is
+a hint a host may use to schedule that; nothing in this repository runs a scheduler.
 
 Check it works without touching your data:
 
@@ -96,8 +122,8 @@ python eval/harness.py                     # memory challenge, writes eval/resul
 ```mermaid
 flowchart TB
     subgraph clients["Callers"]
-        HOST["agent host<br/>cortex tool (in-process)"]
-        MCPC["MCP client<br/>stdio JSON-RPC 2.0"]
+        HOST["agent host<br/>in-process adapter"]
+        MCPC["MCP client<br/>MCP over stdio (official SDK)"]
         CLI["hungry-hippa CLI<br/>operator commands"]
     end
 
@@ -122,7 +148,7 @@ flowchart TB
 
     DB[("db.py + schema.py<br/>SQLite (WAL, FTS5)<br/>reversible migrations")]
 
-    AGENTHOST --> CTRL
+    HOST --> CTRL
     MCPC -->|"mcp_server.py"| LIMITS
     LIMITS --> CTRL
     CLI --> CTRL
@@ -150,57 +176,88 @@ the code, not a plan.
 
 ## Install, in detail
 
-Hungry Hippa installs as a package; an in-process host wires the adapter with one config
-key. There is no package to build, no service to start and no daemon.
+Hungry Hippa installs as a package. Nothing is compiled, no service is started and no
+background process is left running: an MCP host spawns the stdio server when it needs
+it, and an in-process host registers the adapter with one call.
 
 ```bash
 git clone <this repository> hungry-hippa
 python -m pip install -e .
-# host adapter: hungry_hippa.MemoryProvider
+# MCP host: command = hungry-hippa-mcp, with HUNGRY_HIPPA_OWNER_TOKEN in its env
+# in-process host: hungry_hippa.register(ctx)  ->  HungryHippaProvider
 ```
 
 ## Configuration
 
-Defaults live in `config.py`. Override them in `$XDG_CONFIG_HOME/hungry-hippa/config.json`
-or with environment variables for the database path.
+Defaults live in `config.py`. Override them in
+`$XDG_CONFIG_HOME/hungry-hippa/config.json`, or set the database path with an
+environment variable. The file is plain JSON: a partial file is merged over the
+defaults, so you only list what you are changing.
 
-```yaml
-# $XDG_CONFIG_HOME/hungry-hippa/config.json (or environment variables)
-plugins:
-  hungry-hippa:
-    db_path: ""                    # empty -> $XDG_DATA_HOME/hungry-hippa/hungry_hippa.db
-    retrieval:
-      max_context_chars: 1500      # context compiler budget
-      max_items: 6
-      recency_half_life_days: 45
-      vectors_enabled: true        # set false to stay fully offline
-      embedding_model: nomic-embed-text
-      ollama_url: http://127.0.0.1:11434
-    consolidation:
-      on_session_end: true
-      cron_schedule: "0 4 * * *"
-    provider:
-      auto_episode_on_session_end: true
-      prefetch_enabled: true
-      mirror_builtin_memory_writes: true
-    privacy:
-      vision_memory_enabled: false
-      audio_memory_enabled: false
-      location_memory_enabled: false
-      face_identity_memory_enabled: false
+```json
+{
+  "db_path": "",
+  "retrieval": {
+    "max_context_chars": 1500,
+    "max_items": 6,
+    "recency_half_life_days": 45,
+    "vectors_enabled": true,
+    "embedding_model": "nomic-embed-text",
+    "ollama_url": "http://127.0.0.1:11434"
+  },
+  "consolidation": {
+    "enabled": true,
+    "on_session_end": true,
+    "cron_schedule": "0 4 * * *"
+  },
+  "provider": {
+    "auto_episode_on_session_end": true,
+    "prefetch_enabled": true,
+    "mirror_builtin_memory_writes": true
+  },
+  "privacy": {
+    "vision_memory_enabled": false,
+    "audio_memory_enabled": false,
+    "location_memory_enabled": false,
+    "face_identity_memory_enabled": false
+  }
+}
 ```
+
+Every key shown above exists in `config.py`'s `DEFAULTS`; the file also carries
+`attention`, `source_confidence`, `contradiction`, `forgetting` and `procedural`
+sections, plus `schema_version`. `db_path: ""` means "use the default location".
 
 Environment:
 
 | Variable | Meaning |
 |---|---|
 | `HUNGRY_HIPPA_DB` | Database path (wins over config `db_path`) |
+| `HUNGRY_HIPPA_OWNER_TOKEN` | Read once by the MCP server at launch. When it matches the local token file, that server instance is owner-authorized; otherwise it is untrusted |
+| `HUNGRY_HIPPA_OWNER_TOKEN_FILE` | Override the token file location (default `$XDG_STATE_HOME/hungry-hippa/owner.token`) |
 | `LIVING_CORTEX_DB` | Deprecated alias; still honoured, emits `DeprecationWarning` |
 | `HUNGRY_HIPPA_MAX_MCP_CALLS` | Per-process MCP call budget (default 1000) |
 | `HUNGRY_HIPPA_DEMO_DB` | Database path used by `demo/demo.py` |
 
-New installs use `$XDG_DATA_HOME/hungry-hippa/hungry_hippa.db`. If an existing legacy `living_cortex.db` is
-present it is discovered and used instead, so memories are not stranded by the rename.
+New installs use `$XDG_DATA_HOME/hungry-hippa/hungry_hippa.db`. If an existing legacy
+`living_cortex.db` is present it is discovered and used instead, so memories are not
+stranded by the rename.
+
+## Who is the owner?
+
+This is the part people get wrong, so it is spelled out.
+
+- **`actor_id` is a label, not a privilege.** Every tool takes it, any caller may set it
+  to any string, and it grants nothing. A caller that claims an owner label is remapped
+  to `mcp-untrusted`. Never document or use `actor_id` as a way to gain access.
+- **Owner authorization for MCP comes from the launch environment.** A server *instance*
+  is owner-authorized when the `HUNGRY_HIPPA_OWNER_TOKEN` in its launch environment
+  matches the local owner-token file (`0600`, created by `hungry-hippa owner-token`).
+  Anything else is untrusted.
+- **No tool accepts the token as an argument.** The model is never asked to hold or pass
+  the secret; it is not in any schema, description, log line or error message.
+- **In-process code is owner.** A host that loads the bundle in its own process (the
+  adapter or the CLI) binds with owner identity and agent provenance.
 
 ## MCP server
 
@@ -209,8 +266,8 @@ clients. No network listener, no socket, no HTTP.
 
 ```bash
 python mcp_server.py                  # serve on stdio
-python mcp_server.py --print-schemas  # inspect the tool schemas
-python -m mcp_server                  # same, from the plugin directory
+hungry-hippa-mcp                      # the same thing, as a console script
+python mcp_server.py --print-schemas  # diagnostic: dump the tool schemas
 ```
 
 | Tool | Purpose |
@@ -219,36 +276,49 @@ python -m mcp_server                  # same, from the plugin directory
 | `hippa_recall` | Hybrid recall under actor policy; `explain: true` for score parts |
 | `hippa_build_context` | Compiled context package inside a character budget |
 | `hippa_record_outcome` | Record whether a stored procedure worked |
-| `hippa_forget` | Archival (default, reversible) or confirm-gated purge (owner only) |
+| `hippa_forget` | Archival (default, reversible) or confirm-gated purge (owner-authorized instance only) |
 | `hippa_status` | Counts and health. Counts only — never row contents |
 
-Example client config (illustrative, **not verified against a live client** — see
-[docs/MCP.md](docs/MCP.md)):
+Working configuration (this one is real, and was used to verify the server):
 
-```toml
-# ~/.grok/config.toml  (Grok CLI; schema taken from Grok's own user guide)
-[mcp_servers.hungry-hippa]
-command = "python"
-args = ["/path/to/hungry-hippa/mcp_server.py"]
-enabled = true
+```json
+{
+  "mcpServers": {
+    "hungry-hippa": {
+      "command": "hungry-hippa-mcp",
+      "args": [],
+      "env": {
+        "HUNGRY_HIPPA_DB": "/home/you/.local/share/hungry-hippa/hungry_hippa.db",
+        "HUNGRY_HIPPA_OWNER_TOKEN": "<value from: hungry-hippa owner-token --print>"
+      }
+    }
+  }
+}
 ```
 
-Caller identity defaults to `mcp-untrusted`: untrusted writers get quarantine,
-untrusted readers get only their own unclassified, non-quarantined rows, and purge is
-denied. This is an actor/policy check, not capability-based security.
+A Grok CLI snippet in the same shape exists in [docs/MCP.md](docs/MCP.md); it is
+**not verified end-to-end**, because the account used for testing was out of build
+credit (`402 Payment Required`) at the time. What *has* been verified against this build:
+the official inspector CLI (`tools/list` and `tools/call`), the official SDK's own client,
+and a two-session Codex CLI run in which one process stored a memory and a separate
+process recalled it verbatim — see [docs/CROSS_AGENT_DEMO.md](docs/CROSS_AGENT_DEMO.md).
+
+Caller identity defaults to `mcp-untrusted`: untrusted writers get quarantine, untrusted
+readers get only their own unclassified, non-quarantined rows, and purge is denied. This
+is an actor/policy check, not capability-based security.
 
 ## Troubleshooting
 
 | Symptom | Cause and fix |
 |---|---|
 | An MCP host cannot reach the server | Check the host's `command` resolves (`hungry-hippa-mcp`, or `python /path/to/hungry-hippa/mcp_server.py`) and that the process can write the database directory. `python mcp_server.py --print-schemas` should list six tools. |
-| Calls that should be owner-only are refused | The instance was launched without `HUNGRY_HIPPA_OWNER_TOKEN`, or the value does not match `$XDG_STATE_HOME/hungry-hippa/owner.token`. Check the server's stderr: it logs which instance it is serving as. |
+| Calls that should be owner-only are refused | The instance was launched without `HUNGRY_HIPPA_OWNER_TOKEN`, or the value does not match `$XDG_STATE_HOME/hungry-hippa/owner.token`. Check the server's stderr: it logs which instance it is serving as. Do **not** try to fix this by setting `actor_id` — that is a label and grants nothing. |
 | A `DeprecationWarning` about `LIVING_CORTEX_DB` | You are using the old environment key. Switch to `HUNGRY_HIPPA_DB`; the old key still works. |
 | Recall returns nothing for something you know is stored | Common causes: the query has no matching tokens (FTS is keyword-based; enable vectors for paraphrases), a `project` filter excludes it, the item is **quarantined** (untrusted write — review with `hungry-hippa recall "<topic>" --quarantined`), or the row is `archived`/`superseded` and correctly no longer current. |
-| Everything is missing for a second client | That client is using the default `mcp-untrusted` actor. Untrusted actors only read their own unclassified, non-quarantined rows. Pass `actor_id: "primary"` only for a client you control, and read the limitation in `docs/SECURITY.md`. |
+| Everything is missing for a second client | That client is using the default `mcp-untrusted` actor. Untrusted actors only read their own unclassified, non-quarantined rows. Give that client its own actor label and accept the isolation, or launch its server with the owner token if it genuinely runs as you — and read the limitation in `docs/SECURITY.md` first. `actor_id` alone never changes this. |
 | Recall quality dropped | Vector search may be off (Ollama not running, or `vectors_enabled: false`). Recall then degrades to keyword + graph, which is the documented failure mode. |
 | An MCP client connects but no tools appear | Tool names are namespaced by the client (e.g. `hungry-hippa__hippa_recall`). Check `grok mcp doctor <name>` or your client's equivalent, and read the server's stderr log — this server writes nothing to stdout except protocol frames. |
-| `purge` is refused | Purge needs `confirmation: true` **and** an owner actor; it is denied by default over MCP. Use `mode: "archival"` for reversible forgetting. |
+| `purge` is refused | Purge needs `confirmation: true` **and** an owner-authorized instance; it is denied by default over MCP. Use `mode: "archival"` for reversible forgetting. |
 | Retrieval is slow | Retrieval latency grows slowly with store size (≈3–4 ms median at 2 000 episodes in `eval/REPORT.md`). If it is far worse, check for a huge `max_items` or an Ollama timeout on every call. |
 | The FTS index looks inconsistent | The schema layer self-heals: if the FTS table is empty while source rows exist, it is rebuilt from source on open. If that fails, the affected database logs a warning and recall degrades to graph-only. |
 
@@ -258,14 +328,19 @@ More detail: [docs/SECURITY.md](docs/SECURITY.md), [docs/MIGRATION.md](docs/MIGR
 
 ## Evidence, not adjectives
 
+Every claim in this README points at a suite that proves it. `python scripts/check_all.py`
+runs all of them (16 steps, 14 suites) and also fails if a test file exists that no step
+runs.
+
 | Claim | Where the evidence is |
 |---|---|
 | The acceptance suite passes | `python tests/test_acceptance.py` → 10/10 |
+| A real MCP client can drive the server | `python tests/test_mcp_integration.py` → 14/14, over the official SDK client and a real subprocess: tool list, required fields, no secret/SQL/path arguments, validation, quarantine opacity, counts-only status, stdout hygiene |
 | Memory-layer behaviour (quarantine, explain, budget) | `python tests/test_memory_architecture.py` → 8/8 |
-| MCP schemas, policy and stdio round trip | `python tests/test_mcp_schema.py` → 11/11 |
+| Identity is bound to the channel, not to a request field | `python tests/test_trust_boundary.py` → 6/6; `python tests/test_trust_token.py` → 9/9 (token creation, mode, overrides, corrupt-file recovery) |
+| Existence oracle closed, files owner-only | `tests/test_existence_oracle.py` 5/5, `tests/test_file_permissions.py` 6/6 |
 | Limits, redaction, injection resistance, no-export | `python tests/test_security.py` → 14/14 |
-| Identity binding, existence oracle, file permissions | `tests/test_trust_boundary.py` 6/6, `tests/test_existence_oracle.py` 5/5, `tests/test_file_permissions.py` 6/6 |
-| Provenance, injection framing, supersession, confused deputy, resources | `tests/test_provenance.py` 6/6, `tests/test_injection_framing.py` 7/7, `tests/test_supersession.py` 7/7, `tests/test_confused_deputy.py` 6/6, `tests/test_resource_limits.py` 8/8 |
+| Provenance, framing, supersession, confused deputy, resources | `tests/test_provenance.py` 6/6, `tests/test_injection_framing.py` 7/7, `tests/test_supersession.py` 7/7, `tests/test_confused_deputy.py` 6/6, `tests/test_resource_limits.py` 8/8 |
 | Migration keeps existing memories | `python tests/test_migration.py` → 7/7 |
 | Memory challenge results (with vs without) | `python eval/harness.py` → `eval/REPORT.md`, `eval/results.json` |
 | The demo runs and matches its expected output | `python demo/demo.py --check` |
@@ -278,7 +353,7 @@ metrics that need an LLM judge as unsupported rather than estimating them.
 
 ```
 hungry-hippa/
-├── __init__.py          # HungryHippaProvider (in-process adapter)
+├── __init__.py          # HungryHippaProvider (in-process adapter) + register()
 ├── controller.py        # MemoryController — the central abstraction
 ├── policy.py            # actor + policy checks (not capability security)
 ├── limits.py            # request/result caps, call budget, log redaction
@@ -293,14 +368,16 @@ hungry-hippa/
 ├── attention.py         # importance scoring
 ├── vision.py            # visual episodic memory (privacy-gated)
 ├── neural.py            # neural-memory interface (stub, no model weights)
+├── trust.py             # channel-derived identity, provenance, owner token
 ├── observability.py     # why / changed / forgotten / export
-├── tools.py             # `cortex` tool schema + dispatch
+├── tools.py             # `cortex` tool schema + dispatch (in-process adapter)
 ├── cli.py               # `hungry-hippa` CLI
-├── mcp_server.py        # local stdio MCP server
+├── mcp_server.py        # local stdio MCP server (official SDK)
 ├── schema.py            # SQLite schema + reversible migrations
 ├── db.py                # connections, mutation log, FTS reindex
 ├── config.py            # config resolution + privacy defaults
-├── tests/               # acceptance, migration, memory, MCP, security suites
+├── version.py           # single version source (pyproject asserts it matches)
+├── tests/               # acceptance, migration, memory, MCP, trust, security suites
 ├── eval/                # memory challenge harness, results, report
 ├── demo/                # scripted 8-step demo + expected output
 ├── scripts/             # seed example, build recording
@@ -309,9 +386,10 @@ hungry-hippa/
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Short version: run the five test files plus the
-demo check before sending a change, keep the stdlib-only rule, and do not add a claim to
-a document that no test or measurement supports.
+See [CONTRIBUTING.md](CONTRIBUTING.md). Short version: run `python scripts/check_all.py`
+before sending a change, keep runtime dependencies minimal (the official MCP SDK is the
+protocol dependency), and do not add a claim to a document that no test or measurement
+supports.
 
 ## Changelog
 

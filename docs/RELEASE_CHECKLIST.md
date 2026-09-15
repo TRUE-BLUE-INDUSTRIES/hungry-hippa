@@ -5,10 +5,13 @@ feeling. Nothing on this list publishes anything by itself.
 
 ## 1. Tests and evidence
 
+- [ ] `python scripts/check_all.py` → all steps pass, and the inventory step reports no
+      orphan test file
 - [ ] `python tests/test_acceptance.py` → 10/10
 - [ ] `python tests/test_migration.py` → 7/7
 - [ ] `python tests/test_memory_architecture.py` → 8/8
-- [ ] `python tests/test_mcp_schema.py` → 11/11
+- [ ] `python tests/test_mcp_integration.py` → 14/14 (real client session, official SDK)
+- [ ] `python tests/test_trust_boundary.py` → 6/6 and `python tests/test_trust_token.py` → 9/9
 - [ ] `python tests/test_security.py` → 14/14
 - [ ] `python demo/demo.py --check` → "transcript matches expected_output.txt"
 - [ ] `python demo/demo.py --tmp --check` → same (proves it runs against a temp DB)
@@ -20,9 +23,10 @@ feeling. Nothing on this list publishes anything by itself.
 
 - [ ] Every number quoted in `README.md`, `docs/TECHNICAL_REPORT.md` and `eval/REPORT.md`
       still matches the current `eval/results.json`
-- [ ] No document claims a client (Grok CLI, Claude Code, Cursor, Hermes MCP) was tested
-      against `mcp_server.py` unless a session actually was — the current docs say it was
-      not
+- [ ] No document claims a client (Grok CLI, Claude Code, Cursor, other MCP hosts) was
+      tested against `mcp_server.py` unless a session actually was. Verified so far: the
+      official inspector CLI and the official SDK's own client; the Grok CLI snippet
+      remains unverified end-to-end (out of build credit, HTTP 402 at the time)
 - [ ] No document claims encryption, tamper-evidence, capability-based security,
       multi-tenancy, "unhackable", "conscious", "self-learning" or "enterprise-ready"
 - [ ] `docs/PHASE_STATUS.md` "not done" entries are still accurate
@@ -39,10 +43,12 @@ feeling. Nothing on this list publishes anything by itself.
 
 ## 4. Version and metadata
 
-- [ ] `version:` in `plugin.yaml` bumped if behaviour changed
+- [ ] `version` bumped in `pyproject.toml` and `version.py` together if behaviour changed
+      (`tests/test_acceptance.py` asserts the two match, and `hungry-hippa status` reports it)
 - [ ] `CHANGELOG.md` has an entry for the new version with the date
-- [ ] `plugin.yaml` `description` still names Hungry Hippa and keeps `living-cortex` as
-      the plugin `name`
+- [ ] The package `description` and keywords in `pyproject.toml` still name Hungry Hippa
+      (there is no `plugin.yaml` any more: the host-plugin manifest was removed when the
+      project became standalone, and `mcp_server.py` is launched directly)
 - [ ] `LICENSE` copyright line is current
 
 ## 5. Compatibility

@@ -479,7 +479,8 @@ class RetrievalRouter:
           rendering      human/agent-readable text (``recall`` returns this as
                          ``context``)
           token_estimate ceil(characters / token_chars) — an estimate, not a
-                         tokenizer measurement (keeps the stdlib-only rule)
+                         tokenizer measurement (keeps the standard-library-only rule for
+                         everything except the MCP SDK)
           excluded       content-free ``{item, reason}`` records for everything
                          dropped: duplicate | superseded | archived |
                          quarantined | policy reason | budget

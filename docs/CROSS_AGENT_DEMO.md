@@ -58,13 +58,39 @@ result: the housing cracked`) and the agent reports that the approach failed.
 
 ## Status
 
-- **Codex CLI**: run on 2026-09-15 — both sessions behaved as above. This is real
-  cross-process, cross-session recall by an LLM agent over the MCP server.
+- **Codex CLI, re-run on the current build (2026-09-15, after the official-SDK refactor
+  and the identity binding)**: session 1 stored `E-0003` (fresh process, no history) and
+  printed `STORED E-0003`. Session 2, a **separate process**, recalled it and answered
+  with the memory text quoted above verbatim, concluding the approach failed. The
+  registration used for this run points at this repository's `mcp_server.py` (run with
+  the project's virtualenv interpreter) and carries `HUNGRY_HIPPA_OWNER_TOKEN` in the
+  **server's** environment — nothing is passed by the agent in a tool argument.
+- **Codex CLI, first run (earlier on 2026-09-15, pre-refactor)**: the same two sessions
+  also worked, but that build still resolved identity from the request, so it is a record
+  of that build rather than evidence for this one. That is why the run above was redone.
+  Note the old registration pointed at the installed plugin copy
+  (`~/.hermes/plugins/living-cortex/mcp_server.py`), which is now stale; point any client
+  at this repository's `mcp_server.py`.
 - **Grok CLI**: registration and handshake verified (`grok mcp doctor`). The two
   `grok -p` runs are blocked by `402 Payment Required — Grok Build usage balance
   exhausted`, an account/billing state on the client. Top up the Grok Build balance and
-  the two commands above complete the demonstration; the server side is already proven.
+  the two commands above complete the demonstration; the server side is already proven by
+  the Codex CLI run and by `tests/test_mcp_integration.py`.
 
-`actor_id: primary` is used so the write is stored as owner memory rather than
-quarantined. An untrusted client (`mcp-untrusted`, the server default) writes
-quarantined and reads nothing of the owner's — see `docs/SECURITY.md`.
+## Identity in this demo
+
+The prompt files deliberately send **no** `actor_id` and no token: the tools take
+neither. The write lands trusted because the *server instance* was launched with
+`HUNGRY_HIPPA_OWNER_TOKEN` in its environment, which is the only thing that grants
+owner authorization. The recorded row shows both facts at once — the label stayed at
+the default and the write was still not quarantined:
+
+| Field | Value | Meaning |
+|---|---|---|
+| `actor_id` / `source_actor` | `mcp-untrusted` | the default label, because the prompt sent none. A label; it grants nothing |
+| `quarantined` | `0` | the instance was owner-authorized, so the write is trusted memory |
+| `ingestion_channel` | `mcp` | it arrived over the MCP boundary, not in-process |
+| `verified_source_class` | `agent_inference` | verified provenance, not the caller's claim |
+
+An instance launched *without* the token is untrusted whatever the prompt says: its
+writes are quarantined and it reads nothing of the owner's — see `docs/SECURITY.md`.

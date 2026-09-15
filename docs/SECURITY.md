@@ -37,11 +37,19 @@ claim that collides with an owner label (`primary`, `owner`) is remapped to
 
 ### The owner token
 
-`$XDG_STATE_HOME/hungry-hippa/owner.token` (override:
+Live at `$XDG_STATE_HOME/hungry-hippa/owner.token` (override:
 `HUNGRY_HIPPA_OWNER_TOKEN_FILE`), 32 random bytes, mode `0600`, created by
-`hungry-hippa owner-token`. An MCP caller becomes the owner by presenting
-its contents as `owner_token`. The token is consumed at the boundary: it is never
-echoed in a response, never stored as memory, and never written to the audit log.
+`hungry-hippa owner-token`.
+
+**An MCP server *instance* is owner-authorized when the `HUNGRY_HIPPA_OWNER_TOKEN`
+supplied in that instance's launch environment matches this local file.** The server
+reads the variable once at start-up and compares it in constant time (an empty,
+corrupt or mismatched value means the instance runs untrusted). Owner status is
+therefore a property of *how the server was started* — the launch context, not the
+request. There is deliberately **no token parameter on any MCP tool**, so a client —
+or a model driving one — is never asked to hold, supply or manipulate the secret. The
+value is never echoed in a response, never stored as memory, never written to the
+audit log and never included in a tool schema, description or error message.
 
 What this proves and what it does not: the transport is stdio, so "can read this
 file" means "is the operator or running as them". The token stops a **client** —
@@ -51,7 +59,7 @@ claim of authentication over a network, and this server has no network transport
 
 | Caller | Writes | Reads | Forget (archival) | Purge |
 |---|---|---|---|---|
-| owner (token or in-process) | per its provenance | everything; quarantined rows only when `include_quarantined` is set | anything | allowed with an explicit confirmation flag |
+| owner (owner-authorized instance or in-process) | per its provenance | everything; quarantined rows only when `include_quarantined` is set | anything | allowed with an explicit confirmation flag |
 | any other caller | stored quarantined | only its own `unclassified`, non-quarantined rows | only rows it may read | always denied |
 
 A **whitespace-only** `actor_id` is treated as untrusted. It never falls back to
@@ -308,9 +316,10 @@ Additional requirements if you enable them:
   is not a hash chain, and someone with write access to the file can alter it.
 - No multi-user accounts, quotas, or tenant isolation. One database, one owner.
 - No network transport, remote access or OAuth. There is no listener to secure.
-- No automatic detection of poisoned content from a caller claiming to be the
-  owner. Quarantine protects against untrusted *actors*, not against a
-  compromised process that can start the server.
+- No automatic detection of poisoned content from a client that claims an owner
+  label. Such a claim is remapped to `mcp-untrusted`, but quarantine protects against
+  untrusted *actors*, not against a compromised process that can already start a server
+  with the owner token or read the database.
 - No secrets scanner over already-stored memories. Redaction covers log writes
   only.
 
@@ -318,7 +327,11 @@ Additional requirements if you enable them:
 
 1. Keep the MCP transport stdio-only. Do not wrap it in a socket forwarder or
    expose it through a network service.
-2. Never pass `actor_id: "primary"` on behalf of a caller you do not control.
+2. Do not treat `actor_id` as access control: it is a label, and a claim that collides
+   with an owner label is remapped to `mcp-untrusted`. To decide whether an MCP client
+   is owner-authorized, look at whether **its server instance was launched with a
+   matching `HUNGRY_HIPPA_OWNER_TOKEN`** — and only point a client at such an instance
+   if it genuinely runs as you.
 3. Encrypt the disk holding the XDG data directory if the memories matter.
 4. Set `HUNGRY_HIPPA_MAX_MCP_CALLS` when a session is long-lived.
 5. Review quarantined rows periodically:
@@ -331,10 +344,12 @@ Additional requirements if you enable them:
 ## Verifying the controls yourself
 
 ```bash
-python tests/test_security.py          # limits, redaction, policy, injection, no-export
-python tests/test_mcp_schema.py        # schemas, policy, stdio round trip
+python tests/test_security.py             # limits, redaction, policy, injection, no-export
+python tests/test_mcp_integration.py      # a real MCP client session over the official SDK
+python tests/test_trust_boundary.py       # claimed identity never becomes trust
+python tests/test_trust_token.py          # token creation, mode, overrides, recovery
 python tests/test_memory_architecture.py  # quarantine, explain, context budget
-python tests/test_acceptance.py        # T1-T10 still pass
+python tests/test_acceptance.py           # T1-T10 still pass
 ```
 
 Each test uses a throwaway temporary database. None of them touch

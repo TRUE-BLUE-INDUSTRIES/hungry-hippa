@@ -4,6 +4,16 @@ A description of what this repository actually implements, how each part works, 
 measurements that exist. Everything asserted here is either visible in the source, or
 produced by a command named in the text. Where something is unverified, it says so.
 
+> **Status note (post-MCP-SDK refactor).** This report was written for the phase-4 build
+> and keeps its measurements as recorded then. Two things have changed since: the MCP
+> protocol layer is now the **official MCP Python SDK** (`mcp_server.py` no longer
+> contains hand-written JSON-RPC or a protocol constant), and the suite it refers to as
+> `tests/test_mcp_schema.py` was replaced by `tests/test_mcp_integration.py`, which drives
+> the same surface through a real SDK client session. Owner authorization is now a
+> property of the server's launch environment (`HUNGRY_HIPPA_OWNER_TOKEN`), not a tool
+> argument. See `CHANGELOG.md` for the full list; the current suite inventory is in
+> `CONTRIBUTING.md` and `scripts/check_all.py`.
+
 Formerly Living Cortex. The rename is described in `docs/MIGRATION.md`; the pre-rename
 audit is in `docs/LIVING_CORTEX_BASELINE.md`.
 
@@ -178,7 +188,7 @@ protocol's session-teardown method; unknown methods get `-32601`, unparseable fr
 never loses its session over a typo.
 
 Six tools, strict schemas (`additionalProperties: false`, explicit `required`, enums,
-bounds, length caps), no SQL, no path arguments, no export. `tests/test_mcp_schema.py`
+bounds, length caps), no SQL, no path arguments, no export. `tests/test_mcp_integration.py`
 runs a complete stdio conversation in-process and asserts each of those properties,
 including an AST check that the module imports no network library.
 
@@ -195,7 +205,7 @@ and are labelled illustrative.
 | `python tests/test_acceptance.py` | 10/10 |
 | `python tests/test_migration.py` | 6/6 |
 | `python tests/test_memory_architecture.py` | 8/8 |
-| `python tests/test_mcp_schema.py` | 11/11 |
+| `python tests/test_mcp_integration.py` (that build; now `tests/test_mcp_integration.py`) | 11/11 → 14/14 |
 | `python tests/test_security.py` | 10/10 |
 
 These are self-reported by the suite runner. Re-run them yourself; they use temp
@@ -268,7 +278,7 @@ Structural, and stated rather than implied:
 python tests/test_acceptance.py
 python tests/test_migration.py
 python tests/test_memory_architecture.py
-python tests/test_mcp_schema.py
+python tests/test_mcp_integration.py
 python tests/test_security.py
 python eval/harness.py            # rewrites eval/results.json and eval/REPORT.md
 python demo/demo.py --check       # 8-step demo, verified against captured output

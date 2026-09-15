@@ -12,29 +12,43 @@ CI requirement.
 python scripts/check_all.py               # runs everything below, one after another
 ```
 
-Individually:
+Installing first matters: the runtime depends on the official MCP SDK, so run these
+from a virtualenv where `python -m pip install -e .` has been run.
+
+Individually (current counts):
 
 ```bash
 python tests/test_acceptance.py           # 10/10 — spec acceptance tests T1-T10
-python tests/test_migration.py            # 6/6  — rename + DB migration compatibility
+python tests/test_migration.py            # 7/7  — rename + DB migration compatibility
 python tests/test_memory_architecture.py  # 8/8  — quarantine, explain, context budget
-python tests/test_mcp_schema.py           # 11/11 — MCP schemas, policy, stdio
-python tests/test_security.py             # 10/10 — limits, redaction, injection, no-export
+python tests/test_mcp_integration.py      # 14/14 — real MCP client session (official SDK, subprocess)
+python tests/test_trust_boundary.py       # 6/6  — identity binding
+python tests/test_trust_token.py          # 9/9  — owner token: creation, mode, recovery
+python tests/test_existence_oracle.py     # 5/5  — exclusion shapes do not confirm existence
+python tests/test_file_permissions.py     # 6/6  — database/backup/export modes
+python tests/test_provenance.py           # 6/6  — claimed vs verified provenance
+python tests/test_injection_framing.py    # 7/7  — recalled text is data, not instruction
+python tests/test_supersession.py         # 7/7  — who may retire whose row
+python tests/test_confused_deputy.py      # 6/6  — capability ladder
+python tests/test_resource_limits.py      # 8/8  — caps, budget, accounting
+python tests/test_security.py             # 14/14 — limits, redaction, injection, no-export
 python demo/demo.py --check               # demo transcript matches the captured output
 python eval/harness.py                    # regenerates eval/results.json + REPORT.md
 ```
 
 Each file is standalone: it has a `run_all()` function and a `__main__` block, and exits
-non-zero on failure. Pytest is optional and not required.
+non-zero on failure. Pytest is optional and not required. `scripts/check_all.py` fails if
+a `tests/test_*.py` file exists that no step runs, so a new suite cannot be forgotten.
 
 If your change alters behaviour, update the relevant document (`README.md`,
 `docs/…`) in the same change. Documentation that contradicts the code is a bug.
 
 ## Hard rules
 
-1. **Standard library only.** No third-party runtime dependency without a one-line
-   documented benefit in the commit message. This is what keeps installation a copy and
-   an offline runtime possible.
+1. **Keep runtime dependencies minimal.** The official MCP SDK is the protocol
+   dependency and is intentional: the protocol layer is not ours to reimplement. Any
+   *additional* dependency needs a one-line documented reason in the commit message.
+   Everything else stays on the standard library, so the runtime still works offline.
 2. **Never silently delete or rewrite a memory.** Supersede, contradict, compress or
    archive. Purge is explicit, owner-only and confirm-gated.
 3. **Never introduce a claim that no test, measurement or file supports.** If it is
@@ -46,9 +60,10 @@ If your change alters behaviour, update the relevant document (`README.md`,
    Fixtures must be invented (`Operator`, `Project A`, `Vendor A`), not scraped.
 6. **Do not call the project** unhackable, conscious, self-learning, enterprise-ready, or
    a healthcare product. The name is *Hungry Hippa*, not HIPAA.
-7. **Additive compatibility.** The in-process adapter, the `cortex`
-   tool name and existing table names stay. New behaviour goes behind new fields,
-   new actions or new modules.
+7. **Additive compatibility.** The in-process adapter, the `cortex` tool name, the
+   documented environment aliases (`LIVING_CORTEX_DB`, `HUNGRY_HIPPA_OWNER_TOKEN_FILE`,
+   legacy `living_cortex.db` discovery) and existing table names stay. New behaviour goes
+   behind new fields, new actions or new modules.
 8. **Migrations are reversible.** Every entry in `schema.py`'s `MIGRATIONS` needs a
    `down` script and constant defaults for new columns, so existing rows are untouched.
 

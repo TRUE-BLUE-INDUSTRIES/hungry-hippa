@@ -1,7 +1,8 @@
 You have a local MCP memory server called "hungry-hippa" (tools: hippa_remember, hippa_recall, hippa_build_context, hippa_record_outcome, hippa_forget, hippa_status).
 
+This server instance is already owner-authorized: its launch environment carries the owner token. Do not send any actor or token argument — the tools take none, and identity comes from how the server was started.
+
 Task: record one episodic memory by calling hippa_remember with exactly these arguments:
-- actor_id: "primary"
 - memory_type: "episodic"
 - content: "tried to free the seized housing on Project A with solvent X"
 - user_request: "free the seized housing quickly"
@@ -10,6 +11,6 @@ Task: record one episodic memory by calling hippa_remember with exactly these ar
 - outcome: "failure"
 - project: "Project A"
 
-Then call hippa_status with actor_id "primary".
+Then call hippa_status with no extra arguments.
 Use no other tools and do not touch the filesystem.
 Finally print one line: STORED <episode_id>.

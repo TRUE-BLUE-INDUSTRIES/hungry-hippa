@@ -4,7 +4,8 @@ Hungry Hippa is a local-first memory runtime for AI agents. It stores and retrie
 experience and compiles context. **It does not train a model**, and nothing here is a
 model-weight update.
 
-This document compares the runtime **as it exists in this tree** (post-Phase-8, schema v4)
+This document compares the runtime **as it exists in this tree** (schema v5, after the
+official-MCP-SDK refactor and the identity-binding hardening)
 against three deliberately narrow architectural patterns:
 
 - **basic vector-store memory** — similarity search over text chunks plus metadata;
@@ -54,8 +55,8 @@ mechanism exists but with a documented limitation; **no** = not implemented here
 
 ## Evidence in this repository
 
-1. `schema.py` (migrations 1–4, each with a `down` script), `db.py` (`Database`, evidence
-   hashing, `mutation_log`, FTS rebuild, health). `python tests/test_migration.py` → **6/6**,
+1. `schema.py` (migrations 1–5, each with a `down` script), `db.py` (`Database`, evidence
+   hashing, `mutation_log`, FTS rebuild, health). `python tests/test_migration.py` → **7/7**,
    including a populated pre-v4 database migrated in place
    (`python tests/test_memory_architecture.py` → **8/8**).
 2. `retrieval.py`: the `_recall` pipeline, the ranking weights at the top of the module,
@@ -64,9 +65,11 @@ mechanism exists but with a documented limitation; **no** = not implemented here
 3. `episodic.py`, `semantic.py`, `graph.py`, `procedural.py`: stored fields and public
    operations. `python tests/test_acceptance.py` → **10/10** (T1–T10, including temporal graph
    history T4, contradiction T5, provenance T7, forgetting T8, provider prefetch T10).
-4. `controller.py`, `policy.py`, `__init__.py`, `tools.py`, `mcp_server.py`. Actor policy and
-   quarantine behaviour: `python tests/test_memory_architecture.py` → 8/8,
-   `python tests/test_security.py` → **10/10**, `python tests/test_mcp_schema.py` → **11/11**.
+4. `controller.py`, `policy.py`, `trust.py`, `__init__.py`, `tools.py`, `mcp_server.py`.
+   Actor policy and quarantine behaviour: `python tests/test_memory_architecture.py` → 8/8,
+   `python tests/test_security.py` → **14/14**, and the MCP surface driven by a real client
+   session: `python tests/test_mcp_integration.py` → **14/14**. Channel-bound identity:
+   `python tests/test_trust_boundary.py` → 6/6, `python tests/test_trust_token.py` → 9/9.
 5. `forgetting.py` and `Controller.forget`. Neither archival nor row deletion is physical
    erasure from SQLite pages or backups; that is stated in `docs/SECURITY.md`.
 6. `observability.py` (`why`, `recent_changes`, `forgotten`) plus the acceptance tests above.

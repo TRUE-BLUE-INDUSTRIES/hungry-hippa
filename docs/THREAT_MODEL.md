@@ -63,17 +63,18 @@ laundered into a derived belief. An owner reviewing them sees a `[QUARANTINED]`
 marker. Tested by `tests/test_memory_architecture.py` and
 `tests/test_security.py`.
 
-*Residual:* the owner can still accept a quarantined memory manually, and nothing
-detects poisoning performed by a client that claims `actor_id: "primary"` — see
-threat 5.
+*Residual:* the owner can still accept a quarantined memory manually, and a client
+that claims an owner label is remapped to `mcp-untrusted` rather than trusted (threat
+5) — but nothing detects poisoning performed by a process that can already start its
+own server with the owner token, or that reads the database directly.
 
 ### 3. Unauthorized bulk extraction
 
 *Threat:* a client tries to drain the store (all episodes, all beliefs, raw DB).
 
 *Implemented:* there is **no** MCP tool that dumps rows, exports the database, or
-takes a path/DB/SQL argument (`tests/test_mcp_schema.py`,
-`tests/test_security.py`). `hippa_status` returns counts only. `hippa_recall`
+takes a path/DB/SQL argument (`tests/test_mcp_integration.py` asserts the schema
+surface, `tests/test_security.py` the refusal paths). `hippa_status` returns counts only. `hippa_recall`
 returns at most `limit` items (cap 50) and the context compiler caps the rendered
 text. `export` remains a local CLI command (`hungry-hippa export`) that a
 human runs on their own machine.
@@ -86,11 +87,16 @@ The per-process call budget bounds that; it does not stop a patient attacker.
 *Threat:* a client sends malformed frames, unknown methods, oversized payloads,
 or endless calls.
 
-*Implemented:* strict tool schemas (`additionalProperties: false`, required
-fields, enums, bounds, length caps) plus a second length check in `limits.py`;
-`-32700` for unparseable frames, `-32601` for unknown methods, `isError` tool
-results instead of exceptions, a per-process call budget, and a hard cap on a
-single result frame. Tested in `tests/test_mcp_schema.py` /
+*Implemented:* the protocol layer is the official MCP SDK's, so framing, request ids,
+unknown-method handling, `initialize` negotiation and malformed-payload rejection are
+the SDK's (verified against it, not reimplemented: `tests/test_mcp_integration.py`
+drives a real client session and asserts that a wrongly-typed argument is rejected by
+the SDK's validation and that stderr — never stdout — carries the diagnostics). Tool
+schemas are generated from typed signatures (required fields, enums, types), and the
+runtime does **not** rely on a client honouring them: `limits.py` re-checks every
+argument inside the handler, caps result size (`MAX_RESULT_CHARS`), and enforces a
+per-process call budget. Unknown arguments are dropped by the SDK's validation before a
+handler sees them. Tested in `tests/test_mcp_integration.py` /
 `tests/test_security.py`.
 
 *Residual:* one process-wide budget, not per-client quotas. A client that can
@@ -101,11 +107,13 @@ start the process can also read its stdout.
 *Threat:* an MCP client passes `actor_id: "primary"` and becomes the owner.
 
 *Implemented:* identity is no longer a request field. `trust.py` resolves it from
-the channel: in-process code is owner; an MCP caller is owner only when it presents
-the owner token from a `0600` file that only the operator's user can read; anything
-else is untrusted, writes quarantined, and a claim colliding with an owner label is
-remapped to `mcp-untrusted`. `policy.may_read` refuses the label collision a second
-time. See `tests/test_trust_boundary.py`.
+the channel: in-process code is owner; an MCP **instance** is owner only when the
+`HUNGRY_HIPPA_OWNER_TOKEN` in its launch environment matches the `0600` owner-token
+file that only the operator's user can read (read once at start-up, compared in
+constant time); anything else is untrusted, writes quarantined, and a claim colliding
+with an owner label is remapped to `mcp-untrusted`. No tool takes a token argument, so
+the model is never asked to handle the secret. `policy.may_read` refuses the label
+collision a second time. See `tests/test_trust_boundary.py`, `tests/test_trust_token.py`.
 
 *Residual:* the token is a local capability, not authentication. A process running
 as the operator can read the token file and the database directly. The MCP surface
@@ -211,12 +219,13 @@ archiving (`Controller._may_forget`, via `policy.may_read`), so an actor may arc
 only a record it is allowed to read; the denial is returned as
 `{"error": "forget denied for this actor", "policy_reason": ...}` and written to
 `mutation_log` as `forget_denied`. `test_security.py`
-(`untrusted_archival_denied_per_record`) and `test_mcp_schema.py`
-(`purge_denied_over_mcp`) cover the untrusted and owner paths.
+(`untrusted_archival_denied_per_record`) and `test_mcp_integration.py`
+(`no_unauthorized_tool_can_purge`) cover the untrusted and owner-authorized paths.
 
-*Residual:* this is a policy check on a caller-supplied `actor_id`, so the
-impersonation limitation of threat 5 applies unchanged; archival remains reversible
-and audited.
+*Residual:* the row-level check follows the caller's resolved identity, which comes
+from the launch context — so the limitation of threat 5 applies unchanged (a process
+that can start a server with the owner token or read the database is outside it);
+archival remains reversible and audited.
 
 ### 14. Silent schema upgrade of an existing database
 
