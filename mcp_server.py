@@ -135,6 +135,29 @@ _SENSITIVITY = {"type": "string",
                 "enum": ["unclassified", "internal", "private", "restricted"]}
 
 
+def _out(**props: Any) -> Dict[str, Any]:
+    """Build an MCP ``outputSchema`` for a tool.
+
+    Every handler returns exactly one JSON object inside a text content block.
+    The shared envelope is ``{ok: bool, error?: str}``; each tool adds the fields
+    listed here. ``additionalProperties`` stays true because the envelope may
+    gain a ``truncated``/``original_chars`` note when a result hits the size cap,
+    and claiming otherwise would advertise a guarantee the server does not keep.
+    """
+    shared = {
+        "ok": {"type": "boolean",
+               "description": "false when the call was denied or failed."},
+        "error": {"type": "string",
+                  "description": "Present when ok is false."},
+    }
+    return {
+        "type": "object",
+        "additionalProperties": True,
+        "required": ["ok"],
+        "properties": {**shared, **props},
+    }
+
+
 def tool_schemas() -> List[Dict[str, Any]]:
     """The advertised MCP tool list. Strict schemas, no path/SQL arguments."""
     return [
@@ -173,6 +196,15 @@ def tool_schemas() -> List[Dict[str, Any]]:
                     "actor_id": _ACTOR,
                 },
             },
+            "outputSchema": _out(
+                belief_id={"type": "string"},
+                episode_id={"type": "string"},
+                quarantined={"type": "boolean"},
+                importance={"type": "number"},
+                outcome={"type": "string"},
+                sensitivity={"type": "string"},
+                actor_id={"type": "string"},
+            ),
         },
         {
             "name": "hippa_recall",
@@ -197,6 +229,19 @@ def tool_schemas() -> List[Dict[str, Any]]:
                     "actor_id": _ACTOR,
                 },
             },
+            "outputSchema": _out(
+                count={"type": "integer", "description": "Items recalled after policy."},
+                context={"type": "string", "description": "Rendered recall text."},
+                items={"type": "array", "items": {"type": "object"},
+                       "description": "id/type/quarantined/sensitivity only, no contents."},
+                entities={"type": "array", "items": {"type": "string"}},
+                sources={"type": "array", "items": {"type": "string"}},
+                excluded={"type": "array", "items": {"type": "object"},
+                          "description": "Content-free exclusion reasons."},
+                token_estimate={"type": "integer"},
+                explain={"type": "array", "items": {"type": "object"},
+                         "description": "Score parts; never memory contents."},
+            ),
         },
         {
             "name": "hippa_build_context",
@@ -217,6 +262,17 @@ def tool_schemas() -> List[Dict[str, Any]]:
                     "actor_id": _ACTOR,
                 },
             },
+            "outputSchema": _out(
+                rendering={"type": "string"},
+                item_ids={"type": "array", "items": {"type": "string"}},
+                token_estimate={"type": "integer",
+                                "description": "characters/4, not a tokenizer count."},
+                chars_used={"type": "integer"},
+                budget_chars={"type": "integer"},
+                excluded={"type": "array", "items": {"type": "object"}},
+                entities={"type": "array", "items": {"type": "string"}},
+                sources={"type": "array", "items": {"type": "string"}},
+            ),
         },
         {
             "name": "hippa_record_outcome",
@@ -234,6 +290,14 @@ def tool_schemas() -> List[Dict[str, Any]]:
                     "actor_id": _ACTOR,
                 },
             },
+            "outputSchema": _out(
+                procedure_id={"type": "string"},
+                name={"type": "string"},
+                status={"type": "string"},
+                confidence={"type": "number"},
+                success_count={"type": "integer"},
+                failure_count={"type": "integer"},
+            ),
         },
         {
             "name": "hippa_forget",
@@ -257,6 +321,15 @@ def tool_schemas() -> List[Dict[str, Any]]:
                     "actor_id": _ACTOR,
                 },
             },
+            "outputSchema": _out(
+                mode={"type": "string", "enum": ["archival", "purge"]},
+                target={"type": "string"},
+                archived={"type": "boolean"},
+                purged={"type": "boolean"},
+                reason={"type": "string",
+                        "description": "Why a forget was denied, when ok is false."},
+                actor_id={"type": "string"},
+            ),
         },
         {
             "name": "hippa_status",
@@ -269,6 +342,19 @@ def tool_schemas() -> List[Dict[str, Any]]:
                 "additionalProperties": False,
                 "properties": {"actor_id": _ACTOR},
             },
+            "outputSchema": _out(
+                product={"type": "string"},
+                server_version={"type": "string"},
+                actor_id={"type": "string"},
+                counts={"type": "object"},
+                vectors={"type": "object"},
+                failures={"type": "integer"},
+                policy={"type": "object"},
+                call_budget={"type": "object"},
+                limits={"type": "object"},
+                db_path={"type": "string",
+                         "description": "Owner actors only; omitted for untrusted callers."},
+            ),
         },
     ]
 
@@ -434,7 +520,8 @@ def _t_forget(controller, args: Dict[str, Any], actor_id: str) -> Dict[str, Any]
             return _denied("purge denied for this actor", actor_id=actor_id)
     r = controller.forget(kind, target, mode=mode, reason=args.get("reason", ""))
     if r.get("error"):
-        return _denied(r["error"])
+        return _denied(r["error"], actor_id=actor_id, target=target,
+                       policy_reason=r.get("reason", ""))
     return _ok(mode=mode, target=target,
                archived=bool(r.get("archived")), purged=bool(r.get("purged")))
 
@@ -524,7 +611,13 @@ def validate_args(schema: Optional[Dict[str, Any]],
                 problems.append(f"unknown field '{key}'")
     for key, value in args.items():
         rule = props.get(key)
-        if not rule or value is None:
+        if not rule:
+            continue
+        if value is None:
+            # An explicit null is not a valid value for any field we advertise:
+            # every declared property is a concrete type, and a null actor_id
+            # must not fall through to the default owner actor.
+            problems.append(f"'{key}' must not be null")
             continue
         declared = rule.get("type")
         if declared == "string":
@@ -560,10 +653,17 @@ def validate_args(schema: Optional[Dict[str, Any]],
                 continue
             if "maxItems" in rule and len(value) > rule["maxItems"]:
                 problems.append(f"'{key}' exceeds {rule['maxItems']} items")
-            item_type = (rule.get("items") or {}).get("type")
+            item = rule.get("items") or {}
+            item_type = item.get("type")
             if item_type == "string" and any(
                     not isinstance(v, str) for v in value):
                 problems.append(f"'{key}' items must be strings")
+                continue
+            if item_type == "string" and "maxLength" in item:
+                bad = [v for v in value if len(v) > item["maxLength"]]
+                if bad:
+                    problems.append(
+                        f"'{key}' items exceed {item['maxLength']} characters")
     return problems
 
 

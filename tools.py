@@ -12,6 +12,7 @@ import json
 from typing import Any, Dict, List
 
 from . import limits as _limits
+from . import policy as _policy
 
 CORTEX_SCHEMA = {
     "name": "cortex",
@@ -260,8 +261,23 @@ def handle(cortex_controller, observability, action: str, args: Dict[str, Any]) 
             return json.dumps(c.status(), ensure_ascii=False, default=str)
 
         if action == "export":
-            r = observability.export(args.get("path", "living_cortex_export.json"),
-                                     args.get("export_kind", "all"))
+            # DoD: "No interface exposes arbitrary SQL or raw database extraction."
+            # Export is an operator-side maintenance action: it is owner-only and
+            # every run is written to the audit log. It is not reachable over MCP
+            # (the MCP tool surface deliberately has no export tool).
+            if not _policy.is_owner(c.actor_id):
+                c.db.log_mutation("export_denied", "database", "",
+                                  f"actor={c.actor_id} reason=owner-only",
+                                  c.session_id)
+                return json.dumps(
+                    {"error": "export is operator-only; unavailable to this actor",
+                     "actor_id": c.actor_id}, ensure_ascii=False)
+            out_path = args.get("path", "living_cortex_export.json")
+            kind = args.get("export_kind", "all")
+            r = observability.export(out_path, kind)
+            c.db.log_mutation("export", "database", "",
+                              f"kind={kind} path={out_path} actor={c.actor_id}",
+                              c.session_id)
             return json.dumps(r, ensure_ascii=False, default=str)
 
         return json.dumps({"error": f"unknown action {action}"}, ensure_ascii=False)
