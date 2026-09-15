@@ -86,6 +86,22 @@ Rejections are explicit: the caller gets `{"ok": false, "error": "... exceeds N
 characters"}` rather than a silent truncation. Truncation only happens where a
 partial answer is still useful, and it leaves a visible `…[truncated]` marker.
 
+### Non-enumerating exclusions (no existence oracle)
+
+Recall tells the **owner** why a row was left out (`superseded`, `quarantined`,
+`other-actor`, `budget`). A caller without owner identity is not given that list
+at all, and gets the same answer whether one protected row matched or none did:
+
+```json
+{"excluded": {"unauthorized": true,
+              "note": "excluded items are not enumerated for this caller"}}
+```
+
+Item ids, per-reason counts, the size of the withheld set and matched graph
+entity names are all withheld too. Any of them answers "does the operator hold a
+memory about X", and sequential ids leak how many exist. The owner keeps the
+richer diagnostics; only the owner.
+
 The call budget is a blunt resource guard against a runaway loop. It does not
 identify or authorize callers.
 

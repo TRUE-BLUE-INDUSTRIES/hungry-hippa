@@ -29,6 +29,7 @@ STEPS: Sequence[Tuple[str, List[str]]] = (
     ("memory architecture", ["python", "tests/test_memory_architecture.py"]),
     ("MCP schema + policy", ["python", "tests/test_mcp_schema.py"]),
     ("identity binding", ["python", "tests/test_trust_boundary.py"]),
+    ("existence oracle", ["python", "tests/test_existence_oracle.py"]),
     ("security", ["python", "tests/test_security.py"]),
     ("demo transcript", ["python", "demo/demo.py", "--tmp", "--check"]),
     ("eval result drift", ["python", "eval/check_results.py"]),

@@ -247,8 +247,8 @@ def tool_schemas() -> List[Dict[str, Any]]:
                        "description": "id/type/quarantined/sensitivity only, no contents."},
                 entities={"type": "array", "items": {"type": "string"}},
                 sources={"type": "array", "items": {"type": "string"}},
-                excluded={"type": "array", "items": {"type": "object"},
-                          "description": "Content-free exclusion reasons."},
+                excluded={"description": "Content-free exclusion reasons for the owner; "
+                                         "a non-enumerating summary for anyone else."},
                 token_estimate={"type": "integer"},
                 explain={"type": "array", "items": {"type": "object"},
                          "description": "Score parts; never memory contents."},

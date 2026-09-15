@@ -49,6 +49,8 @@ jobs:
         run: python tests/test_mcp_schema.py
       - name: Identity binding
         run: python tests/test_trust_boundary.py
+      - name: Existence oracle
+        run: python tests/test_existence_oracle.py
 
       - name: Security suite
         run: python tests/test_security.py

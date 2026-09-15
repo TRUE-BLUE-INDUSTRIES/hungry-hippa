@@ -304,12 +304,11 @@ def run_demo(db_path: str, use_tmp: bool) -> Transcript:
         untrusted = client.call_tool("hippa_recall",
                                      {"actor_id": "mcp-untrusted",
                                       "query": q["decision"]})
-        reasons: Dict[str, int] = {}
-        for entry in untrusted.get("excluded", []):
-            reasons[entry["reason"]] = reasons.get(entry["reason"], 0) + 1
         t.emit(f"  untrusted client   -> count={untrusted.get('count')} "
                f"items={len(untrusted.get('items', []))} "
-               f"denied={len(untrusted.get('excluded', []))} by={reasons}")
+               f"excluded={untrusted.get('excluded')}")
+        t.emit("  (excluded items are not enumerated for a caller that may not read "
+               "them: ids and counts are an existence oracle)")
         owner = client.call_tool("hippa_recall",
                                 {"actor_id": "primary",
                                  "owner_token": owner_token,

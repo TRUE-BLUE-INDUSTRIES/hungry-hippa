@@ -169,13 +169,14 @@ class MemoryController:
         rows it did not write.
         """
         actor = _policy.normalize_actor(actor_id or self.actor_id)
-        if include_quarantined and not _policy.is_owner(actor):
+        if include_quarantined and not self.is_owner:
             include_quarantined = False
         out = self.retrieval.recall(query, project=project, limit=limit,
                                     session_id=self.session_id, actor_id=actor,
                                     explain=explain,
                                     include_quarantined=include_quarantined,
-                                    max_context_chars=max_context_chars)
+                                    max_context_chars=max_context_chars,
+                                    identity=self.identity)
 
         def _log(conn) -> None:
             conn.execute(

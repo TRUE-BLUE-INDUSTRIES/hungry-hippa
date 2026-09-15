@@ -424,12 +424,15 @@ def check_sensitivity_not_an_encryption_claim():
                                  sensitivity="internal")
     assert r.get("sensitivity") == "internal", r
 
-    # untrusted actors cannot read it; the owner can
+    # untrusted actors cannot read it; the owner can. (Identity comes from the
+    # channel now, so the probe binds an external binding rather than a name.)
+    from livingcortex import trust as _trust
+
     ctrl.bind_session(session_id="s", platform="cli", agent_context="primary",
-                      actor_id="mcp-untrusted")
+                      trust=_trust.external_binding("mcp-untrusted"))
     assert ctrl.recall("internal-only note shim pack")["count"] == 0
     ctrl.bind_session(session_id="s", platform="cli", agent_context="primary",
-                      actor_id="primary")
+                      trust=_trust.local_binding("primary"))
     assert ctrl.recall("internal-only note shim pack")["count"] >= 1
     assert policy.normalize_sensitivity("TOP SECRET") == "unclassified"
 

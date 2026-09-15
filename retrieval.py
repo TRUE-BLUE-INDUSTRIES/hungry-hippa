@@ -26,6 +26,17 @@ from . import db as _db
 from . import policy as _policy
 
 
+def _withheld() -> Dict[str, Any]:
+    """The uniform answer given to a caller who may not enumerate exclusions.
+
+    Deliberately identical whether one protected row matched or none did: a
+    distinguishable "nothing was withheld" answer is itself the oracle that this
+    exists to close.
+    """
+    return {"unauthorized": True,
+            "note": "excluded items are not enumerated for this caller"}
+
+
 def _iso_to_epoch(iso: Optional[str]) -> float:
     if not iso:
         return 0.0
@@ -132,7 +143,8 @@ class RetrievalRouter:
     def recall(self, query: str, *, project: str = "", limit: Optional[int] = None,
                session_id: str = "", actor_id: str = _policy.DEFAULT_ACTOR,
                explain: bool = False, include_quarantined: bool = False,
-               max_context_chars: Optional[int] = None) -> Dict[str, Any]:
+               max_context_chars: Optional[int] = None,
+               identity: Optional[str] = None) -> Dict[str, Any]:
         """Run the full hybrid recall pipeline. Never raises."""
         limit = limit or self.max_items
         query = (query or "").strip()
@@ -143,7 +155,8 @@ class RetrievalRouter:
                                 session_id=session_id, actor_id=actor_id,
                                 explain=explain,
                                 include_quarantined=include_quarantined,
-                                max_context_chars=max_context_chars)
+                                max_context_chars=max_context_chars,
+                                identity=identity)
         except Exception as e:
             self.db.failures += 1
             out = self._empty()
@@ -163,7 +176,8 @@ class RetrievalRouter:
     def _recall(self, query: str, *, project: str, limit: int,
                 session_id: str, actor_id: str, explain: bool,
                 include_quarantined: bool,
-                max_context_chars: Optional[int]) -> Dict[str, Any]:
+                max_context_chars: Optional[int],
+                identity: Optional[str] = None) -> Dict[str, Any]:
         collected: Dict[str, Dict[str, Any]] = {}
         order: List[str] = []
         terms = [t for t in query.lower().replace("?", " ").split() if len(t) > 2]
@@ -244,7 +258,8 @@ class RetrievalRouter:
                 excluded.append({"item": self._item_key(it, key), "reason": status})
                 continue
             ok, reason = _policy.may_read(
-                it, actor_id, include_quarantined=include_quarantined)
+                it, actor_id, include_quarantined=include_quarantined,
+                identity=identity)
             if not ok:
                 excluded.append({"item": self._item_key(it, key), "reason": reason})
                 continue
@@ -289,6 +304,14 @@ class RetrievalRouter:
             "context_package": pkg,
             "actor_id": _policy.normalize_actor(actor_id),
         }
+        unauthorized = not (identity is None or _policy.is_owner_identity(identity))
+        if unauthorized:
+            # Non-enumerating exclusions and no graph entities for a caller that
+            # is not the owner. Ids, per-reason counts and even "something was
+            # withheld" are an existence oracle; entity names are outright
+            # content. See docs/SECURITY.md and the red-team report.
+            out["excluded"] = _withheld()
+            out["entities"] = []
         if explain:
             out["explain"] = self._explain(ranked, limit, pkg)
         return out

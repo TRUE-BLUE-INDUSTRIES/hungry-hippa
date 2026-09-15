@@ -280,9 +280,13 @@ def check_untrusted_actor_policy():
     assert mine.get("actor_id") == "mcp-untrusted", mine
 
     out = other.recall("shop policy blade changes logged at the bench")
-    reasons = [e["reason"] for e in out.get("excluded", [])]
+    # An unauthorized caller gets no item-level exclusions at all: ids and counts
+    # are an existence oracle (tests/test_existence_oracle.py).
+    assert out.get("excluded") == {"unauthorized": True,
+                                   "note": "excluded items are not enumerated for this caller"}, \
+        out.get("excluded")
     assert owner_ep["episode_id"] not in _ids(out), out.get("items")
-    assert "other-actor" in reasons, out.get("excluded")
+    assert owner_ep["episode_id"] not in json.dumps(out), out
 
     # untrusted actors may not purge, even their own row
     denied = other.forget("episode", mine["episode_id"], mode="purge")

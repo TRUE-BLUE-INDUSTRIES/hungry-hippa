@@ -228,8 +228,11 @@ def check_untrusted_cannot_read_quarantined():
     assert other["ok"], other
     assert secret not in json.dumps(other, default=str), "quarantined content leaked"
     assert other["count"] == 0, other
-    assert any(e["reason"] in ("other-actor", "quarantined")
-               for e in other["excluded"]), other["excluded"]
+    # and it is not told that anything was withheld at all: item ids and reason
+    # counts are an existence oracle (tests/test_existence_oracle.py)
+    assert other["excluded"] == {"unauthorized": True,
+                                 "note": "excluded items are not enumerated for this caller"}, \
+        other["excluded"]
 
     # neither can the writer, through MCP (untrusted never gets review access)
     mine = _call("hippa_recall", {"actor_id": "mcp-untrusted",

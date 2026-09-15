@@ -1,6 +1,6 @@
 Hungry Hippa demo — local-first memory runtime for AI agents
 ========================================================================
-demo database: /tmp/hh_demo_lycie1o7/hungry_hippa.db
+demo database: /tmp/hh_demo_q23kzje8/hungry_hippa.db
 (throwaway; the production database is never opened)
 
 STEP 1 — an agent starts work on a small project
@@ -42,7 +42,8 @@ STEP 6 — the agent avoids repeating the failed fix
 STEP 7 — a second compatible agent gets only what it is authorized to read
 ------------------------------------------------------------------------
   starting a separate MCP client process (stdio, local only)...
-  untrusted client   -> count=0 items=0 denied=6 by={'other-actor': 6}
+  untrusted client   -> count=0 items=0 excluded={'unauthorized': True, 'note': 'excluded items are not enumerated for this caller'}
+  (excluded items are not enumerated for a caller that may not read them: ids and counts are an existence oracle)
   owner-authorized   -> count=6 items=[('E-0003', 'episode'), ('E-0004', 'episode'), ('E-0001', 'episode'), ('E-0002', 'episode'), ('B-0002', 'belief'), ('B-0001', 'belief')]
   status (counts only) -> {'episodes': 4, 'entities': 0, 'relationships': 0, 'beliefs': 2, 'procedures': 0, 'evidence': 0, 'vectors': 0, 'episodes_quarantined': 0, 'beliefs_quarantined': 0}
   the untrusted client received nothing; the owner client received the history.
@@ -67,12 +68,12 @@ STEP 8 — the operator can inspect, correct and forget a memory
 
 STEP 8b — the audit trail explains what happened
 ------------------------------------------------------------------------
-  2026-09-15T14:03:51Z  forget             belief   B-0003   action=archival reason=operator asked to forget
-  2026-09-15T14:03:51Z  add_belief         belief   B-0003   [fact|user_explicit|c=0.95] Project A chose method B over me
-  2026-09-15T14:03:51Z  supersede_belief   belief   B-0002   operator correction during the demo: Project A chose method 
-  2026-09-15T14:03:51Z  remember_episode   episode  E-0004   importance=0.85 outcome=success project=Project A actor=prim
-  2026-09-15T14:03:51Z  remember_episode   episode  E-0003   importance=0.90 outcome=failure project=Project A actor=prim
-  2026-09-15T14:03:51Z  add_belief         belief   B-0002   [fact|user_explicit|c=0.90] Project A chose method B over me
+  2026-09-15T14:07:37Z  forget             belief   B-0003   action=archival reason=operator asked to forget
+  2026-09-15T14:07:37Z  add_belief         belief   B-0003   [fact|user_explicit|c=0.95] Project A chose method B over me
+  2026-09-15T14:07:37Z  supersede_belief   belief   B-0002   operator correction during the demo: Project A chose method 
+  2026-09-15T14:07:37Z  remember_episode   episode  E-0004   importance=0.85 outcome=success project=Project A actor=prim
+  2026-09-15T14:07:37Z  remember_episode   episode  E-0003   importance=0.90 outcome=failure project=Project A actor=prim
+  2026-09-15T14:07:37Z  add_belief         belief   B-0002   [fact|user_explicit|c=0.90] Project A chose method B over me
 
 ========================================================================
 demo complete. Nothing was sent anywhere; the database above is a throwaway.
