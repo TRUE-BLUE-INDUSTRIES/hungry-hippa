@@ -55,6 +55,8 @@ jobs:
         run: python tests/test_file_permissions.py
       - name: Provenance
         run: python tests/test_provenance.py
+      - name: Injection framing
+        run: python tests/test_injection_framing.py
 
       - name: Security suite
         run: python tests/test_security.py
