@@ -3,6 +3,17 @@
 ## Unreleased
 
 ### Added
+- `hungry_hippa.ingest`: historical-ingestion Slice 1 — a lossless parser for ChatGPT
+  `conversations.json` exports (`parse_chatgpt_export(path) -> list[ParsedConversation]`).
+  Every supported textual turn is kept, including regenerated answers and edited prompts,
+  with the provider's own node ids, parent ids and a root-to-node `branch_path`;
+  `current_path_turn_ids` is reconstructed by walking back from `current_node`, so the
+  active branch is reported separately from historical branches. Structural nodes keep
+  lineage. Malformed input degrades to per-conversation warnings. Parsing only: no
+  database writes, no model calls, no network, no new MCP tools.
+- `hungry-hippa ingest chatgpt <conversations.json> --dry-run`: reports conversations,
+  turns, current-path turns and alternate-branch turns. Without `--dry-run` it refuses.
+- `tests/test_chatgpt_ingest.py` (14 checks) in `scripts/check_all.py` and CI.
 - `hungry-hippa quarantine list|show|approve|reject`: operator review of memories held
   from untrusted writers. Approval reuses the existing verification semantics
   (`trust.verified_source_class` plus the single promotion write

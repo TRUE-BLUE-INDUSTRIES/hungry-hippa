@@ -319,6 +319,22 @@ Caller identity defaults to `mcp-untrusted`: untrusted writers get quarantine, u
 readers get only their own unclassified, non-quarantined rows, and purge is denied. This
 is an actor/policy check, not capability-based security.
 
+### Reading a ChatGPT export (parsing only)
+
+Historical ingestion starts with a parser and nothing else: it turns an OpenAI/ChatGPT
+`conversations.json` export into normalized turns with their branch provenance, and writes
+nothing to the store.
+
+```bash
+hungry-hippa ingest chatgpt ~/Downloads/conversations.json --dry-run
+```
+
+Every supported textual turn is kept — including answers that were regenerated away and
+prompts that were edited, which is what makes a later import reconcilable instead of
+rewritten. `current_path_turn_ids` identifies the branch the export considered active. No
+database writes, no model calls, no new MCP tools. See
+[docs/INGESTION.md](docs/INGESTION.md).
+
 ### Reviewing quarantined memories (operator CLI)
 
 A write from an untrusted caller is stored but held back: recall, belief listing and

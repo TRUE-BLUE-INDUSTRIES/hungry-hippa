@@ -79,6 +79,9 @@ jobs:
       - name: quarantine review CLI
         run: python tests/test_quarantine_cli.py
 
+      - name: chatgpt export parser
+        run: python tests/test_chatgpt_ingest.py
+
       - name: Demo transcript check (throwaway database)
         run: python demo/demo.py --tmp --check
 
