@@ -126,6 +126,11 @@ DEFAULTS: Dict[str, Any] = {
         "sensitive_context_exclusion": ["medical", "financial", "credentials"],
         "retention_period_days": 0,             # 0 = keep structured memory indefinitely
     },
+    # --- operator snapshots (§ box / unattended hosts) ---
+    "backup": {
+        "dir": "",                  # empty -> $XDG_DATA_HOME/hungry-hippa/backups
+        "keep": 7,                  # snapshots to retain; 0 disables rotation
+    },
     # --- provider behavior ---
     "provider": {
         "auto_episode_on_session_end": True,

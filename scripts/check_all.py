@@ -41,6 +41,7 @@ STEPS: Sequence[Tuple[str, List[str]]] = (
     ("quarantine review CLI", ["python", "tests/test_quarantine_cli.py"]),
     ("chatgpt export parser", ["python", "tests/test_chatgpt_ingest.py"]),
     ("import + packaging hygiene", ["python", "tests/test_import_hygiene.py"]),
+    ("backup + rotation", ["python", "tests/test_backup_rotation.py"]),
     ("security", ["python", "tests/test_security.py"]),
     ("demo transcript", ["python", "demo/demo.py", "--tmp", "--check"]),
     ("eval result drift", ["python", "eval/check_results.py"]),

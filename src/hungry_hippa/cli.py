@@ -5,7 +5,7 @@ into a host's own CLI tree via :func:`register_cli`. ``migrate`` backs up and
 upgrades an older database in place.
 
 Commands: status | recall | episodes | graph | why | consolidate | learned |
-changed | forgotten | export | quarantine | ingest | selftest | migrate |
+changed | forgotten | export | quarantine | ingest | backup | selftest | migrate |
 owner-token | fix-permissions | verify
 """
 
@@ -16,7 +16,7 @@ import os
 import sys
 from typing import Any, Dict, List, Optional
 
-from .config import load_config, resolve_db_path
+from .config import data_dir, load_config, resolve_db_path
 from .controller import MemoryController
 from . import policy as _policy
 from . import trust as _trust
@@ -52,6 +52,8 @@ def hungry_hippa_command(args) -> None:
         return _cmd_quarantine(args)
     if sub == "ingest":
         return _cmd_ingest(args)
+    if sub == "backup":
+        return _cmd_backup(args)
     c = _controller()
     obs = Observability(c.db, c.cfg, controller=c)
     if sub == "status":
@@ -273,6 +275,67 @@ def _cmd_verify(args) -> None:
         "verified_source_class": source_class,
         "rows_changed": changed,
         "note": "verified provenance is what the trust weighting uses",
+    })
+
+
+def _cmd_backup(args) -> None:
+    """Snapshot the database and rotate old snapshots.
+
+    Written for an unattended host: it is one process that exits, it refuses to
+    overwrite the live database, it names its own files so rotation can never
+    delete something a human put in the directory, and ``--keep 0`` means "rotate
+    nothing" rather than "delete everything".
+    """
+    from . import db as _db
+
+    cfg = load_config()
+    src = resolve_db_path(cfg)
+    if not os.path.isfile(src):
+        _print_json({"error": f"no database at {src}"})
+        sys.exit(1)
+
+    backup_cfg = cfg.get("backup") or {}
+    directory = (getattr(args, "dir", "") or backup_cfg.get("dir")
+                 or str(data_dir() / "backups"))
+    keep_arg = getattr(args, "keep", None)
+    keep = int(backup_cfg.get("keep", 7) if keep_arg is None else keep_arg)
+    label = (getattr(args, "label", "") or "").strip()
+
+    dest = os.path.join(directory, _db.backup_name(label))
+    if os.path.abspath(dest) == os.path.abspath(src):
+        _print_json({"error": "refusing to overwrite the live database"})
+        sys.exit(1)
+    # Two snapshots in the same second must not collide: bump a suffix instead of
+    # silently replacing the previous one.
+    bump = 1
+    while os.path.exists(dest):
+        dest = os.path.join(directory, _db.backup_name(label).replace(
+            _db.BACKUP_SUFFIX, f"-{bump}{_db.BACKUP_SUFFIX}"))
+        bump += 1
+
+    _db.backup_sqlite(src, dest)
+    removed = _db.prune_backups(directory, keep)
+
+    audit = "recorded"
+    try:
+        _db.Database(src).log_mutation(
+            "backup", "database", os.path.basename(dest),
+            f"keep={keep} rotated={len(removed)}", "cli")
+    except Exception as e:      # the snapshot exists; say so if the log did not
+        audit = f"not recorded: {type(e).__name__}: {e}"
+
+    _print_json({
+        "backup": dest,
+        "source": src,
+        "bytes": os.path.getsize(dest),
+        "keep": keep,
+        "rotated": [os.path.basename(p) for p in removed],
+        "retained": [os.path.basename(p) for p in _db.list_backups(directory)],
+        "audit": audit,
+        "note": ("plaintext snapshot of a plaintext database: the file inherits the "
+                 "database's permissions, and encrypting the disk is the operator's call"
+                 if keep > 0 else
+                 "rotation disabled (keep=0): nothing was deleted"),
     })
 
 
@@ -607,6 +670,16 @@ def register_cli(subparser) -> None:
     qrej.add_argument("target_id")
     qrej.add_argument("--mode", default="archival", choices=["archival"],
                       help="archival only: rejection never purges")
+
+    bkp = subs.add_parser(
+        "backup",
+        help="Snapshot the database and rotate old snapshots (unattended-host safe)",
+    )
+    bkp.add_argument("--dir", default="",
+                     help="Where snapshots go (default: $XDG_DATA_HOME/hungry-hippa/backups)")
+    bkp.add_argument("--keep", type=int, default=None,
+                     help="Snapshots to retain (default: config backup.keep, 7; 0 keeps all)")
+    bkp.add_argument("--label", default="", help="Optional suffix, e.g. nightly")
 
     ing = subs.add_parser(
         "ingest",

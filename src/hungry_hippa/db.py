@@ -14,6 +14,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import sqlite3
 import stat
 import threading
@@ -456,6 +457,61 @@ def backup_sqlite(src: str, dest: str) -> None:
         os.chmod(dest, mode)
     except OSError:
         pass
+
+
+#: Operator snapshots are named by this project and by nothing else, so rotation
+#: can never delete a file it did not create.
+BACKUP_PREFIX = "hungry_hippa"
+BACKUP_SUFFIX = ".db"
+_BACKUP_STAMP_RE = re.compile(r"-(\d{8}T\d{6}Z)")
+
+
+def backup_name(label: str = "", *, now: Optional[float] = None) -> str:
+    """Sortable snapshot filename: ``hungry_hippa-<UTC stamp>[-label].db``.
+
+    The stamp is UTC and fixed-width, so lexical order is chronological order and
+    rotation never has to trust a filesystem timestamp.
+    """
+    stamp = datetime.fromtimestamp(
+        time.time() if now is None else now, timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    clean = re.sub(r"[^A-Za-z0-9._-]+", "-", str(label or "").strip()).strip("-")
+    return f"{BACKUP_PREFIX}-{stamp}{'-' + clean if clean else ''}{BACKUP_SUFFIX}"
+
+
+def _backup_sort_key(path: str) -> tuple:
+    """Order snapshots by the stamp in the name, falling back to the filename."""
+    match = _BACKUP_STAMP_RE.search(os.path.basename(path))
+    return (match.group(1) if match else "", os.path.basename(path))
+
+
+def list_backups(directory: str) -> List[str]:
+    """Snapshot files in ``directory``, oldest first. Non-matching files ignored."""
+    if not directory or not os.path.isdir(directory):
+        return []
+    names = [n for n in os.listdir(directory)
+             if n.startswith(BACKUP_PREFIX + "-") and n.endswith(BACKUP_SUFFIX)]
+    return sorted((os.path.join(directory, n) for n in names), key=_backup_sort_key)
+
+
+def prune_backups(directory: str, keep: int) -> List[str]:
+    """Delete the oldest snapshots beyond ``keep``; return the paths removed.
+
+    ``keep <= 0`` means "rotate nothing" rather than "delete everything": an
+    always-on box that loses power mid-run must not be able to end up with no
+    backups because of a config typo. Files this project did not name are never
+    candidates, so a human's notes in the same directory are safe.
+    """
+    if keep is None or int(keep) <= 0:
+        return []
+    snapshots = list_backups(directory)
+    removed: List[str] = []
+    for path in snapshots[:max(0, len(snapshots) - int(keep))]:
+        try:
+            os.remove(path)
+            removed.append(path)
+        except OSError as e:          # a snapshot we cannot remove is reported, not hidden
+            logger.warning("could not rotate backup %s: %s", path, e)
+    return removed
 
 
 def migrate_database(src: str) -> Dict[str, Any]:
