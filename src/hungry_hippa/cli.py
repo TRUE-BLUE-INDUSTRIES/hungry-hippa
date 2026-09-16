@@ -70,7 +70,12 @@ def hungry_hippa_command(args) -> None:
     c = _controller()
     obs = Observability(c.db, c.cfg, controller=c)
     if sub == "status":
-        _print_json(c.status())
+        # Check if running as Hippo-Pot profile
+        if c.cfg.get("hippo_pot", {}).get("profile") == "hippo-pot":
+            from .hippo_pot import build_status
+            _print_json(build_status(c.cfg, c.status()))
+        else:
+            _print_json(c.status())
     elif sub == "recall":
         q = getattr(args, "query", "")
         if not q:
