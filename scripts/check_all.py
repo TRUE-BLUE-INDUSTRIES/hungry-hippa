@@ -43,6 +43,7 @@ STEPS: Sequence[Tuple[str, List[str]]] = (
     ("import + packaging hygiene", ["python", "tests/test_import_hygiene.py"]),
     ("backup + rotation", ["python", "tests/test_backup_rotation.py"]),
     ("security", ["python", "tests/test_security.py"]),
+    ("Hippo-Pot deployment", ["python", "tests/test_hippo_pot.py"]),
     ("demo transcript", ["python", "demo/demo.py", "--tmp", "--check"]),
     ("eval result drift", ["python", "eval/check_results.py"]),
 )

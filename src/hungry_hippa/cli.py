@@ -1,4 +1,4 @@
-"""``hungry-hippa`` CLI — operator observability and maintenance.
+"""``hungry-hippa`` CLI — operator observability, maintenance, and Hippo-Pot deployment.
 
 A standalone command (``hungry-hippa status|recall|...``) that is also mountable
 into a host's own CLI tree via :func:`register_cli`. ``migrate`` backs up and
@@ -6,7 +6,8 @@ upgrades an older database in place.
 
 Commands: status | recall | episodes | graph | why | consolidate | learned |
 changed | forgotten | export | quarantine | ingest | backup | selftest | migrate |
-owner-token | fix-permissions | verify
+owner-token | fix-permissions | verify | init | start | stop | restart |
+doctor | uninstall
 """
 
 from __future__ import annotations
@@ -40,6 +41,18 @@ def hungry_hippa_command(args) -> None:
     sub = getattr(args, "hungry_hippa_command", None) or "status"
     if sub == "selftest":
         return _cmd_selftest(args)
+    if sub == "init":
+        return _cmd_init(args)
+    if sub == "start":
+        return _cmd_start(args)
+    if sub == "stop":
+        return _cmd_stop(args)
+    if sub == "restart":
+        return _cmd_restart(args)
+    if sub == "doctor":
+        return _cmd_doctor(args)
+    if sub == "uninstall":
+        return _cmd_uninstall(args)
     if sub == "migrate":
         return _cmd_migrate(args)
     if sub == "owner-token":
@@ -573,6 +586,89 @@ def _cmd_quarantine_reject(args) -> None:
     })
 
 
+def _cmd_init(args) -> None:
+    """Initialize Hippo-Pot deployment profile."""
+    from .hippo_pot import init_hippo_pot
+    from .config import load_config
+
+    profile = getattr(args, "profile", "") or "hippo-pot"
+    if profile != "hippo-pot":
+        print(f"Unknown profile: {profile}")
+        sys.exit(1)
+
+    cfg = load_config()
+    result = init_hippo_pot(cfg)
+    _print_json(result)
+    print("\nHippo-Pot initialized.")
+    print(f"Config: {result['config']}")
+    print("Systemd units installed.")
+    print("\nNext steps:")
+    print("  1. Edit config.json to configure the manager (optional)")
+    print("  2. Run: systemctl --user enable --now hippo-pot-manager.service")
+    print("  3. Run: systemctl --user enable --now hippo-pot-consolidation.timer")
+    print("  4. Run: hungry-hippa doctor")
+
+
+def _cmd_start(args) -> None:
+    """Start Hippo-Pot services."""
+    from .hippo_pot import _run_systemctl
+    units = ["hippo-pot-manager.service", "hippo-pot-consolidation.timer"]
+    for unit in units:
+        result = _run_systemctl("start", unit)
+        if result.returncode != 0:
+            print(f"Failed to start {unit}: {result.stderr.strip()}")
+        else:
+            print(f"Started {unit}")
+
+
+def _cmd_stop(args) -> None:
+    """Stop Hippo-Pot services."""
+    from .hippo_pot import _run_systemctl
+    units = ["hippo-pot-manager.service", "hippo-pot-consolidation.timer"]
+    for unit in units:
+        result = _run_systemctl("stop", unit)
+        if result.returncode != 0:
+            print(f"Failed to stop {unit}: {result.stderr.strip()}")
+        else:
+            print(f"Stopped {unit}")
+
+
+def _cmd_restart(args) -> None:
+    """Restart Hippo-Pot services."""
+    _cmd_stop(args)
+    _cmd_start(args)
+
+
+def _cmd_doctor(args) -> None:
+    """Run Hippo-Pot diagnostics."""
+    from .hippo_pot import HippoPotDiagnostics
+    from .config import load_config
+
+    cfg = load_config()
+    diagnostics = HippoPotDiagnostics(cfg)
+    result = diagnostics.run_all()
+    _print_json(result)
+
+    if result["healthy"]:
+        print("\nHippo-Pot is healthy.")
+    else:
+        print(f"\nHippo-Pot has {result['errors_count']} error(s), {result['warnings_count']} warning(s).")
+        sys.exit(1)
+
+
+def _cmd_uninstall(args) -> None:
+    """Uninstall Hippo-Pot (preserves data by default)."""
+    from .hippo_pot import uninstall_hippo_pot
+    preserve = getattr(args, "purge", False) is False
+    result = uninstall_hippo_pot(preserve_data=preserve)
+    _print_json(result)
+    if preserve:
+        print("\nHippo-Pot uninstalled. Data preserved.")
+        print("Run with --purge to destroy all data.")
+    else:
+        print("\nHippo-Pot fully purged.")
+
+
 def register_cli(subparser) -> None:
     """Build the ``hungry-hippa`` argparse tree.
 
@@ -582,6 +678,14 @@ def register_cli(subparser) -> None:
     subparser.set_defaults(func=hungry_hippa_command)
     subs = subparser.add_subparsers(dest="hungry_hippa_command")
 
+    init_p = subs.add_parser("init", help="Initialize Hippo-Pot deployment profile")
+    init_p.add_argument("--profile", default="hippo-pot", help="Deployment profile")
+    subs.add_parser("start", help="Start Hippo-Pot services")
+    subs.add_parser("stop", help="Stop Hippo-Pot services")
+    subs.add_parser("restart", help="Restart Hippo-Pot services")
+    subs.add_parser("doctor", help="Run Hippo-Pot diagnostics")
+    uninstall_p = subs.add_parser("uninstall", help="Uninstall Hippo-Pot")
+    uninstall_p.add_argument("--purge", action="store_true", help="Destroy all data")
     subs.add_parser("status", help="Hungry Hippa health and table counts")
     subs.add_parser("selftest", help="Run acceptance tests on a throwaway DB")
     otok = subs.add_parser(

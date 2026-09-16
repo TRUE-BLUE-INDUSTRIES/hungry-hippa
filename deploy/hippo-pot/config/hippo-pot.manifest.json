@@ -1,0 +1,20 @@
+{
+    "manifest_version": 1,
+    "name": "hippo-pot",
+    "version": "1.0.0",
+    "install_steps": [
+        {"action": "create_dir", "path": ".config/hungry-hippa"},
+        {"action": "create_dir", "path": ".local/share/hungry-hippa"},
+        {"action": "create_dir", "path": ".local/state/hungry-hippa"}
+    ],
+    "systemd_user_units": [
+        "hippo-pot-manager.service",
+        "hippo-pot-consolidation.timer",
+        "hippo-pot-consolidation.service"
+    ],
+    "data_locations": {
+        "database": ".local/share/hungry-hippa/hungry_hippa.db",
+        "config": ".config/hungry-hippa/config.json",
+        "owner_token": ".local/state/hungry-hippa/owner.token"
+    }
+}
