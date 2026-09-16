@@ -128,11 +128,14 @@ def _cmd_selftest(args) -> None:
         (c / "tests" / "test_acceptance.py"
          for c in (here, *here.parents) if (c / "tests" / "test_acceptance.py").is_file()),
         here / "tests" / "test_acceptance.py")
-    spec = importlib.util.spec_from_file_location("lc_selftest", str(test_file))
+    # The suite is a loose file, not a module of this package, so it is loaded by
+    # path. The suite then imports hungry_hippa normally — nothing here fakes a
+    # package or injects one into sys.modules.
+    spec = importlib.util.spec_from_file_location("hh_selftest", str(test_file))
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
 
-    tmp = os.path.join(tempfile.gettempdir(), "lc_selftest.db")
+    tmp = os.path.join(tempfile.gettempdir(), "hh_selftest.db")
     for f in (tmp, tmp + "-wal", tmp + "-shm"):
         if os.path.exists(f):
             try:

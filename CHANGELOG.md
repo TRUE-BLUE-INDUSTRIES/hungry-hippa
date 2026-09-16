@@ -23,6 +23,29 @@
 - `tests/test_quarantine_cli.py` (8 checks) in `scripts/check_all.py` and CI.
 
 ### Changed
+- Removed the hand-rolled package bootstrapping inherited from the Living Cortex era
+  (`types.ModuleType` + `importlib.util.spec_from_file_location` + `sys.modules`
+  injection). It existed because the runtime used to be a flat directory of modules hosted
+  inside another application; Hungry Hippa is a real package under `src/` now, so the
+  suites, the demo, the eval harness and the seed/build scripts import it normally.
+  `tests/_package.py` is the single place that resolves it (installed package first, this
+  checkout's `src/` as a fallback), and `tests/test_import_hygiene.py` (9 checks) fails the
+  build if synthetic-module construction, `sys.modules` injection or a per-suite `src/`
+  path insert returns.
+- Renamed the last Living Cortex identifiers in current code: the `PLUGIN_DIR` constant is
+  now `PACKAGE_DIR`, the selftest loader's module and scratch database are `hh_selftest`,
+  and `observability` reads the legacy source-class alias from `semantic` instead of
+  repeating it. Module docstrings and the seed script no longer describe the project as
+  "the Living Cortex".
+- Two by-path file loads remain, and are documented as such: `hungry-hippa selftest` runs
+  `tests/test_acceptance.py` (a loose suite file, not a module of the package) and
+  `eval/check_results.py` runs `eval/harness.py` (`eval/` is not an importable package).
+- Behaviour unchanged; the migration-era compatibility surface is untouched and now
+  covered by tests: the `LivingCortexProvider` alias, `hermes_inference` accepted as a
+  legacy source class, the deprecated `LIVING_CORTEX_DB` environment variable, and
+  discovery of a former `living_cortex.db`.
+
+### Changed
 - Runtime package moved to `src/hungry_hippa/` with package discovery from `src/` in
   `pyproject.toml`. `pip install -e .`, both console scripts, `hungry_hippa.register`,
   `HungryHippaProvider`, the compatibility aliases and legacy database discovery are

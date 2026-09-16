@@ -41,6 +41,12 @@ STABLE_KEYS = (
 
 
 def _load_harness():
+    """Load ``eval/harness.py`` by path.
+
+    ``eval/`` is deliberately not an importable package (a top-level module named
+    ``eval`` would shadow the builtin), and this is a loose script rather than a
+    module of the runtime, so it is loaded as a file. Nothing here fakes a package.
+    """
     spec = importlib.util.spec_from_file_location(
         "hh_eval_harness_check", str(EVAL_DIR / "harness.py"))
     if spec is None or spec.loader is None:  # pragma: no cover

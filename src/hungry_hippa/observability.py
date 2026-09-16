@@ -13,6 +13,7 @@ import os
 from typing import Any, Dict, List, Optional
 
 from . import db as _db
+from . import semantic as _semantic
 
 
 class Observability:
@@ -74,7 +75,7 @@ class Observability:
             return "well-evidenced"
         if src == "derived_pattern" and conf >= 0.7:
             return "pattern-derived, verified"
-        if src in ("agent_inference", "hermes_inference"):
+        if src in ("agent_inference",) + tuple(_semantic.LEGACY_SOURCE_ALIASES):
             return "inference — treat as provisional until reinforced"
         return "moderate"
 

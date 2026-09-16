@@ -1,6 +1,6 @@
-"""Example seed script for the Living Cortex — generic placeholder data.
+"""Example seed script for a Hungry Hippa store — generic placeholder data.
 
-Copy this file to seed your own Cortex with the people, projects, devices,
+Copy this file to seed your own store with the people, projects, devices,
 and durable facts you want available from day one:
 
     cp scripts/seed_initial.py scripts/seed_initial.local.py
@@ -13,21 +13,15 @@ has stated) so they start at high confidence and carry correct provenance.
 """
 
 import sys
-import types
-import importlib.util
 from pathlib import Path
 
 REPO_DIR = Path(__file__).resolve().parent.parent
-PLUGIN = REPO_DIR / "src" / "hungry_hippa"   # src layout
-pkg = types.ModuleType("hungry_hippa")
-pkg.__path__ = [str(PLUGIN)]
-sys.modules["hungry_hippa"] = pkg
-spec = importlib.util.spec_from_file_location(
-    "hungry_hippa", str(PLUGIN / "__init__.py"),
-    submodule_search_locations=[str(PLUGIN)])
-mod = importlib.util.module_from_spec(spec)
-sys.modules["hungry_hippa"] = mod
-spec.loader.exec_module(mod)
+
+try:                     # normal import: the package is installed
+    import hungry_hippa  # noqa: F401
+except ModuleNotFoundError:   # running from a clone: this checkout
+    sys.path.insert(0, str(REPO_DIR / "src"))
+    import hungry_hippa  # noqa: F401
 
 from hungry_hippa.controller import MemoryController
 from hungry_hippa.config import load_config

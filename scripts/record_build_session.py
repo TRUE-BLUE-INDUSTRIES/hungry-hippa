@@ -1,25 +1,21 @@
-"""Record the Living Cortex build session as structured episodic memory.
+"""Record the historical Living Cortex build session (2026-08-16).
 
-The first real content in the Cortex: the story of its own construction,
-with provenance and evidence links. Idempotent (skips if episodes exist).
+The first real content in the store: the story of its own construction, with
+provenance and evidence links. The episode text below is kept verbatim — it is a
+record of that build, so it still says "Living Cortex" and still names the paths
+and commands that existed then. Idempotent (skips if episodes exist).
 """
 
 import sys
-import types
-import importlib.util
 from pathlib import Path
 
 REPO_DIR = Path(__file__).resolve().parent.parent
-PLUGIN = REPO_DIR / "src" / "hungry_hippa"   # src layout
-pkg = types.ModuleType("hungry_hippa")
-pkg.__path__ = [str(PLUGIN)]
-sys.modules["hungry_hippa"] = pkg
-spec = importlib.util.spec_from_file_location(
-    "hungry_hippa", str(PLUGIN / "__init__.py"),
-    submodule_search_locations=[str(PLUGIN)])
-mod = importlib.util.module_from_spec(spec)
-sys.modules["hungry_hippa"] = mod
-spec.loader.exec_module(mod)
+
+try:                     # normal import: the package is installed
+    import hungry_hippa  # noqa: F401
+except ModuleNotFoundError:   # running from a clone: this checkout
+    sys.path.insert(0, str(REPO_DIR / "src"))
+    import hungry_hippa  # noqa: F401
 
 from hungry_hippa.controller import MemoryController
 from hungry_hippa.config import load_config

@@ -21,39 +21,22 @@ run_all() -> list of {name, passed, detail}.
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
 import subprocess
 import sys
 import tempfile
-import types
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 REPO_DIR = Path(__file__).resolve().parent.parent
-PLUGIN_DIR = REPO_DIR / "src" / "hungry_hippa"   # src layout
 
 
-def _import_plugin():
-    if sys.modules.get("hungry_hippa") is not None and getattr(
-        sys.modules["hungry_hippa"], "__file__", None
-    ):
-        return sys.modules["hungry_hippa"]
-    pkg = types.ModuleType("hungry_hippa")
-    pkg.__path__ = [str(PLUGIN_DIR)]
-    pkg.__file__ = str(PLUGIN_DIR / "__init__.py")
-    sys.modules["hungry_hippa"] = pkg
-    spec = importlib.util.spec_from_file_location(
-        "hungry_hippa", str(PLUGIN_DIR / "__init__.py"),
-        submodule_search_locations=[str(PLUGIN_DIR)])
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules["hungry_hippa"] = mod
-    spec.loader.exec_module(mod)
-    return mod
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # tests/ (shared helpers)
+from _package import import_package  # noqa: E402
 
-
-_PLUGIN = _import_plugin()
+PACKAGE_DIR = REPO_DIR / "src" / "hungry_hippa"   # src layout
+_PLUGIN = import_package()
 from hungry_hippa.ingest import parse_chatgpt_export  # noqa: E402
 from hungry_hippa.ingest.models import NormalizedTurn  # noqa: E402
 
@@ -425,7 +408,7 @@ def check_malformed_node_does_not_kill_conversation():
 def check_parser_is_offline_and_writes_nothing():
     # 1. the parser modules import only the standard library
     sources = {p.name: p.read_text(encoding="utf-8")
-               for p in sorted((PLUGIN_DIR / "ingest").glob("*.py"))}
+               for p in sorted((PACKAGE_DIR / "ingest").glob("*.py"))}
     assert sources, "ingest package missing"
     forbidden = ("sqlite3", "import mcp", "requests", "urllib", "socket",
                  "openai", "controller", "from .db", "from ..")
@@ -443,7 +426,7 @@ def check_parser_is_offline_and_writes_nothing():
         "from hungry_hippa.ingest import parse_chatgpt_export;"
         "c = parse_chatgpt_export(%r);"
         "print(len(c), c[0].turn_count)"
-        % (str(PLUGIN_DIR.parent), export))
+        % (str(PACKAGE_DIR.parent), export))
     out = subprocess.run([sys.executable, "-c", script], env=env, cwd=workdir,
                          capture_output=True, text=True, timeout=120)
     assert out.returncode == 0, out.stderr[-400:]

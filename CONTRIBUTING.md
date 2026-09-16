@@ -115,6 +115,24 @@ def check_something():
 Register it in `run_all()` with `check("name", check_something)`. New suites follow the
 same shape (`run_all()` + `__main__`) so CI can just call the file.
 
+### Importing the runtime from a suite
+
+The runtime is a normal package, so suites import it normally:
+
+```python
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # tests/ (shared helpers)
+from _package import import_package  # noqa: E402
+
+_PLUGIN = import_package()
+from hungry_hippa import trust  # noqa: E402
+```
+
+`tests/_package.py` is the only place that resolves the package, and it prefers the
+installed package (the documented `python -m pip install -e .`) before falling back to
+this checkout's `src/`. Do not build a module by hand, do not write into `sys.modules`,
+and do not put `src/` on `sys.path` from a suite — `tests/test_import_hygiene.py` fails
+the build if any of that comes back.
+
 ## Reporting a bug
 
 Include: the command you ran, what you expected, what happened, and whether the memory

@@ -82,6 +82,9 @@ jobs:
       - name: chatgpt export parser
         run: python tests/test_chatgpt_ingest.py
 
+      - name: import + packaging hygiene
+        run: python tests/test_import_hygiene.py
+
       - name: Demo transcript check (throwaway database)
         run: python demo/demo.py --tmp --check
 

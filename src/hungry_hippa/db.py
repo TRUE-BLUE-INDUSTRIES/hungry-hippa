@@ -1,4 +1,4 @@
-"""SQLite access layer for the Living Cortex.
+"""SQLite access layer for Hungry Hippa.
 
 Design rules:
   - WAL mode; a fresh connection per operation (thread-safe, no shared cursors).

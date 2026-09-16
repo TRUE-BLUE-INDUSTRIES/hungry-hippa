@@ -1,7 +1,7 @@
-"""Living Cortex acceptance tests (§23, adapted).
+"""Hungry Hippa acceptance tests (§23, adapted).
 
 Runs standalone: registers the plugin dir as the ``hungry_hippa`` package so
-it can be imported without the Hermes runtime. Each test maps to the spec:
+it can be imported without a host runtime. Each test maps to the spec:
 
   T1 episode creation          T6 procedural learning
   T2 visual recall             T7 provenance
@@ -16,39 +16,17 @@ from __future__ import annotations
 
 import os
 import sys
-import types
 from pathlib import Path
 from typing import Any, Dict, List
 
 REPO_DIR = Path(__file__).resolve().parent.parent
-PLUGIN_DIR = REPO_DIR / "src" / "hungry_hippa"   # src layout
 
 
-def _import_plugin():
-    """Load the plugin: register a package shell with __path__, then execute
-    __init__.py. Submodules resolve lazily through the package path, exactly
-    like the real Hermes loader's synthetic package does."""
-    import importlib.util
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # tests/ (shared helpers)
+from _package import import_package  # noqa: E402
 
-    if sys.modules.get("hungry_hippa") is not None and \
-            getattr(sys.modules["hungry_hippa"], "__file__", None):
-        return sys.modules["hungry_hippa"]
-
-    pkg = types.ModuleType("hungry_hippa")
-    pkg.__path__ = [str(PLUGIN_DIR)]
-    pkg.__file__ = str(PLUGIN_DIR / "__init__.py")
-    sys.modules["hungry_hippa"] = pkg
-
-    spec = importlib.util.spec_from_file_location(
-        "hungry_hippa", str(PLUGIN_DIR / "__init__.py"),
-        submodule_search_locations=[str(PLUGIN_DIR)])
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules["hungry_hippa"] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-_PLUGIN = _import_plugin()
+PACKAGE_DIR = REPO_DIR / "src" / "hungry_hippa"   # src layout
+_PLUGIN = import_package()
 
 
 def _config_with_vision(cfg: Dict[str, Any]) -> Dict[str, Any]:

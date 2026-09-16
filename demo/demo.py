@@ -20,7 +20,6 @@ hand-waved.
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import asyncio
 import json
 import os
@@ -29,13 +28,12 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import types
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 DEMO_DIR = Path(__file__).resolve().parent
 REPO_DIR = DEMO_DIR.parent
-PLUGIN_DIR = REPO_DIR / "src" / "hungry_hippa"   # src layout
+PACKAGE_DIR = REPO_DIR / "src" / "hungry_hippa"   # src layout
 SEED_PATH = DEMO_DIR / "seed.json"
 EXPECTED_PATH = DEMO_DIR / "expected_output.txt"
 DEFAULT_DB_DIR = DEMO_DIR / ".demo_db"
@@ -50,25 +48,13 @@ CLEANUP_RE = re.compile(
     re.MULTILINE)
 
 
-def _load_plugin():
-    if sys.modules.get("hungry_hippa") is not None and getattr(
-        sys.modules["hungry_hippa"], "__file__", None
-    ):
-        return sys.modules["hungry_hippa"]
-    pkg = types.ModuleType("hungry_hippa")
-    pkg.__path__ = [str(PLUGIN_DIR)]
-    pkg.__file__ = str(PLUGIN_DIR / "__init__.py")
-    sys.modules["hungry_hippa"] = pkg
-    spec = importlib.util.spec_from_file_location(
-        "hungry_hippa", str(PLUGIN_DIR / "__init__.py"),
-        submodule_search_locations=[str(PLUGIN_DIR)])
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules["hungry_hippa"] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-PLUGIN = _load_plugin()
+try:                     # normal import: the package is installed (editable install)
+    import hungry_hippa  # noqa: F401
+    from hungry_hippa import trust
+except ModuleNotFoundError:   # running from a clone: use this checkout's src/
+    sys.path.insert(0, str(REPO_DIR / "src"))
+    import hungry_hippa  # noqa: F401
+    from hungry_hippa import trust
 
 
 # ------------------------------------------------------------- transcript
@@ -184,7 +170,7 @@ def mcp_calls(db_path: str, calls, *, token_file: str = "", token: str = ""):
         env["HUNGRY_HIPPA_OWNER_TOKEN"] = token
 
     params = StdioServerParameters(
-        command=sys.executable, args=[str(PLUGIN_DIR / "mcp_server.py")],
+        command=sys.executable, args=[str(PACKAGE_DIR / "mcp_server.py")],
         env=env, cwd=str(REPO_DIR))
 
     async def _run():

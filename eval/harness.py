@@ -29,7 +29,6 @@ nothing here talks to the network.
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 import os
 import platform
@@ -38,14 +37,13 @@ import subprocess
 import sys
 import tempfile
 import time
-import types
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 EVAL_DIR = Path(__file__).resolve().parent
 REPO_DIR = EVAL_DIR.parent
-PLUGIN_DIR = REPO_DIR / "src" / "hungry_hippa"   # src layout
+PACKAGE_DIR = REPO_DIR / "src" / "hungry_hippa"   # src layout
 FIXTURES = json.loads((EVAL_DIR / "fixtures.json").read_text(encoding="utf-8"))
 
 HARNESS_NAME = "hungry-hippa-memory-challenge"
@@ -58,25 +56,11 @@ GROWTH_LATENCY_RUNS = 5
 
 # ------------------------------------------------------------------ plugin
 
-def _import_plugin():
-    if sys.modules.get("hungry_hippa") is not None and getattr(
-        sys.modules["hungry_hippa"], "__file__", None
-    ):
-        return sys.modules["hungry_hippa"]
-    pkg = types.ModuleType("hungry_hippa")
-    pkg.__path__ = [str(PLUGIN_DIR)]
-    pkg.__file__ = str(PLUGIN_DIR / "__init__.py")
-    sys.modules["hungry_hippa"] = pkg
-    spec = importlib.util.spec_from_file_location(
-        "hungry_hippa", str(PLUGIN_DIR / "__init__.py"),
-        submodule_search_locations=[str(PLUGIN_DIR)])
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules["hungry_hippa"] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-PLUGIN = _import_plugin()
+try:                     # normal import: the package is installed (editable install)
+    import hungry_hippa  # noqa: F401
+except ModuleNotFoundError:   # running from a clone: use this checkout's src/
+    sys.path.insert(0, str(REPO_DIR / "src"))
+    import hungry_hippa  # noqa: F401
 
 
 def _temp_db() -> str:

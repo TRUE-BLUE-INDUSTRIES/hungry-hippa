@@ -63,9 +63,6 @@ def _load_package():
     """
     from pathlib import Path
 
-    if sys.modules.get(PACKAGE_NAME) is not None and getattr(
-            sys.modules[PACKAGE_NAME], "__file__", None):
-        return sys.modules[PACKAGE_NAME]
     source_root = str(Path(__file__).resolve().parent.parent)   # .../src
     if source_root not in sys.path:
         sys.path.insert(0, source_root)

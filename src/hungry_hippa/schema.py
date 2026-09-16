@@ -1,4 +1,4 @@
-"""Living Cortex SQLite schema and reversible migrations (§19.10).
+"""Hungry Hippa SQLite schema and reversible migrations (§19.10).
 
 Every migration carries ``up_sql`` and ``down_sql`` so the schema can be
 rolled back. Raw evidence rows are immutable; every mutation writes a row to

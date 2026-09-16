@@ -17,12 +17,10 @@ No test ever writes a token into a committed file, and no assertion ever prints 
 from __future__ import annotations
 
 import asyncio
-import importlib.util
 import json
 import os
 import sys
 import tempfile
-import types
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -32,36 +30,20 @@ MCP_SERVER = PACKAGE_DIR / "mcp_server.py"
 PACKAGE = "hungry_hippa"
 
 
-def import_package():
-    """Import the repository's flat package under its canonical name."""
-    if sys.modules.get(PACKAGE) is not None and getattr(
-            sys.modules[PACKAGE], "__file__", None):
-        return sys.modules[PACKAGE]
-    pkg = types.ModuleType(PACKAGE)
-    pkg.__path__ = [str(PACKAGE_DIR)]
-    pkg.__file__ = str(PACKAGE_DIR / "__init__.py")
-    sys.modules[PACKAGE] = pkg
-    spec = importlib.util.spec_from_file_location(
-        PACKAGE, str(PACKAGE_DIR / "__init__.py"), submodule_search_locations=[str(PACKAGE_DIR)])
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[PACKAGE] = mod
-    spec.loader.exec_module(mod)
-    return mod
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # tests/ (shared helpers)
+from _package import import_package  # noqa: E402
+
+_PACKAGE = import_package()
 
 
 def import_mcp_server():
-    """Import ``mcp_server.py`` as a module (for in-process/server-side checks)."""
-    name = "hungry_hippa_mcp_server_under_test"
-    if sys.modules.get(name) is not None:
-        return sys.modules[name]
-    spec = importlib.util.spec_from_file_location(name, str(MCP_SERVER))
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
+    """Return the ``hungry_hippa.mcp_server`` module (in-process server checks).
 
-
-import_package()
+    Imported normally from the package: it is an ordinary module now, so there is
+    no need to load the file by path and no second copy of it in ``sys.modules``.
+    """
+    from hungry_hippa import mcp_server
+    return mcp_server
 
 from hungry_hippa import trust                      # noqa: E402
 from hungry_hippa.config import load_config         # noqa: E402

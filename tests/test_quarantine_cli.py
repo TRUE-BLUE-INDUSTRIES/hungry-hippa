@@ -27,7 +27,6 @@ run_all() -> list of {name, passed, detail}.
 from __future__ import annotations
 
 import contextlib
-import importlib.util
 import io
 import json
 import os
@@ -38,28 +37,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 REPO_DIR = Path(__file__).resolve().parent.parent
-PLUGIN_DIR = REPO_DIR / "src" / "hungry_hippa"   # src layout
 
 
-def _import_plugin():
-    if sys.modules.get("hungry_hippa") is not None and getattr(
-        sys.modules["hungry_hippa"], "__file__", None
-    ):
-        return sys.modules["hungry_hippa"]
-    pkg = types.ModuleType("hungry_hippa")
-    pkg.__path__ = [str(PLUGIN_DIR)]
-    pkg.__file__ = str(PLUGIN_DIR / "__init__.py")
-    sys.modules["hungry_hippa"] = pkg
-    spec = importlib.util.spec_from_file_location(
-        "hungry_hippa", str(PLUGIN_DIR / "__init__.py"),
-        submodule_search_locations=[str(PLUGIN_DIR)])
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules["hungry_hippa"] = mod
-    spec.loader.exec_module(mod)
-    return mod
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # tests/ (shared helpers)
+from _package import import_package  # noqa: E402
 
-
-_PLUGIN = _import_plugin()
+PACKAGE_DIR = REPO_DIR / "src" / "hungry_hippa"   # src layout
+_PLUGIN = import_package()
 from hungry_hippa import policy  # noqa: E402
 from hungry_hippa import schema as _schema  # noqa: E402
 from hungry_hippa import trust  # noqa: E402
@@ -67,7 +51,6 @@ from hungry_hippa.cli import hungry_hippa_command  # noqa: E402
 from hungry_hippa.config import load_config  # noqa: E402
 from hungry_hippa.controller import MemoryController  # noqa: E402
 
-sys.path.insert(0, str(REPO_DIR / "tests"))
 import mcp_harness as _harness  # noqa: E402  (imports the package itself)
 
 
@@ -217,7 +200,7 @@ def check_approve_uses_existing_verification_semantics():
 
     # single implementation: both entry points call the same promotion write, and
     # neither re-implements the verification SQL
-    src = (PLUGIN_DIR / "cli.py").read_text(encoding="utf-8")
+    src = (PACKAGE_DIR / "cli.py").read_text(encoding="utf-8")
     approve_src = src.split("def _cmd_quarantine_approve", 1)[1].split("\ndef ", 1)[0]
     verify_src = src.split("def _cmd_verify", 1)[1].split("\ndef ", 1)[0]
     for name, chunk in (("approve", approve_src), ("verify", verify_src)):
@@ -226,7 +209,7 @@ def check_approve_uses_existing_verification_semantics():
     assert "verify_provenance" not in approve_src, "approval audits as its own action"
 
     # the promotion write itself is the one place that touches those columns
-    sem = (PLUGIN_DIR / "semantic.py").read_text(encoding="utf-8")
+    sem = (PACKAGE_DIR / "semantic.py").read_text(encoding="utf-8")
     assert sem.count("UPDATE beliefs SET") >= 1
     assert "def set_verified_class" in sem
 

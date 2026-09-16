@@ -15,39 +15,22 @@ run_all() -> list of {name, passed, detail}.
 
 from __future__ import annotations
 
-import importlib.util
 import os
 import sqlite3
 import sys
 import tempfile
 import time
-import types
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 REPO_DIR = Path(__file__).resolve().parent.parent
-PLUGIN_DIR = REPO_DIR / "src" / "hungry_hippa"   # src layout
 
 
-def _import_plugin():
-    if sys.modules.get("hungry_hippa") is not None and getattr(
-        sys.modules["hungry_hippa"], "__file__", None
-    ):
-        return sys.modules["hungry_hippa"]
-    pkg = types.ModuleType("hungry_hippa")
-    pkg.__path__ = [str(PLUGIN_DIR)]
-    pkg.__file__ = str(PLUGIN_DIR / "__init__.py")
-    sys.modules["hungry_hippa"] = pkg
-    spec = importlib.util.spec_from_file_location(
-        "hungry_hippa", str(PLUGIN_DIR / "__init__.py"),
-        submodule_search_locations=[str(PLUGIN_DIR)])
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules["hungry_hippa"] = mod
-    spec.loader.exec_module(mod)
-    return mod
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # tests/ (shared helpers)
+from _package import import_package  # noqa: E402
 
-
-_PLUGIN = _import_plugin()
+PACKAGE_DIR = REPO_DIR / "src" / "hungry_hippa"   # src layout
+_PLUGIN = import_package()
 from hungry_hippa import limits, trust  # noqa: E402
 from hungry_hippa.config import get as cfg_get, load_config  # noqa: E402
 from hungry_hippa.controller import MemoryController  # noqa: E402

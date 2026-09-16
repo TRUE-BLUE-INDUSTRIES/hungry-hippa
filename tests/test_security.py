@@ -9,7 +9,6 @@ run_all() -> list of {name, passed, detail}.
 from __future__ import annotations
 
 import asyncio
-import importlib.util
 import json
 import os
 import re
@@ -21,41 +20,13 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 REPO_DIR = Path(__file__).resolve().parent.parent
-PLUGIN_DIR = REPO_DIR / "src" / "hungry_hippa"   # src layout
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # tests/ (shared helpers)
+from _package import import_package  # noqa: E402
 
-def _import_plugin():
-    if sys.modules.get("hungry_hippa") is not None and getattr(
-        sys.modules["hungry_hippa"], "__file__", None
-    ):
-        return sys.modules["hungry_hippa"]
-    pkg = types.ModuleType("hungry_hippa")
-    pkg.__path__ = [str(PLUGIN_DIR)]
-    pkg.__file__ = str(PLUGIN_DIR / "__init__.py")
-    sys.modules["hungry_hippa"] = pkg
-    spec = importlib.util.spec_from_file_location(
-        "hungry_hippa", str(PLUGIN_DIR / "__init__.py"),
-        submodule_search_locations=[str(PLUGIN_DIR)])
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules["hungry_hippa"] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-def _import_mcp_server():
-    name = "hungry_hippa_mcp_server"
-    if sys.modules.get(name) is not None:
-        return sys.modules[name]
-    spec = importlib.util.spec_from_file_location(
-        name, str(PLUGIN_DIR / "mcp_server.py"))
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-_PLUGIN = _import_plugin()
-MCP = _import_mcp_server()
+PACKAGE_DIR = REPO_DIR / "src" / "hungry_hippa"   # src layout
+_PLUGIN = import_package()
+from hungry_hippa import mcp_server as MCP  # noqa: E402  (the module, imported normally)
 
 
 def _fresh(prefix: str = "hh_sec_"):
@@ -137,7 +108,7 @@ def check_oversized_payload_rejected():
         assert out["ok"] is False, (tool, len(json.dumps(out)))
         assert "exceeds" in out["error"], out
 
-    # the Hermes cortex tool refuses the same payloads
+    # the in-process cortex tool refuses the same payloads
     for args, expect in (
         ({"action": "recall", "query": "q" * (limits.MAX_QUERY_CHARS + 1)}, "query"),
         ({"action": "add_belief", "claim": "c" * (limits.MAX_CONTENT_CHARS + 1)}, "claim"),
@@ -226,7 +197,7 @@ def check_mcp_has_no_export():
         assert out["ok"] is False, (attempt, out)
         low = out["error"].lower()
         assert "unknown tool" in low or "rejected" in low or "toolerror" in low, (attempt, out)
-    src = (PLUGIN_DIR / "mcp_server.py").read_text(encoding="utf-8")
+    src = (PACKAGE_DIR / "mcp_server.py").read_text(encoding="utf-8")
     # the MCP layer goes through the controller and never touches the database
     for forbidden in ("import sqlite3", "Observability", "PRAGMA", "SELECT ",
                       "table_info", "ATTACH"):
@@ -425,7 +396,7 @@ def check_repo_contains_no_secrets():
     for rel in tracked:
         if rel.endswith((".pyc", ".db")) or rel == "limits.py":
             continue  # limits.py holds the detection patterns themselves
-        path = PLUGIN_DIR / rel
+        path = PACKAGE_DIR / rel
         if not path.is_file():
             continue
         try:
