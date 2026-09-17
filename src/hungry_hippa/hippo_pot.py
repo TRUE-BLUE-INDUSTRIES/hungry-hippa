@@ -351,7 +351,11 @@ class HippoPotDiagnostics:
 
 
 def build_status(config: Dict[str, Any], db_health: Dict) -> Dict[str, Any]:
-    """Build the extended Hippo-Pot status output."""
+    """Build the extended Hippo-Pot status output.
+
+    Status reflects REAL runtime state — never claims a service is ONLINE
+    merely because the code exists.
+    """
     hp_cfg = config.get("hippo_pot", {})
     manager = LocalManager(config)
     mgr_health = manager.health()
@@ -380,20 +384,40 @@ def build_status(config: Dict[str, Any], db_health: Dict) -> Dict[str, Any]:
     total_records = sum(v for v in counts.values() if isinstance(v, int) and v > 0)
     memory_healthy = core_ok and not perms.get("lax", False)
 
+    # MCP status: AVAILABLE if server builds, ERROR if build fails
+    # Never ONLINE — stdio MCP has no persistent session
+    mcp_status = _check_mcp_status()
+
+    # API status: NOT CONFIGURED unless a healthcheck port is configured AND responding
+    api_status = _check_api_status(hp_cfg)
+
+    # Systemd manager service state
+    # Distinguish: NOT CONFIGURED (no real manager), PLACEHOLDER (sleep infinity),
+    # INACTIVE (installed but not running), ONLINE (real manager — not Phase A)
+    if not manager_installed:
+        systemd_manager_status = "NOT INSTALLED"
+    elif not mgr_health.configured:
+        systemd_manager_status = "NOT CONFIGURED"
+    elif manager_active:
+        # Check if it's the placeholder (sleep infinity)
+        systemd_manager_status = "PLACEHOLDER"
+    else:
+        systemd_manager_status = "INACTIVE"
+
     return {
         "product": "Hungry Hippa",
         "profile": "HIPPO-POT",
         "version": "1.0.0",
         "core": "ONLINE" if core_ok else "DEGRADED",
-        "mcp": "ONLINE",
-        "api": "ONLINE",
+        "mcp": mcp_status,
+        "api": api_status,
         "database": "ONLINE" if core_ok else "ERROR",
         "manager": mgr_health.status_label(),
         "manager_model": mgr_health.model,
         "network": network_mode,
         "memory_store": "HEALTHY" if memory_healthy else "WARNING",
         "memory_records": total_records,
-        "systemd_manager": "ONLINE" if manager_active else "OFFLINE",
+        "systemd_manager": systemd_manager_status,
         "systemd_timer": "ONLINE" if timer_enabled else "OFFLINE",
         "db_size_mb": round(db_size.get("bytes", 0) / 1048576, 1),
         "db_path": db_health.get("path", ""),
@@ -401,6 +425,35 @@ def build_status(config: Dict[str, Any], db_health: Dict) -> Dict[str, Any]:
         "vectors": db_health.get("vectors", {}),
         "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
+
+
+def _check_mcp_status() -> str:
+    """Check if MCP server can be built — AVAILABLE, not ONLINE."""
+    try:
+        from .mcp_server import build_server
+        build_server()
+        return "AVAILABLE"
+    except Exception:
+        return "ERROR"
+
+
+def _check_api_status(hp_cfg: Dict) -> str:
+    """Check API status — only ONLINE if a healthcheck port is configured AND responding."""
+    api_port = hp_cfg.get("healthcheck_port")
+    if not api_port:
+        return "NOT CONFIGURED"
+    try:
+        import urllib.request
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{api_port}/health",
+            method="GET",
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            if resp.status == 200:
+                return "ONLINE"
+            return "DEGRADED"
+    except Exception:
+        return "OFFLINE"
 
 
 def init_hippo_pot(config: Dict[str, Any]) -> Dict[str, Any]:
@@ -447,16 +500,17 @@ def init_hippo_pot(config: Dict[str, Any]) -> Dict[str, Any]:
     systemd_dir.mkdir(parents=True, exist_ok=True)
 
     # Manager service (only relevant when a local manager is configured)
+    # Phase A: does NOT auto-start. oneshot + no sleep infinity.
+    # When manager.endpoint is configured, operator enables+starts manually.
     manager_unit = """[Unit]
 Description=Hippo-Pot Manager (local LLM orchestrator)
 After=network.target
 ConditionPathExists=%h/.config/hungry-hippa/config.json
 
 [Service]
-Type=simple
-ExecStart=/bin/sh -c 'echo "Manager service active — configure manager.endpoint in config.json to use"; exec sleep infinity'
-Restart=on-failure
-RestartSec=10
+Type=oneshot
+ExecStart=/bin/sh -c 'echo "Hippo-Pot: manager not configured — set manager.endpoint in config.json"'
+RemainAfterExit=yes
 Environment=XDG_CONFIG_HOME=%h/.config
 Environment=XDG_DATA_HOME=%h/.local/share
 Environment=XDG_STATE_HOME=%h/.local/state

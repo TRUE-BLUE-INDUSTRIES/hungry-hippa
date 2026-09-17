@@ -664,12 +664,23 @@ def _cmd_doctor(args) -> None:
 def _cmd_uninstall(args) -> None:
     """Uninstall Hippo-Pot (preserves data by default)."""
     from .hippo_pot import uninstall_hippo_pot
-    preserve = getattr(args, "purge", False) is False
+    purge = getattr(args, "purge", False)
+    confirm_purge = getattr(args, "confirm_purge", "")
+
+    if purge:
+        # Destructive purge requires explicit confirmation
+        if confirm_purge != "PURGE-HUNGRY-HIPPA":
+            print("ERROR: --purge requires --confirm-purge PURGE-HUNGRY-HIPPA")
+            print("This will permanently delete all stored Hungry Hippa data.")
+            print("To preserve data, run without --purge.")
+            sys.exit(1)
+
+    preserve = not purge
     result = uninstall_hippo_pot(preserve_data=preserve)
     _print_json(result)
     if preserve:
         print("\nHippo-Pot uninstalled. Data preserved.")
-        print("Run with --purge to destroy all data.")
+        print("Run with --purge --confirm-purge PURGE-HUNGRY-HIPPA to destroy all data.")
     else:
         print("\nHippo-Pot fully purged.")
 
@@ -691,6 +702,8 @@ def register_cli(subparser) -> None:
     subs.add_parser("doctor", help="Run Hippo-Pot diagnostics")
     uninstall_p = subs.add_parser("uninstall", help="Uninstall Hippo-Pot")
     uninstall_p.add_argument("--purge", action="store_true", help="Destroy all data")
+    uninstall_p.add_argument("--confirm-purge", default="", metavar="PURGE-HUNGRY-HIPPA",
+                              help="Confirmation phrase required with --purge")
     subs.add_parser("status", help="Hungry Hippa health and table counts")
     subs.add_parser("selftest", help="Run acceptance tests on a throwaway DB")
     otok = subs.add_parser(

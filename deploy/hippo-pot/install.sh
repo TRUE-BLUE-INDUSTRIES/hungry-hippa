@@ -164,12 +164,15 @@ setup_services() {
     fi
 
     # Enable services
-    systemctl --user enable hippo-pot-manager.service 2>/dev/null || warn "Could not enable manager service"
     systemctl --user enable hippo-pot-consolidation.timer 2>/dev/null || warn "Could not enable consolidation timer"
 
+    # Do NOT auto-start the manager service — it requires manager.endpoint config
+    # systemctl --user enable hippo-pot-manager.service 2>/dev/null || warn "Could not enable manager service"
+
     # Start services
-    systemctl --user start hippo-pot-manager.service 2>/dev/null || warn "Could not start manager service"
     systemctl --user start hippo-pot-consolidation.timer 2>/dev/null || warn "Could not start consolidation timer"
+    # Manager service is NOT started automatically — configure manager.endpoint first
+    # systemctl --user start hippo-pot-manager.service 2>/dev/null || warn "Could not start manager service"
 
     log "Services configured"
 }

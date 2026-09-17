@@ -2,12 +2,13 @@
 Description=Hippo-Pot Manager (local LLM orchestrator)
 After=network.target
 ConditionPathExists=%h/.config/hungry-hippa/config.json
+# Do not start until a manager endpoint is configured
+AssertPathExists=%h/.config/hungry-hippa/config.json
 
 [Service]
-Type=simple
-ExecStart=/bin/sh -c 'echo "Manager service active — configure manager.endpoint in config.json to use"; exec sleep infinity'
-Restart=on-failure
-RestartSec=10
+Type=oneshot
+ExecStart=/bin/sh -c 'echo "Hippo-Pot: manager not configured — set manager.endpoint in config.json"'
+RemainAfterExit=yes
 Environment=XDG_CONFIG_HOME=%h/.config
 Environment=XDG_DATA_HOME=%h/.local/share
 Environment=XDG_STATE_HOME=%h/.local/state

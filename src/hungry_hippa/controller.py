@@ -9,7 +9,7 @@ that a learned policy can later replace through the same interface.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from . import db as _db
 from . import limits as _limits
@@ -20,6 +20,7 @@ from .consolidation import Consolidator
 from .episodic import EpisodicMemory
 from .forgetting import ForgettingPolicy
 from .graph import KnowledgeGraph
+from .manager import LocalManager
 from .procedural import ProceduralMemory
 from .retrieval import RetrievalRouter
 from .semantic import SemanticMemory
@@ -64,6 +65,9 @@ class MemoryController:
         self.channel = _trust.CHANNEL_LOCAL
         self._binding_explicit = False
         self.writes_enabled = True
+        # Manager: optional local LLM intent proposer. Not authoritative —
+        # Hungry Hippa validates and executes all actions.
+        self.manager = LocalManager(config)
 
     def _resolve_db(self) -> str:
         from .config import resolve_db_path
@@ -177,10 +181,30 @@ class MemoryController:
         Quarantined rows are excluded for everyone by default; only the owner
         may ask for them while reviewing, and an untrusted actor never sees
         rows it did not write.
+
+        Manager integration: the manager proposes intent (non-binding). Hungry
+        Hippa validates and executes. If the manager is unavailable, recall
+        continues normally.
         """
         actor = _policy.normalize_actor(actor_id or self.actor_id)
         if include_quarantined and not self.is_owner:
             include_quarantined = False
+
+        # --- Manager intent proposal (non-authoritative) ---
+        manager_intent = None
+        try:
+            if self.manager.is_configured:
+                manager_intent = self.manager.propose_intent(
+                    query, conversation_history=[])
+                # Validate: only allow known actions, never let the model
+                # override the actual HH operation.
+                if manager_intent.action not in LocalManager.ALLOWED_ACTIONS:
+                    manager_intent.action = "no_op"
+        except Exception as e:
+            # Manager failure must not break recall
+            manager_intent = None
+
+        # --- Deterministic HH recall (always runs) ---
         out = self.retrieval.recall(query, project=project, limit=limit,
                                     session_id=self.session_id, actor_id=actor,
                                     explain=explain,
@@ -198,7 +222,44 @@ class MemoryController:
             )
 
         self.db._run(_log, write=True)
+
+        # Include manager's proposal in response metadata (observability only)
+        if manager_intent is not None:
+            out["manager_intent"] = {
+                "action": manager_intent.action,
+                "reason": manager_intent.reason[:200],
+                "confidence": manager_intent.confidence,
+                "needs_escalation": manager_intent.needs_escalation,
+            }
+
         return out
+
+    def propose_intent(self, user_message: str,
+                       conversation_history: Optional[List[Dict]] = None) -> Dict[str, Any]:
+        """Get a validated manager intent proposal.
+
+        The manager proposes intent; Hungry Hippa validates. This is the
+        deterministic validation boundary — the model output is never trusted
+        directly.
+
+        Returns: {action, reason, parameters, confidence, needs_escalation,
+                  valid: bool}
+        """
+        intent = self.manager.propose_intent(user_message, conversation_history)
+        # Validate against allowed actions (already done in propose_intent,
+        # but defense-in-depth here at the controller boundary)
+        valid = intent.action in LocalManager.ALLOWED_ACTIONS
+        if not valid and intent.action != "no_op":
+            intent.action = "no_op"
+            intent.reason = f"disallowed action rejected: {intent.reason}"
+        return {
+            "action": intent.action,
+            "reason": intent.reason,
+            "parameters": intent.parameters,
+            "confidence": intent.confidence,
+            "needs_escalation": intent.needs_escalation,
+            "valid": valid,
+        }
 
     def build_context(self, query: str, **kwargs: Any) -> Dict[str, Any]:
         """Recall and return the compiled context package (Phase 3 compiler).

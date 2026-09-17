@@ -1,7 +1,8 @@
 """Hippo-Pot deployment tests.
 
 Verifies manager abstraction, Hippo-Pot init/doctor/uninstall, systemd units,
-and manager failure isolation. Uses throwaway configs and temp directories.
+manager failure integration, and manager security. Uses throwaway configs
+and temp directories.
 """
 
 from __future__ import annotations
@@ -169,6 +170,428 @@ def test_manager_failure_isolation():
     print("PASS  test_manager_failure_isolation")
 
 
+def test_manager_timeout():
+    """Manager timeout must not crash or hang."""
+    from hungry_hippa.manager import LocalManager
+
+    # Use a non-responsive endpoint
+    mgr = LocalManager({
+        "manager": {
+            "enabled": True,
+            "endpoint": "http://10.255.255.1:9999/v1",
+            "model": "test-model",
+            "timeout": 1,
+        }
+    })
+    health = mgr.health()
+    assert health.reachable is False
+    assert health.status_label() == "OFFLINE"
+
+    # propose_intent should timeout gracefully
+    intent = mgr.propose_intent("hello")
+    assert intent.action == "no_op"
+    print("PASS  test_manager_timeout")
+
+
+def test_manager_malformed_json():
+    """Malformed manager JSON must not crash."""
+    from hungry_hippa.manager import LocalManager
+
+    mgr = LocalManager({
+        "manager": {
+            "enabled": True,
+            "endpoint": "http://127.0.0.1:1/v1",
+            "model": "m",
+        }
+    })
+
+    # Malformed JSON should return None from _parse_intent
+    assert mgr._parse_intent("not json") is None
+    assert mgr._parse_intent("{invalid}") is None
+    assert mgr._parse_intent("") is None
+
+
+    # Valid JSON with missing fields should still parse
+    result = mgr._parse_intent('{"action": "recall"}')
+    assert result is not None
+    assert result["action"] == "recall"
+    print("PASS  test_manager_malformed_json")
+
+
+def test_manager_unsupported_action():
+    """Manager proposing unsupported action must be rejected."""
+    from hungry_hippa.manager import LocalManager
+
+    mgr = LocalManager({
+        "manager": {
+            "enabled": True,
+            "endpoint": "http://127.0.0.1:1/v1",
+            "model": "m",
+        }
+    })
+
+    # Simulate malicious actions
+    malicious_actions = [
+        {"action": "shell_exec", "reason": "run rm -rf /"},
+        {"action": "drop_table", "reason": "delete episodes"},
+        {"action": "purge_all", "reason": "destroy evidence"},
+        {"action": "modify_schema", "reason": "change trust model"},
+        {"action": "set_permissions", "reason": "grant admin"},
+        {"action": "delete_all", "reason": "wipe database"},
+    ]
+
+    for mal in malicious_actions:
+        parsed = mgr._parse_intent(json.dumps(mal))
+        assert parsed is not None
+        assert parsed["action"] not in LocalManager.ALLOWED_ACTIONS
+    print("PASS  test_manager_unsupported_action")
+
+
+def test_manager_process_failure():
+    """Simulated manager process failure returns no_op."""
+    from hungry_hippa.manager import LocalManager
+
+    # Endpoint that will refuse connection (nothing listening)
+    mgr = LocalManager({
+        "manager": {
+            "enabled": True,
+            "endpoint": "http://127.0.0.1:1/v1",
+            "model": "failing-model",
+            "timeout": 1,
+        }
+    })
+
+    # Should not raise, should return no_op
+    intent = mgr.propose_intent("store this memory")
+    assert intent.action == "no_op"
+    assert "manager error" in intent.reason or "could not parse" in intent.reason
+    print("PASS  test_manager_process_failure")
+
+
+def test_manager_shell_execution_blocked():
+    """Manager cannot propose shell execution."""
+    from hungry_hippa.manager import LocalManager
+
+    mgr = LocalManager({})
+    assert "shell_exec" not in mgr.ALLOWED_ACTIONS
+    assert "exec" not in mgr.ALLOWED_ACTIONS
+    assert "run_command" not in mgr.ALLOWED_ACTIONS
+    assert "system" not in mgr.ALLOWED_ACTIONS
+    print("PASS  test_manager_shell_execution_blocked")
+
+
+def test_status_no_fake_online():
+    """Status must NOT report ONLINE for services that aren't actually running."""
+    from unittest.mock import patch
+    from hungry_hippa.hippo_pot import build_status
+
+    config = {
+        "hippo_pot": {"profile": "hippo-pot", "bind_address": "127.0.0.1"},
+        "manager": {"enabled": False},
+    }
+    db_health = {
+        "failures": 0,
+        "counts": {"episodes": 0, "beliefs": 0},
+        "size": {"bytes": 0},
+        "permissions": {"lax": False},
+        "vectors": {},
+        "path": "/tmp/test.db",
+    }
+
+    with patch("hungry_hippa.hippo_pot._unit_installed", return_value=False), \
+         patch("hungry_hippa.hippo_pot._service_running", return_value=False), \
+         patch("hungry_hippa.hippo_pot._timer_enabled", return_value=False):
+        status = build_status(config, db_health)
+
+    # Core ONLINE because DB is healthy
+    assert status["core"] == "ONLINE"
+
+    # MCP should be AVAILABLE (server builds), not ONLINE
+    assert status["mcp"] == "AVAILABLE"
+
+    # API should be NOT CONFIGURED (no healthcheck port)
+    assert status["api"] == "NOT CONFIGURED"
+
+    # Manager should be NOT CONFIGURED
+    assert status["manager"] == "NOT CONFIGURED"
+
+    # Systemd manager should NOT be ONLINE when service is not running
+    assert status["systemd_manager"] != "ONLINE"
+    print("PASS  test_status_no_fake_online")
+
+
+def test_status_manager_offline():
+    """Status reports OFFLINE for unreachable manager."""
+    from unittest.mock import patch
+    from hungry_hippa.hippo_pot import build_status
+
+    config = {
+        "hippo_pot": {"profile": "hippo-pot", "bind_address": "127.0.0.1"},
+        "manager": {
+            "enabled": True,
+            "endpoint": "http://127.0.0.1:19999/v1",
+            "model": "test-model",
+            "timeout": 1,
+        },
+    }
+    db_health = {
+        "failures": 0,
+        "counts": {"episodes": 0},
+        "size": {"bytes": 0},
+        "permissions": {"lax": False},
+        "vectors": {},
+        "path": "/tmp/test.db",
+    }
+
+    with patch("hungry_hippa.hippo_pot._unit_installed", return_value=True), \
+         patch("hungry_hippa.hippo_pot._service_running", return_value=False), \
+         patch("hungry_hippa.hippo_pot._timer_enabled", return_value=False):
+        status = build_status(config, db_health)
+
+    # Manager configured but unreachable
+    assert status["manager"] == "OFFLINE"
+    # Manager model should be the configured name
+    assert status["manager_model"] == "test-model"
+    print("PASS  test_status_manager_offline")
+
+
+def test_status_database_error():
+    """Status reports DEGRADED/ERROR when DB has failures."""
+    from unittest.mock import patch
+    from hungry_hippa.hippo_pot import build_status
+
+    config = {
+        "hippo_pot": {"profile": "hippo-pot", "bind_address": "127.0.0.1"},
+        "manager": {"enabled": False},
+    }
+    db_health = {
+        "failures": 2,
+        "counts": {},
+        "size": {"bytes": 0},
+        "permissions": {"lax": False},
+        "vectors": {},
+        "path": "/tmp/test.db",
+    }
+
+    with patch("hungry_hippa.hippo_pot._unit_installed", return_value=False), \
+         patch("hungry_hippa.hippo_pot._service_running", return_value=False), \
+         patch("hungry_hippa.hippo_pot._timer_enabled", return_value=False):
+        status = build_status(config, db_health)
+
+    assert status["core"] == "DEGRADED"
+    assert status["database"] == "ERROR"
+    assert status["memory_store"] == "WARNING"
+    print("PASS  test_status_database_error")
+
+
+def test_purge_requires_confirmation():
+    """Purge must require explicit confirmation."""
+    from hungry_hippa.cli import _cmd_uninstall
+    import io
+    import sys
+
+    # Mock args with purge but no confirmation
+    class FakeArgs:
+        purge = True
+        confirm_purge = ""  # Empty confirmation
+
+    # Should exit with error
+    captured = io.StringIO()
+    old_stdout = sys.stdout
+    sys.stdout = captured
+    try:
+        _cmd_uninstall(FakeArgs())
+        assert False, "Should have exited"
+    except SystemExit as e:
+        assert e.code == 1
+    finally:
+        sys.stdout = old_stdout
+
+    output = captured.getvalue()
+    assert "PURGE-HUNGRY-HIPPA" in output
+    print("PASS  test_purge_requires_confirmation")
+
+
+def test_purge_wrong_confirmation_fails():
+    """Wrong confirmation phrase must fail."""
+    from hungry_hippa.cli import _cmd_uninstall
+    import io
+    import sys
+
+    class FakeArgs:
+        purge = True
+        confirm_purge = "yes"  # Wrong phrase
+
+    captured = io.StringIO()
+    old_stdout = sys.stdout
+    sys.stdout = captured
+    try:
+        _cmd_uninstall(FakeArgs())
+        assert False, "Should have exited"
+    except SystemExit as e:
+        assert e.code == 1
+    finally:
+        sys.stdout = old_stdout
+    print("PASS  test_purge_wrong_confirmation_fails")
+
+
+def test_purge_correct_confirmation_succeeds():
+    """Correct confirmation phrase should proceed with purge."""
+    from unittest.mock import patch
+    from hungry_hippa.cli import _cmd_uninstall
+    import io
+    import sys
+
+    class FakeArgs:
+        purge = True
+        confirm_purge = "PURGE-HUNGRY-HIPPA"
+
+    with patch("hungry_hippa.hippo_pot.uninstall_hippo_pot") as mock_uninstall:
+        mock_uninstall.return_value = {"removed": [], "preserved": []}
+        captured = io.StringIO()
+        old_stdout = sys.stdout
+        sys.stdout = captured
+        try:
+            _cmd_uninstall(FakeArgs())
+        finally:
+            sys.stdout = old_stdout
+
+        mock_uninstall.assert_called_once_with(preserve_data=False)
+    print("PASS  test_purge_correct_confirmation_succeeds")
+
+
+def test_manager_integration_with_controller():
+    """Manager wired into controller: propose_intent validates output."""
+    from unittest.mock import patch
+    from hungry_hippa.controller import MemoryController
+    from hungry_hippa.config import load_config
+    from pathlib import Path
+
+    cfg = load_config()
+
+    # Create a throwaway DB for the controller
+    tmp = tempfile.mkdtemp(prefix="hh_ctrl_")
+    db_path = str(Path(tmp) / "hungry_hippa.db")
+
+    ctrl = MemoryController(cfg, db_path=db_path)
+    ctrl.bind_session(session_id="test", platform="cli")
+
+    # Manager should exist
+    assert ctrl.manager is not None
+    assert not ctrl.manager.is_configured  # Not configured by default
+
+    # propose_intent should return valid structure
+    result = ctrl.propose_intent("hello world")
+    assert "action" in result
+    assert "valid" in result
+    assert result["action"] == "no_op"  # Not configured -> no_op
+    print("PASS  test_manager_integration_with_controller")
+
+
+def test_manager_integration_malicious_output():
+    """Controller rejects malicious manager output at validation boundary."""
+    from unittest.mock import patch
+    from hungry_hippa.controller import MemoryController
+    from hungry_hippa.config import load_config
+    from hungry_hippa.manager import ManagerIntent
+    from pathlib import Path
+
+    cfg = load_config()
+    tmp = tempfile.mkdtemp(prefix="hh_ctrl_")
+    db_path = str(Path(tmp) / "hungry_hippa.db")
+
+    ctrl = MemoryController(cfg, db_path=db_path)
+    ctrl.bind_session(session_id="test", platform="cli")
+
+    # Mock the manager to return a malicious intent
+    malicious_intent = ManagerIntent(
+        action="shell_exec",
+        reason="run rm -rf /",
+        parameters={"command": "rm -rf /"},
+        confidence=0.95,
+    )
+
+    with patch.object(ctrl.manager, "propose_intent", return_value=malicious_intent):
+        result = ctrl.propose_intent("test")
+
+    # The controller must reject the malicious action
+    assert result["action"] == "no_op"
+    assert result["valid"] is False
+    print("PASS  test_manager_integration_malicious_output")
+
+
+def test_manager_integration_recall_continues():
+    """Recall continues normally when manager is unavailable."""
+    from unittest.mock import patch
+    from hungry_hippa.controller import MemoryController
+    from hungry_hippa.config import load_config
+    from pathlib import Path
+
+    cfg = load_config()
+    tmp = tempfile.mkdtemp(prefix="hh_ctrl_")
+    db_path = str(Path(tmp) / "hungry_hippa.db")
+
+    ctrl = MemoryController(cfg, db_path=db_path)
+    ctrl.bind_session(session_id="test", platform="cli")
+
+    # Store a test memory first
+    ctrl.remember_episode(
+        context="test memory for recall",
+        user_request="test request",
+        actions_taken="test action",
+        result="test result",
+    )
+
+    # Mock manager to raise an exception (simulating failure)
+    with patch.object(ctrl.manager, "propose_intent",
+                       side_effect=Exception("Manager crashed")):
+        result = ctrl.recall("test memory")
+
+    # Recall should still work
+    assert "items" in result
+    assert "error" not in result or result.get("error") is None
+    print("PASS  test_manager_integration_recall_continues")
+
+
+def test_systemd_manager_no_sleep_infinity():
+    """Systemd manager unit must not use sleep infinity."""
+    unit_path = Path(__file__).resolve().parent.parent / "deploy" / "hippo-pot" / "systemd" / "hippo-pot-manager.service"
+    if unit_path.exists():
+        content = unit_path.read_text()
+        assert "sleep infinity" not in content, "Manager unit must not use sleep infinity"
+        assert "Type=oneshot" in content, "Manager unit should be oneshot"
+    print("PASS  test_systemd_manager_no_sleep_infinity")
+
+
+def test_init_no_sleep_infinity():
+    """init_hippo_pot must not produce a sleep infinity unit."""
+    import hungry_hippa.config as hh_config
+    from hungry_hippa.hippo_pot import init_hippo_pot
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        config = {
+            "hippo_pot": {
+                "profile": "hippo-pot",
+                "bind_address": "127.0.0.1",
+            }
+        }
+        orig_config_dir = hh_config.config_dir
+        hh_config.config_dir = lambda: Path(tmpdir) / "config"
+
+        try:
+            result = init_hippo_pot(config)
+            # Check the manager unit content
+            systemd_dir = Path.home() / ".config" / "systemd" / "user"
+            manager_unit = systemd_dir / "hippo-pot-manager.service"
+            if manager_unit.exists():
+                content = manager_unit.read_text()
+                assert "sleep infinity" not in content
+                assert "Type=oneshot" in content
+        finally:
+            hh_config.config_dir = orig_config_dir
+    print("PASS  test_init_no_sleep_infinity")
+
+
 def run_all():
     tests = [
         test_manager_not_configured,
@@ -180,6 +603,22 @@ def run_all():
         test_hippo_pot_doctor,
         test_hippo_pot_uninstall_preserve,
         test_manager_failure_isolation,
+        test_manager_timeout,
+        test_manager_malformed_json,
+        test_manager_unsupported_action,
+        test_manager_process_failure,
+        test_manager_shell_execution_blocked,
+        test_status_no_fake_online,
+        test_status_manager_offline,
+        test_status_database_error,
+        test_purge_requires_confirmation,
+        test_purge_wrong_confirmation_fails,
+        test_purge_correct_confirmation_succeeds,
+        test_manager_integration_with_controller,
+        test_manager_integration_malicious_output,
+        test_manager_integration_recall_continues,
+        test_systemd_manager_no_sleep_infinity,
+        test_init_no_sleep_infinity,
     ]
     results = []
     for test in tests:
