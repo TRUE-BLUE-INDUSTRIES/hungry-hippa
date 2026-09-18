@@ -105,6 +105,16 @@
       "evidence": "SUPPORT.md",
       "result": "No visible listing/funding links; repository material prepared",
       "next": "Owner completes GitHub personal-account enrollment; verify destination before enabling FUNDING.yml"
+    },
+    {
+      "id": "BRAND-LOGO",
+      "status": "done",
+      "evidence": [
+        "assets/branding/hungry-hippa-logo.png",
+        "assets/branding/README.md"
+      ],
+      "result": "Maintainer-approved original preserved byte-for-byte; README, demo and support pages use it; future UI reference recorded",
+      "sha256": "73579d1d7e947fd4b253c67b638a6af0aae34c2af704d87b180c7f5d53a9807e"
     }
   ],
   "verification": {

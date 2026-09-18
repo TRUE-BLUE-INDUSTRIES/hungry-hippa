@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/branding/hungry-hippa-logo.png" alt="Hungry Hippa logo: cybernetic hippo with a glowing brain and Hungry Hippa wordmark" width="320" height="320">
+</p>
+
 # Hungry Hippa
 
 **One memory. Every AI. You own it.**

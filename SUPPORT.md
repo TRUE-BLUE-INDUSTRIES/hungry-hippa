@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/branding/hungry-hippa-logo.png" alt="Hungry Hippa logo: cybernetic hippo with a glowing brain and Hungry Hippa wordmark" width="192" height="192">
+</p>
+
 # Supporting Hungry Hippa
 
 Hungry Hippa is local-first, user-owned memory infrastructure. Support would sustain

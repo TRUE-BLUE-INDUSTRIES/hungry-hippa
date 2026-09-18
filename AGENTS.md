@@ -20,3 +20,6 @@ prove present checkout or deployment state. Current user instructions govern wor
 - Update PROJECT_STATE.md/tasks.json after each major cycle; record consequential
   choices in DECISIONS.md. Commit, push authorized work, then independently verify
   the remote SHA. Do not claim local work is released or deployed.
+
+Brand reference: use the approved logo in `assets/branding/`; its README records
+the canonical image, integrity hash and display guidance for future UI/demo work.

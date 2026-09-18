@@ -3,6 +3,22 @@
 Updated 2026-09-18. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
 
+## Compact handoff for the next cycle
+
+Work in the existing `codex/first-usable-ingestion` worktree. Read `AGENTS.md`
+and `tasks.json`; preserve other checkouts and live memory stores. The safe-import
+increment is pushed through `8e66ec4` with four-version CI green. Logo adoption
+uses the exact approved file in `assets/branding/`; see the section below.
+
+Next engineering task: repair and integrate the existing extraction prototype,
+starting with migration-ID collisions, malformed-response checkpointing and prompt
+truncation. Keep candidates quarantined until review; reconciliation must not
+strengthen or supersede approved facts from unapproved evidence. Then address
+recorded growth-recall failures. Full import-to-recall remains unfinished.
+Routine reversible implementation, tests, documentation and verified pushes remain
+authorized by the original brief. Financial/legal steps and destructive or
+sensitive publication actions require the owner's involvement.
+
 ## Verified baseline and branch
 
 - Repository: https://github.com/TRUE-BLUE-INDUSTRIES/hungry-hippa
@@ -61,3 +77,11 @@ and the refreshed [memory challenge](eval/REPORT.md). Ingestion medians are
 three runs each. All provenance/duplicate/backup checks passed. Existing memory
 challenge growth recall remains 0/3; that failure is retained, not removed from
 raw results. These runs do not establish real-export quality or a system ranking.
+
+## Approved logo — 2026-09-18
+
+The maintainer-provided artwork is preserved unchanged as
+[hungry-hippa-logo.png](assets/branding/hungry-hippa-logo.png) and displayed in the
+README, demo guide and support page. [Brand guidance](assets/branding/README.md)
+records its integrity hash and makes it the reference for future UI/demo assets.
+Logo adoption changes presentation only; runtime and benchmark code are unchanged.
