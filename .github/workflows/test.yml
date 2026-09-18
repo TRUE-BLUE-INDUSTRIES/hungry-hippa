@@ -1,5 +1,8 @@
 name: tests
 
+permissions:
+  contents: read
+
 # Runs the standalone Python test files, the official-SDK MCP integration suite,
 # the demo check and the memory-challenge harness.
 #
@@ -20,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.12", "3.13"]
+        python-version: ["3.10", "3.12", "3.13", "3.14"]
 
     steps:
       - uses: actions/checkout@v4
@@ -43,56 +46,8 @@ jobs:
       - name: Byte-compile every module (syntax gate)
         run: python -m compileall -q . -x '__pycache__'
 
-      - name: Acceptance suite (T1-T10)
-        run: python tests/test_acceptance.py
-
-      - name: Migration and compatibility suite
-        run: python tests/test_migration.py
-
-      - name: Memory architecture suite
-        run: python tests/test_memory_architecture.py
-
-      - name: MCP integration suite (official SDK client over stdio)
-        run: python tests/test_mcp_integration.py
-      - name: Identity binding
-        run: python tests/test_trust_boundary.py
-      - name: Owner token storage
-        run: python tests/test_trust_token.py
-      - name: Existence oracle
-        run: python tests/test_existence_oracle.py
-      - name: File permissions
-        run: python tests/test_file_permissions.py
-      - name: Provenance
-        run: python tests/test_provenance.py
-      - name: Injection framing
-        run: python tests/test_injection_framing.py
-      - name: Supersession
-        run: python tests/test_supersession.py
-      - name: Confused deputy
-        run: python tests/test_confused_deputy.py
-      - name: Resource limits
-        run: python tests/test_resource_limits.py
-
-      - name: Security suite
-        run: python tests/test_security.py
-
-      - name: quarantine review CLI
-        run: python tests/test_quarantine_cli.py
-
-      - name: chatgpt export parser
-        run: python tests/test_chatgpt_ingest.py
-
-      - name: ingest canonical store
-        run: python tests/test_ingest_store.py
-
-      - name: import + packaging hygiene
-        run: python tests/test_import_hygiene.py
-
-      - name: backup + rotation
-        run: python tests/test_backup_rotation.py
-
-      - name: Demo transcript check (throwaway database)
-        run: python demo/demo.py --tmp --check
+      - name: Complete shared verification gate
+        run: python scripts/check_all.py --quiet
 
       - name: MCP server advertises its tools through the SDK
         run: |
@@ -108,12 +63,6 @@ jobs:
           assert "export" not in blob and "owner_token" not in blob, "leaked surface"
           print("tools:", names)
           PY
-
-      - name: Memory challenge harness (regenerates results in a temp dir)
-        env:
-          # keep the harness inside the MCP call budget it documents
-          HUNGRY_HIPPA_MAX_MCP_CALLS: "1000"
-        run: python eval/check_results.py --verbose
 
       - name: Confirm no database, credential or token files are tracked
         run: |
