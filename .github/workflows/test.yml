@@ -88,6 +88,9 @@ jobs:
       - name: backup + rotation
         run: python tests/test_backup_rotation.py
 
+      - name: Hippo-Pot deployment
+        run: python tests/test_hippo_pot.py
+
       - name: Demo transcript check (throwaway database)
         run: python demo/demo.py --tmp --check
 

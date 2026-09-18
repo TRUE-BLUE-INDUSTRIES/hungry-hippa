@@ -376,8 +376,8 @@ More detail: [docs/SECURITY.md](docs/SECURITY.md), [docs/MIGRATION.md](docs/MIGR
 ## Evidence, not adjectives
 
 Every claim in this README points at a suite that proves it. `python scripts/check_all.py`
-runs all of them (16 steps, 14 suites) and also fails if a test file exists that no step
-runs.
+runs all of them (21 steps: 19 test suites plus the demo check and eval drift check) and
+also fails if a test file exists that no step runs.
 
 | Claim | Where the evidence is |
 |---|---|
@@ -389,6 +389,11 @@ runs.
 | Limits, redaction, injection resistance, no-export | `python tests/test_security.py` → 14/14 |
 | Provenance, framing, supersession, confused deputy, resources | `tests/test_provenance.py` 6/6, `tests/test_injection_framing.py` 7/7, `tests/test_supersession.py` 7/7, `tests/test_confused_deputy.py` 6/6, `tests/test_resource_limits.py` 8/8 |
 | Migration keeps existing memories | `python tests/test_migration.py` → 7/7 |
+| Quarantine review CLI | `python tests/test_quarantine_cli.py` → 8/8 |
+| ChatGPT export parser (parse only) | `python tests/test_chatgpt_ingest.py` → 14/14 |
+| Import and packaging hygiene | `python tests/test_import_hygiene.py` → 9/9 |
+| Backup with rotation | `python tests/test_backup_rotation.py` → 5/5 |
+| Hippo-Pot deployment profile | `python tests/test_hippo_pot.py` → 25/25 |
 | Memory challenge results (with vs without) | `python eval/harness.py` → `eval/REPORT.md`, `eval/results.json` |
 | The demo runs and matches its expected output | `python demo/demo.py --check` |
 

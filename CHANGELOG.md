@@ -1,72 +1,26 @@
 # Changelog
 
-## Unreleased
-
-### Added
-- `hungry_hippa.ingest`: historical-ingestion Slice 1 — a lossless parser for ChatGPT
-  `conversations.json` exports (`parse_chatgpt_export(path) -> list[ParsedConversation]`).
-  Every supported textual turn is kept, including regenerated answers and edited prompts,
-  with the provider's own node ids, parent ids and a root-to-node `branch_path`;
-  `current_path_turn_ids` is reconstructed by walking back from `current_node`, so the
-  active branch is reported separately from historical branches. Structural nodes keep
-  lineage. Malformed input degrades to per-conversation warnings. Parsing only: no
-  database writes, no model calls, no network, no new MCP tools.
-- `hungry-hippa ingest chatgpt <conversations.json> --dry-run`: reports conversations,
-  turns, current-path turns and alternate-branch turns. Without `--dry-run` it refuses.
-- `tests/test_chatgpt_ingest.py` (14 checks) in `scripts/check_all.py` and CI.
-- `hungry-hippa quarantine list|show|approve|reject`: operator review of memories held
-  from untrusted writers. Approval reuses the existing verification semantics
-  (`trust.verified_source_class` plus the single promotion write
-  `SemanticMemory.set_verified_class`); rejection reuses the archival path and never
-  purges. Audited as `quarantine_approved` / `quarantine_rejected`. MCP is untouched:
-  still exactly six tools, and no tool can approve or reject anything.
-- `tests/test_quarantine_cli.py` (8 checks) in `scripts/check_all.py` and CI.
-
-### Changed
-- Removed the hand-rolled package bootstrapping inherited from the Living Cortex era
-  (`types.ModuleType` + `importlib.util.spec_from_file_location` + `sys.modules`
-  injection). It existed because the runtime used to be a flat directory of modules hosted
-  inside another application; Hungry Hippa is a real package under `src/` now, so the
-  suites, the demo, the eval harness and the seed/build scripts import it normally.
-  `tests/_package.py` is the single place that resolves it (installed package first, this
-  checkout's `src/` as a fallback), and `tests/test_import_hygiene.py` (9 checks) fails the
-  build if synthetic-module construction, `sys.modules` injection or a per-suite `src/`
-  path insert returns.
-- Renamed the last Living Cortex identifiers in current code: the `PLUGIN_DIR` constant is
-  now `PACKAGE_DIR`, the selftest loader's module and scratch database are `hh_selftest`,
-  and `observability` reads the legacy source-class alias from `semantic` instead of
-  repeating it. Module docstrings and the seed script no longer describe the project as
-  "the Living Cortex".
-- Two by-path file loads remain, and are documented as such: `hungry-hippa selftest` runs
-  `tests/test_acceptance.py` (a loose suite file, not a module of the package) and
-  `eval/check_results.py` runs `eval/harness.py` (`eval/` is not an importable package).
-- Behaviour unchanged; the migration-era compatibility surface is untouched and now
-  covered by tests: the `LivingCortexProvider` alias, `hermes_inference` accepted as a
-  legacy source class, the deprecated `LIVING_CORTEX_DB` environment variable, and
-  discovery of a former `living_cortex.db`.
-
-### Changed
-- Runtime package moved to `src/hungry_hippa/` with package discovery from `src/` in
-  `pyproject.toml`. `pip install -e .`, both console scripts, `hungry_hippa.register`,
-  `HungryHippaProvider`, the compatibility aliases and legacy database discovery are
-  unchanged; test/demo/eval/script path anchors were updated for the layout.
-- `owner-token` help no longer suggests passing the token as a tool argument: it explains
-  that `HUNGRY_HIPPA_OWNER_TOKEN` is set in the hungry-hippa-mcp **launch environment**.
-- Documentation states plainly that the store is plaintext SQLite and that `0600`
-  permissions are not encryption (use OS/disk encryption for sensitive memories).
-
 All notable changes to this project are recorded here. The project was formerly named
 **Living Cortex**; entries below the rename line describe the pre-rename state.
 
 Format: loosely [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions are
-the `version:` field in `plugin.yaml`.
+the package version in `hungry_hippa.version` (kept in sync with `pyproject.toml`).
+There is no `plugin.yaml`; that host-plugin manifest was removed when the project
+became a standalone package.
 
 ## [Unreleased]
 
-## [1.0.0] — official MCP SDK
+### Changed
+- GitHub Actions `tests` workflow runs `tests/test_hippo_pot.py`, matching
+  `scripts/check_all.py`.
+- README records 21 `check_all.py` steps (19 `tests/test_*.py` suites plus the demo
+  check and eval drift check).
 
-Hungry Hippa is now a standalone local-first package built on the **official MCP
-Python SDK**, rather than a hand-written protocol with a host-plugin wrapper.
+## [1.0.0] — 2026-09-18
+
+First tagged release. Hungry Hippa is a standalone local-first package built on the
+**official MCP Python SDK**, rather than a hand-written protocol with a host-plugin
+wrapper.
 
 ### Changed
 
@@ -98,9 +52,62 @@ Python SDK**, rather than a hand-written protocol with a host-plugin wrapper.
   CLI/user trust default or mint `user_explicit`.
 - **Rendered provenance is the verified class**, falling back to `source_class` only
   for rows written before schema v5.
+- Runtime package moved to `src/hungry_hippa/` with package discovery from `src/` in
+  `pyproject.toml`. `pip install -e .`, both console scripts, `hungry_hippa.register`,
+  `HungryHippaProvider`, the compatibility aliases and legacy database discovery are
+  unchanged; test/demo/eval/script path anchors were updated for the layout.
+- Removed the hand-rolled package bootstrapping inherited from the Living Cortex era
+  (`types.ModuleType` + `importlib.util.spec_from_file_location` + `sys.modules`
+  injection). It existed because the runtime used to be a flat directory of modules hosted
+  inside another application; Hungry Hippa is a real package under `src/` now, so the
+  suites, the demo, the eval harness and the seed/build scripts import it normally.
+  `tests/_package.py` is the single place that resolves it (installed package first, this
+  checkout's `src/` as a fallback), and `tests/test_import_hygiene.py` (9 checks) fails the
+  build if synthetic-module construction, `sys.modules` injection or a per-suite `src/`
+  path insert returns.
+- Renamed the last Living Cortex identifiers in current code: the `PLUGIN_DIR` constant is
+  now `PACKAGE_DIR`, the selftest loader's module and scratch database are `hh_selftest`,
+  and `observability` reads the legacy source-class alias from `semantic` instead of
+  repeating it. Module docstrings and the seed script no longer describe the project as
+  "the Living Cortex".
+- Two by-path file loads remain, and are documented as such: `hungry-hippa selftest` runs
+  `tests/test_acceptance.py` (a loose suite file, not a module of the package) and
+  `eval/check_results.py` runs `eval/harness.py` (`eval/` is not an importable package).
+- Behaviour unchanged; the migration-era compatibility surface is untouched and now
+  covered by tests: the `LivingCortexProvider` alias, `hermes_inference` accepted as a
+  legacy source class, the deprecated `LIVING_CORTEX_DB` environment variable, and
+  discovery of a former `living_cortex.db`.
+- `owner-token` help no longer suggests passing the token as a tool argument: it explains
+  that `HUNGRY_HIPPA_OWNER_TOKEN` is set in the hungry-hippa-mcp **launch environment**.
+- Documentation states plainly that the store is plaintext SQLite and that `0600`
+  permissions are not encryption (use OS/disk encryption for sensitive memories).
 
 ### Added
 
+- `hungry_hippa.ingest`: historical-ingestion Slice 1 — a lossless parser for ChatGPT
+  `conversations.json` exports (`parse_chatgpt_export(path) -> list[ParsedConversation]`).
+  Every supported textual turn is kept, including regenerated answers and edited prompts,
+  with the provider's own node ids, parent ids and a root-to-node `branch_path`;
+  `current_path_turn_ids` is reconstructed by walking back from `current_node`, so the
+  active branch is reported separately from historical branches. Structural nodes keep
+  lineage. Malformed input degrades to per-conversation warnings. Parsing only: no
+  database writes, no model calls, no network, no new MCP tools.
+- `hungry-hippa ingest chatgpt <conversations.json> --dry-run`: reports conversations,
+  turns, current-path turns and alternate-branch turns. Without `--dry-run` it refuses.
+- `tests/test_chatgpt_ingest.py` (14 checks) in `scripts/check_all.py` and CI.
+- `hungry-hippa quarantine list|show|approve|reject`: operator review of memories held
+  from untrusted writers. Approval reuses the existing verification semantics
+  (`trust.verified_source_class` plus the single promotion write
+  `SemanticMemory.set_verified_class`); rejection reuses the archival path and never
+  purges. Audited as `quarantine_approved` / `quarantine_rejected`. MCP is untouched:
+  still exactly six tools, and no tool can approve or reject anything.
+- `tests/test_quarantine_cli.py` (8 checks) in `scripts/check_all.py` and CI.
+- Hippo-Pot deployment profile: `hungry-hippa init --profile hippo-pot`, start/stop/
+  restart/doctor/uninstall, systemd user units, a manager that proposes intent only,
+  and a post-reboot acceptance verifier. `tests/test_hippo_pot.py` (25 checks).
+- `hungry-hippa backup [--dir DIR] [--keep N] [--label NAME]`: SQLite-backup snapshots
+  with rotation that only deletes files it named. `tests/test_backup_rotation.py`
+  (5 checks).
 - `tests/test_mcp_integration.py`: a real MCP session through the official SDK
   client covering initialization, tool listing, schema surface, the full
   remember/recall/context/outcome/forget flow, unauthorized purge, owner-only
