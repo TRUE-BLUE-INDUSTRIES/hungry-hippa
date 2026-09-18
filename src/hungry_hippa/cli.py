@@ -358,57 +358,362 @@ def _cmd_backup(args) -> None:
 
 
 def _cmd_ingest(args) -> None:
-    """Parse a provider export. Slice 1 is parsing only — nothing is stored.
+    """Parse a provider export; persist only with an explicit ``--apply``.
 
-    This runs before ``_controller()`` on purpose: a dry parse must not open the
-    memory database at all, so there is no path from here to a write.
+    Dry-run is the safe default: without ``--apply`` this never opens the
+    memory database, so there is no path from a forgotten flag to a write.
+    ``--apply`` on chatgpt/hermes writes canonical ingest rows via the persist
+    library. ``ingest extract --apply`` reads those rows and writes quarantined
+    hypotheses. ``ingest reconcile`` classifies those hypotheses against
+    existing memories. None of these paths go through ``_controller()``, so
+    they cannot mint ``user_explicit`` provenance.
     """
     action = getattr(args, "ingest_command", "") or ""
     if action == "chatgpt":
         return _cmd_ingest_chatgpt(args)
-    print("Usage: hungry-hippa ingest chatgpt <conversations.json> --dry-run")
+    if action in ("show", "verify"):
+        from .db import Database
+        from .ingest.store import fetch_conversation, verify_archive
+        path = _ingest_db_path(args)
+        if not os.path.isfile(path):
+            _print_json({"error": "import database does not exist"})
+            sys.exit(1)
+        database = Database(path)
+        if action == "verify":
+            result = verify_archive(database, args.sha256)
+        else:
+            result = fetch_conversation(database, "chatgpt", args.session_id)
+            if result:
+                for turn in result["turns"]:
+                    turn["archives"] = database.get_ingest_turn_sources(
+                        "chatgpt", args.session_id, turn["turn_id"])
+                result["note"] = "untrusted historical data; provider roles are not verified identity"
+            else:
+                result = {"ok": False, "error": "conversation not found"}
+        _print_json(result)
+        if result.get("ok") is False:
+            sys.exit(1)
+        return
+    if action == "hermes":
+        return _cmd_ingest_hermes(args)
+    if action == "extract":
+        return _cmd_ingest_extract(args)
+    if action == "reconcile":
+        return _cmd_ingest_reconcile(args)
+    print("Usage: hungry-hippa ingest chatgpt <conversations.json> [--dry-run|--apply]")
+    print("       hungry-hippa ingest hermes <dir> [--dry-run|--apply]")
+    print("       hungry-hippa ingest extract [--dry-run|--apply]")
+    print("       hungry-hippa ingest reconcile [--dry-run|--apply]")
     return None
 
 
-def _cmd_ingest_chatgpt(args) -> None:
-    """Parse a ChatGPT export and report what it contains."""
-    import json
-
-    path = getattr(args, "file", "") or ""
-    if not path:
-        _print_json({"error": "a path to conversations.json is required"})
-        sys.exit(1)
-    if not os.path.isfile(path):
-        _print_json({"error": f"no such file: {path}"})
-        sys.exit(1)
-    if not getattr(args, "dry_run", False):
-        _print_json({"error": ("only --dry-run is implemented in this build: the "
-                              "parser reads and reports, it does not ingest. "
-                              "No database writes, no model calls, no MCP tools.")})
-        sys.exit(1)
-
-    # Imported here so the runtime does not depend on the ingestion package
-    # unless someone actually parses an export.
-    from .ingest import parse_chatgpt_export, summarize
-
-    try:
-        conversations = parse_chatgpt_export(path)
-    except json.JSONDecodeError as e:
-        _print_json({"error": f"not valid JSON: {e}"})
-        sys.exit(1)
-    except (OSError, UnicodeDecodeError) as e:
-        _print_json({"error": f"could not read {path}: {e}"})
-        sys.exit(1)
-
-    counts = summarize(conversations)
-    print("ChatGPT export parsed")
+def _print_ingest_counts(counts: Dict[str, int]) -> None:
     print(f"Conversations: {counts['conversations']:,}")
     print(f"Turns: {counts['turns']:,}")
     print(f"Current-path turns: {counts['current_path_turns']:,}")
     print(f"Alternate-branch turns: {counts['alternate_branch_turns']:,}")
     if counts["warnings"]:
         print(f"Warnings: {counts['warnings']:,} (malformed nodes; see the parser)")
-    print("No database writes, no model calls, no network access (parsing only).")
+
+
+def _ingest_db_path(args) -> str:
+    path = getattr(args, "db", "") or os.environ.get("HUNGRY_HIPPA_DB", "")
+    if not path:
+        _print_json({"error": "choose an import database with --db PATH or HUNGRY_HIPPA_DB"})
+        sys.exit(1)
+    return os.path.abspath(os.path.expanduser(path))
+
+
+def _cmd_ingest_chatgpt(args) -> None:
+    """Parse a ChatGPT export; persist only when ``--apply`` is given."""
+    given = getattr(args, "file", "") or ""
+    if not given:
+        _print_json({"error": "a path to conversations.json is required"})
+        sys.exit(1)
+
+    apply = bool(getattr(args, "apply", False))
+    dry_run = bool(getattr(args, "dry_run", False))
+    if apply and dry_run:
+        _print_json({"error": "pass only one of --dry-run or --apply"})
+        sys.exit(1)
+    if not apply and not dry_run:
+        _print_json({"error": ("refusing to write: pass --dry-run to parse and "
+                               "report, or --apply to persist canonical turns. "
+                               "Writes are not the default.")})
+        sys.exit(1)
+
+    from .ingest import resolve_export_path, summarize
+    from .ingest.chatgpt import read_export_bytes, parse_chatgpt_bytes
+
+    try:
+        path = resolve_export_path(given)
+    except FileNotFoundError:
+        _print_json({"error": f"no such file: {given}"})
+        sys.exit(1)
+    except IsADirectoryError:
+        _print_json({"error": f"not a file: {given}"})
+        sys.exit(1)
+    except (OSError, ValueError) as e:
+        _print_json({"error": str(e)})
+        sys.exit(1)
+
+    try:
+        raw = read_export_bytes(path)
+        conversations = parse_chatgpt_bytes(raw)
+    except json.JSONDecodeError as e:
+        _print_json({"error": f"not valid JSON: {e}"})
+        sys.exit(1)
+    except (OSError, UnicodeDecodeError) as e:
+        _print_json({"error": f"could not read export: {type(e).__name__}"})
+        sys.exit(1)
+    except ValueError as e:
+        _print_json({"error": str(e)})
+        sys.exit(1)
+
+    counts = summarize(conversations)
+    if dry_run:
+        print("ChatGPT export parsed")
+        _print_ingest_counts(counts)
+        print("No database writes, no model calls, no network access (parsing only).")
+        return
+
+    from .db import Database
+    from .ingest.store import persist_parsed_export
+
+    db_path = _ingest_db_path(args)
+    archive_dir = os.path.join(os.path.dirname(os.path.abspath(db_path)), "ingest_archives")
+    result = persist_parsed_export(
+        Database(db_path), conversations, source_path=path, source_bytes=raw,
+        copy_to=archive_dir,
+    )
+    if not result.ok:
+        _print_json({"error": result.error or "persist failed"})
+        sys.exit(1)
+    already = max(0, result.turns_seen - result.turns_inserted)
+    print("ChatGPT export ingested")
+    _print_ingest_counts(counts)
+    print(f"Archive sha256: {result.sha256}")
+    print(f"Database: {db_path}")
+    print(f"Turns inserted: {result.turns_inserted:,}")
+    print(f"Turns already present: {already:,}")
+    print("No episodes, no beliefs, no model calls (canonical history only).")
+
+
+def _cmd_ingest_hermes(args) -> None:
+    """Parse Hermes session files; persist only when ``--apply`` is given."""
+    given = getattr(args, "dir", "") or ""
+    if not given:
+        _print_json({"error": "a Hermes sessions directory (or .json/.jsonl file) is required"})
+        sys.exit(1)
+
+    apply = bool(getattr(args, "apply", False))
+    dry_run = bool(getattr(args, "dry_run", False))
+    if apply and dry_run:
+        _print_json({"error": "pass only one of --dry-run or --apply"})
+        sys.exit(1)
+    if not apply and not dry_run:
+        _print_json({"error": ("refusing to write: pass --dry-run to parse and "
+                               "report, or --apply to persist canonical turns. "
+                               "Writes are not the default.")})
+        sys.exit(1)
+
+    from .ingest import parse_hermes_export, resolve_hermes_path, summarize
+
+    try:
+        path = resolve_hermes_path(given)
+    except FileNotFoundError:
+        _print_json({"error": f"no such file or directory: {given}"})
+        sys.exit(1)
+    except IsADirectoryError:
+        _print_json({"error": f"not a directory or session file: {given}"})
+        sys.exit(1)
+    except (OSError, ValueError) as e:
+        _print_json({"error": str(e)})
+        sys.exit(1)
+
+    try:
+        conversations = parse_hermes_export(path)
+    except json.JSONDecodeError as e:
+        _print_json({"error": f"not valid JSON: {e}"})
+        sys.exit(1)
+    except (OSError, UnicodeDecodeError) as e:
+        _print_json({"error": f"could not read export: {type(e).__name__}"})
+        sys.exit(1)
+
+    counts = summarize(conversations)
+    if dry_run:
+        print("Hermes sessions parsed")
+        _print_ingest_counts(counts)
+        print("No database writes, no model calls, no network access (parsing only).")
+        return
+
+    from .config import load_config, resolve_db_path
+    from .db import Database
+    from .ingest.store import persist_parsed_export
+
+    db_path = os.path.abspath(resolve_db_path(load_config()))
+    archive_dir = os.path.join(os.path.dirname(db_path), "ingest_archives")
+    groups: Dict[str, List[Any]] = {}
+    for convo in conversations:
+        src = (convo.source_metadata or {}).get("export_path")
+        if not isinstance(src, str) or not src:
+            src = path
+        groups.setdefault(src, []).append(convo)
+
+    if not groups:
+        print("Hermes sessions ingested")
+        _print_ingest_counts(counts)
+        print("Archives: 0")
+        print("Turns inserted: 0")
+        print("Turns already present: 0")
+        print("No episodes, no beliefs, no model calls (canonical history only).")
+        return
+
+    db = Database(db_path)
+    inserted = 0
+    seen = 0
+    archives = 0
+    last_sha = ""
+    for src, convos in sorted(groups.items()):
+        if os.path.isdir(src):
+            _print_json({"error": "refusing to hash a directory as an archive; "
+                         "session files are persisted individually"})
+            sys.exit(1)
+        result = persist_parsed_export(
+            db, convos, source_path=src, copy_to=archive_dir,
+        )
+        if not result.ok:
+            _print_json({"error": result.error or "persist failed",
+                         "file": os.path.basename(src)})
+            sys.exit(1)
+        inserted += result.turns_inserted
+        seen += result.turns_seen
+        archives += 1
+        last_sha = result.sha256
+
+    already = max(0, seen - inserted)
+    print("Hermes sessions ingested")
+    _print_ingest_counts(counts)
+    if archives == 1 and last_sha:
+        print(f"Archive sha256: {last_sha}")
+    else:
+        print(f"Archives: {archives:,}")
+    print(f"Turns inserted: {inserted:,}")
+    print(f"Turns already present: {already:,}")
+    print("No episodes, no beliefs, no model calls (canonical history only).")
+
+
+def _cmd_ingest_extract(args) -> None:
+    """Extract quarantined hypotheses from stored ingest turns."""
+    apply = bool(getattr(args, "apply", False))
+    dry_run = bool(getattr(args, "dry_run", False))
+    if apply and dry_run:
+        _print_json({"error": "pass only one of --dry-run or --apply"})
+        sys.exit(1)
+    if not apply and not dry_run:
+        _print_json({"error": ("refusing to write: pass --dry-run to report pending "
+                               "turns, or --apply to extract quarantined hypotheses. "
+                               "Writes are not the default.")})
+        sys.exit(1)
+
+    from .ingest.extract import (
+        ExtractRefused,
+        ExtractorUnavailable,
+        extract_from_store,
+        extractor_from_config,
+        require_extract_db_env,
+    )
+
+    try:
+        db_path = require_extract_db_env()
+    except ExtractRefused as e:
+        _print_json({"error": str(e)})
+        sys.exit(1)
+
+    from .config import load_config
+    from .db import Database
+
+    cfg = load_config()
+    db = Database(db_path)
+    source_filter = str(getattr(args, "source", "") or "")
+    limit = int(getattr(args, "limit", 0) or 0)
+    if dry_run:
+        result = extract_from_store(
+            db, extractor=None, source_filter=source_filter, dry_run=True, cfg=cfg,
+        )
+        print("Ingest extract (dry-run)")
+        print(f"Conversations pending: {result.conversations_pending:,}")
+        print(f"Turns pending: {result.turns_pending:,}")
+        print("No beliefs, no episodes, no model calls (pending-count only).")
+        return
+
+    try:
+        extractor = extractor_from_config(cfg)
+        result = extract_from_store(
+            db, extractor=extractor, source_filter=source_filter, limit=limit,
+            dry_run=False, cfg=cfg,
+        )
+    except ExtractorUnavailable as e:
+        _print_json({"error": str(e)})
+        sys.exit(1)
+    except ExtractRefused as e:
+        _print_json({"error": str(e)})
+        sys.exit(1)
+    print("Ingest extract applied")
+    print(f"Job: {result.job_id or '-'}")
+    print(f"Turns pending: {result.turns_pending:,}")
+    print(f"Turns processed: {result.turns_processed:,}")
+    print(f"Beliefs written: {result.beliefs_written:,}")
+    print(f"Episodes written: {result.episodes_written:,}")
+    print(f"Candidates skipped: {result.candidates_skipped:,}")
+    print("Quarantined hypotheses only; no verified user_explicit; channel=import.")
+
+
+def _cmd_ingest_reconcile(args) -> None:
+    """Classify extract candidates against existing memories (Layer 4)."""
+    apply = bool(getattr(args, "apply", False))
+    dry_run = bool(getattr(args, "dry_run", False))
+    if apply and dry_run:
+        _print_json({"error": "pass only one of --dry-run or --apply"})
+        sys.exit(1)
+    if not apply and not dry_run:
+        _print_json({"error": ("refusing to write: pass --dry-run to classify "
+                               "pending candidates, or --apply to record decisions. "
+                               "Writes are not the default.")})
+        sys.exit(1)
+
+    from .ingest.reconcile import (
+        CLASSES,
+        ExtractRefused,
+        reconcile_store,
+        require_extract_db_env,
+    )
+
+    try:
+        db_path = require_extract_db_env()
+    except ExtractRefused as e:
+        _print_json({"error": str(e)})
+        sys.exit(1)
+
+    from .config import load_config
+    from .db import Database
+
+    cfg = load_config()
+    db = Database(db_path)
+    result = reconcile_store(db, dry_run=dry_run, cfg=cfg)
+    title = "Ingest reconcile (dry-run)" if dry_run else "Ingest reconcile applied"
+    print(title)
+    if result.job_id:
+        print(f"Job: {result.job_id}")
+    print(f"Candidates pending: {result.candidates_pending:,}")
+    print(f"Candidates processed: {result.candidates_processed:,}")
+    for name in CLASSES:
+        print(f"{name}: {result.counts.get(name, 0):,}")
+    if dry_run:
+        print("No decisions recorded, no Layer 1/2 deletes (classify only).")
+    else:
+        print("Contradictions left open (both claims + evidence kept).")
+        print("No Layer 1/2 deletes; extract stays write-candidates.")
 
 
 _QUARANTINE_SOURCE_CLASSES = ("user_explicit", "document", "tool_result")
@@ -805,7 +1110,7 @@ def register_cli(subparser) -> None:
 
     ing = subs.add_parser(
         "ingest",
-        help="Parse a provider export (parsing only: writes nothing)",
+        help="Parse a provider export; persist only with --apply",
     )
     ing_subs = ing.add_subparsers(dest="ingest_command")
     ing_chat = ing_subs.add_parser(
@@ -813,10 +1118,74 @@ def register_cli(subparser) -> None:
         help="Parse a ChatGPT conversations.json export into normalized turns",
     )
     ing_chat.add_argument("file", help="path to conversations.json")
-    ing_chat.add_argument(
+    ing_chat.add_argument("--db", default="", help="destination database (or HUNGRY_HIPPA_DB)")
+    ing_mode = ing_chat.add_mutually_exclusive_group()
+    ing_mode.add_argument(
         "--dry-run", dest="dry_run", action="store_true",
-        help="required in this build: parse and report; stores nothing",
+        help="parse and report; store nothing (the safe default unless --apply)",
     )
+    ing_mode.add_argument(
+        "--apply", dest="apply", action="store_true",
+        help="preserve exact export bytes and canonical turns (idempotent)",
+    )
+    ing_hermes = ing_subs.add_parser(
+        "hermes",
+        help="Parse a Hermes sessions export directory into normalized turns",
+    )
+    ing_hermes.add_argument(
+        "dir",
+        help="Hermes sessions directory, or one .json/.jsonl session file",
+    )
+    hermes_mode = ing_hermes.add_mutually_exclusive_group()
+    hermes_mode.add_argument(
+        "--dry-run", dest="dry_run", action="store_true",
+        help="parse and report; store nothing (the safe default unless --apply)",
+    )
+    hermes_mode.add_argument(
+        "--apply", dest="apply", action="store_true",
+        help="persist canonical turns and an archive pointer (idempotent)",
+    )
+    ing_extract = ing_subs.add_parser(
+        "extract",
+        help="Extract quarantined hypotheses from stored ingest turns",
+    )
+    extract_mode = ing_extract.add_mutually_exclusive_group()
+    extract_mode.add_argument(
+        "--dry-run", dest="dry_run", action="store_true",
+        help="report pending turns; write no memories (the safe default unless --apply)",
+    )
+    extract_mode.add_argument(
+        "--apply", dest="apply", action="store_true",
+        help="call the local LM Studio chat model and write quarantined hypotheses",
+    )
+    ing_extract.add_argument(
+        "--source", default="",
+        help="only this ingest source (chatgpt, hermes, …); default: all",
+    )
+    ing_extract.add_argument(
+        "--limit", type=int, default=0,
+        help="max turns to process this run (0 = all pending)",
+    )
+    ing_reconcile = ing_subs.add_parser(
+        "reconcile",
+        help="Classify extract candidates against existing memories (Layer 4)",
+    )
+    reconcile_mode = ing_reconcile.add_mutually_exclusive_group()
+    reconcile_mode.add_argument(
+        "--dry-run", dest="dry_run", action="store_true",
+        help="classify pending candidates; write no decisions (the safe default unless --apply)",
+    )
+    reconcile_mode.add_argument(
+        "--apply", dest="apply", action="store_true",
+        help="record classifications; contradictions stay open (both claims kept)",
+    )
+
+    ing_verify = ing_subs.add_parser("verify", help="verify source bytes and canonical provenance")
+    ing_verify.add_argument("sha256", help="archive digest printed by import")
+    ing_verify.add_argument("--db", default="", help="import database (or HUNGRY_HIPPA_DB)")
+    ing_show = ing_subs.add_parser("show", help="inspect an untrusted ChatGPT conversation and sources")
+    ing_show.add_argument("session_id", help="conversation id from the export")
+    ing_show.add_argument("--db", default="", help="import database (or HUNGRY_HIPPA_DB)")
 
     exp = subs.add_parser("export", help="Export memory as JSON")
     exp.add_argument("--path", default="hungry_hippa_export.json")

@@ -1,0 +1,250 @@
+[
+  {
+    "id": "e2e-mill-setup-2026",
+    "title": "Workshop mill setup notes (synthetic fixture)",
+    "create_time": 1771164000.0,
+    "update_time": 1773334020.0,
+    "current_node": "e2e-turn-pin-ack",
+    "mapping": {
+      "e2e-mill-root": {
+        "id": "e2e-mill-root",
+        "parent": null,
+        "children": ["e2e-turn-intro"],
+        "message": null
+      },
+      "e2e-turn-intro": {
+        "id": "e2e-turn-intro",
+        "parent": "e2e-mill-root",
+        "children": ["e2e-turn-intro-ack"],
+        "message": {
+          "id": "msg-intro",
+          "author": {"role": "user"},
+          "create_time": 1771164000.0,
+          "content": {
+            "content_type": "text",
+            "parts": ["I am documenting the workshop mill setup so later sessions can recall the durable facts."]
+          }
+        }
+      },
+      "e2e-turn-intro-ack": {
+        "id": "e2e-turn-intro-ack",
+        "parent": "e2e-turn-intro",
+        "children": ["e2e-turn-os"],
+        "message": {
+          "id": "msg-intro-ack",
+          "author": {"role": "assistant"},
+          "create_time": 1771164030.0,
+          "metadata": {"model_slug": "gpt-4"},
+          "content": {
+            "content_type": "text",
+            "parts": ["What changed recently on the mill?"]
+          }
+        }
+      },
+      "e2e-turn-os": {
+        "id": "e2e-turn-os",
+        "parent": "e2e-turn-intro-ack",
+        "children": ["e2e-turn-os-ack"],
+        "message": {
+          "id": "msg-os",
+          "author": {"role": "user"},
+          "create_time": 1771164060.0,
+          "content": {
+            "content_type": "text",
+            "parts": ["In February 2026 I switched the workshop mill PC from Debian 12 to Arch Linux (Omarchy). The GPU driver situation is much better."]
+          }
+        }
+      },
+      "e2e-turn-os-ack": {
+        "id": "e2e-turn-os-ack",
+        "parent": "e2e-turn-os",
+        "children": ["e2e-turn-torque-52nm"],
+        "message": {
+          "id": "msg-os-ack",
+          "author": {"role": "assistant"},
+          "create_time": 1771164090.0,
+          "metadata": {"model_slug": "gpt-4"},
+          "content": {
+            "content_type": "text",
+            "parts": ["Noted: mill PC is now Arch Linux (Omarchy) as of February 2026."]
+          }
+        }
+      },
+      "e2e-turn-torque-52nm": {
+        "id": "e2e-turn-torque-52nm",
+        "parent": "e2e-turn-os-ack",
+        "children": ["e2e-turn-torque-ack"],
+        "message": {
+          "id": "msg-torque",
+          "author": {"role": "user"},
+          "create_time": 1773333900.0,
+          "content": {
+            "content_type": "text",
+            "parts": ["Please remember this durable fact: on 12 March 2026 I set the fixture-jig torque to 52Nm. The previous 45Nm setting warped the housing. 52Nm is the current value."]
+          }
+        }
+      },
+      "e2e-turn-torque-ack": {
+        "id": "e2e-turn-torque-ack",
+        "parent": "e2e-turn-torque-52nm",
+        "children": ["e2e-turn-pin"],
+        "message": {
+          "id": "msg-torque-ack",
+          "author": {"role": "assistant"},
+          "create_time": 1773333920.0,
+          "metadata": {"model_slug": "gpt-4"},
+          "content": {
+            "content_type": "text",
+            "parts": ["Stored: fixture-jig torque is 52Nm as of 12 March 2026. The 45Nm setting is no longer used because it warped the housing."]
+          }
+        }
+      },
+      "e2e-turn-pin": {
+        "id": "e2e-turn-pin",
+        "parent": "e2e-turn-torque-ack",
+        "children": ["e2e-turn-pin-ack"],
+        "message": {
+          "id": "msg-pin",
+          "author": {"role": "user"},
+          "create_time": 1773333960.0,
+          "content": {
+            "content_type": "text",
+            "parts": ["Also, the spare brass alignment pin lives in the left workshop drawer."]
+          }
+        }
+      },
+      "e2e-turn-pin-ack": {
+        "id": "e2e-turn-pin-ack",
+        "parent": "e2e-turn-pin",
+        "children": [],
+        "message": {
+          "id": "msg-pin-ack",
+          "author": {"role": "assistant"},
+          "create_time": 1773333990.0,
+          "metadata": {"model_slug": "gpt-4"},
+          "content": {
+            "content_type": "text",
+            "parts": ["Got it. Spare brass alignment pin: left workshop drawer."]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "e2e-chatter-2026",
+    "title": "Short wrap-up (synthetic fixture)",
+    "create_time": 1767866400.0,
+    "update_time": 1767866415.0,
+    "current_node": "e2e-chat-ack",
+    "mapping": {
+      "e2e-chat-root": {
+        "id": "e2e-chat-root",
+        "parent": null,
+        "children": ["e2e-chat-bye"],
+        "message": null
+      },
+      "e2e-chat-bye": {
+        "id": "e2e-chat-bye",
+        "parent": "e2e-chat-root",
+        "children": ["e2e-chat-ack"],
+        "message": {
+          "id": "msg-bye",
+          "author": {"role": "user"},
+          "create_time": 1767866400.0,
+          "content": {
+            "content_type": "text",
+            "parts": ["Thanks, that is all for today."]
+          }
+        }
+      },
+      "e2e-chat-ack": {
+        "id": "e2e-chat-ack",
+        "parent": "e2e-chat-bye",
+        "children": [],
+        "message": {
+          "id": "msg-bye-ack",
+          "author": {"role": "assistant"},
+          "create_time": 1767866415.0,
+          "metadata": {"model_slug": "gpt-4"},
+          "content": {
+            "content_type": "text",
+            "parts": ["Anytime. Ping me when the mill notes need another pass."]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "e2e-housing-regen-2026",
+    "title": "Seized housing (synthetic regenerated branch)",
+    "create_time": 1775121120.0,
+    "update_time": 1775121190.0,
+    "current_node": "e2e-house-cracked",
+    "mapping": {
+      "e2e-house-root": {
+        "id": "e2e-house-root",
+        "parent": null,
+        "children": ["e2e-house-ask"],
+        "message": null
+      },
+      "e2e-house-ask": {
+        "id": "e2e-house-ask",
+        "parent": "e2e-house-root",
+        "children": ["e2e-house-heat", "e2e-house-solvent"],
+        "message": {
+          "id": "msg-house-ask",
+          "author": {"role": "user"},
+          "create_time": 1775121120.0,
+          "content": {
+            "content_type": "text",
+            "parts": ["What solvent frees a seized housing on the mill fixture?"]
+          }
+        }
+      },
+      "e2e-house-heat": {
+        "id": "e2e-house-heat",
+        "parent": "e2e-house-ask",
+        "children": [],
+        "message": {
+          "id": "msg-house-heat",
+          "author": {"role": "assistant"},
+          "create_time": 1775121160.0,
+          "metadata": {"model_slug": "gpt-4"},
+          "content": {
+            "content_type": "text",
+            "parts": ["Try heat first, before any solvent."]
+          }
+        }
+      },
+      "e2e-house-solvent": {
+        "id": "e2e-house-solvent",
+        "parent": "e2e-house-ask",
+        "children": ["e2e-house-cracked"],
+        "message": {
+          "id": "msg-house-solvent",
+          "author": {"role": "assistant"},
+          "create_time": 1775121160.0,
+          "metadata": {"model_slug": "gpt-4"},
+          "content": {
+            "content_type": "text",
+            "parts": ["Soak it in solvent X for twenty minutes."]
+          }
+        }
+      },
+      "e2e-house-cracked": {
+        "id": "e2e-house-cracked",
+        "parent": "e2e-house-solvent",
+        "children": [],
+        "message": {
+          "id": "msg-house-cracked",
+          "author": {"role": "user"},
+          "create_time": 1775121190.0,
+          "content": {
+            "content_type": "text",
+            "parts": ["It cracked. Do not recommend solvent X again."]
+          }
+        }
+      }
+    }
+  }
+]

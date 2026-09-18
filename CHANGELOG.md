@@ -2,7 +2,50 @@
 
 ## Unreleased
 
+### Safe historical-import increment
+- Integrate existing canonical ChatGPT ingestion work without enabling model extraction.
+- Bound hostile JSON, regular-file reads, graph depth and expanded lineage; reject
+  ambiguous identities and malformed export envelopes explicitly.
+- Preserve exact export bytes, per-archive branch snapshots and turn provenance in
+  schema v7. Refuse conflicting turns transactionally; duplicate imports are no-ops.
+- Add explicit import destinations, `ingest verify` and `ingest show`; SQLite backup
+  recovery retains raw bytes. No beliefs/episodes are created by importing.
+- Align CI with the shared runner and validate a fresh installed wheel over real MCP.
+- Add reproducible synthetic ingestion measurements and durable project documentation.
+
+## v1.0.0 — released 2026-09-18
+
+The following baseline changes shipped at `9b9593f`; parser-only statements describe
+that release, before the unreleased write path above.
+
 ### Added
+- Extract chat `max_tokens` default 768 → 2048. This LM Studio/Qwen3.8-27b build
+  still emits `reasoning_content` despite `enable_thinking: false`; 768 truncated
+  the JSON mid-claim (`finish_reason=length`) and extract wrote nothing.
+- HH-08 ChatGPT ingest e2e: `eval/ingest_e2e.py` plus `tests/test_ingest_e2e.py`.
+  Synthetic `eval/fixtures/chatgpt_e2e_conversations.json` (invented mill-setup
+  notes, planted 52Nm / 12 March 2026 fact; never a real export) is ingested with
+  `ingest chatgpt --apply` into a throwaway `HUNGRY_HIPPA_DB`. Raw archive pointer
+  + normalized turns are asserted. Live `ingest extract --apply` against local
+  LM Studio is optional (SKIP when chat is down); CI still proves ingest persist
+  plus recall/why of a directly stored owner memory whose evidence points at the
+  planted turn. Extracted hypotheses stay quarantined; the live demo uses owner
+  CLI `recall --quarantined`. MCP still exactly six tools. Live Hermes/Grok
+  stores are refused.
+- `hungry-hippa ingest reconcile [--dry-run|--apply]`: Layer 4 historical ingest.
+  Compares extract candidates to existing memories and classifies each as
+  duplicate, reinforcement, contradiction, update, supersession, low-confidence,
+  or irrelevant. Contradictions stay open (both claims + evidence). Re-import /
+  re-extract of the same export is a no-op. Schema v8 adds reversible decision
+  tables. Requires `HUNGRY_HIPPA_DB` (refuses live Hermes/Grok stores). MCP still
+  exactly six tools.
+- `hungry-hippa ingest extract [--dry-run|--apply]`: Slice 4 historical ingest.
+  A local LM Studio chat model (`qwen/qwen3.8-27b` at `127.0.0.1:1234`) reads
+  stored `ingest_turns` in small batches and writes **quarantined hypotheses**
+  with evidence rows pointing at turn ids. Never mints verified `user_explicit`;
+  `ingestion_channel=import`. Schema v7 adds reversible extract-job checkpoints.
+  Requires `HUNGRY_HIPPA_DB` (refuses live Hermes/Grok stores). Offline/no-model
+  `--apply` fails clearly without writing memories. MCP still exactly six tools.
 - `hungry_hippa.ingest`: historical-ingestion Slice 1 — a lossless parser for ChatGPT
   `conversations.json` exports (`parse_chatgpt_export(path) -> list[ParsedConversation]`).
   Every supported textual turn is kept, including regenerated answers and edited prompts,

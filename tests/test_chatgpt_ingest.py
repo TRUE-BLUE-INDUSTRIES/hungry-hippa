@@ -21,8 +21,10 @@ run_all() -> list of {name, passed, detail}.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -36,9 +38,28 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))   # tests/ (shared help
 from _package import import_package  # noqa: E402
 
 PACKAGE_DIR = REPO_DIR / "src" / "hungry_hippa"   # src layout
+SRC_DIR = PACKAGE_DIR.parent
 _PLUGIN = import_package()
 from hungry_hippa.ingest import parse_chatgpt_export  # noqa: E402
 from hungry_hippa.ingest.models import NormalizedTurn  # noqa: E402
+
+
+def _cli_env(db_path: str) -> Dict[str, str]:
+    env = dict(os.environ)
+    env["HUNGRY_HIPPA_DB"] = db_path
+    env["PYTHONPATH"] = str(SRC_DIR)
+    work = os.path.dirname(os.path.abspath(db_path)) or tempfile.mkdtemp(prefix="hh_ingest_xdg_")
+    env["XDG_DATA_HOME"] = work
+    env["XDG_STATE_HOME"] = work
+    env["XDG_CONFIG_HOME"] = work
+    return env
+
+
+def _run_cli(argv: List[str], *, env: Dict[str, str], cwd: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, "-m", "hungry_hippa.cli", *argv],
+        env=env, cwd=cwd, capture_output=True, text=True, timeout=120,
+    )
 
 
 # ----------------------------------------------------------------------- fixtures
@@ -397,24 +418,30 @@ def check_malformed_node_does_not_kill_conversation():
     assert "not an object; skipped" in joined, convo.warnings
     assert "message is str" in joined, convo.warnings
     assert "children is str" in joined, convo.warnings
-    # a conversation entry that is not even an object still yields a report
-    broken = parse_chatgpt_export(_write(["not a conversation"]))
-    assert len(broken) == 1 and broken[0].turn_count == 0 and broken[0].warnings
-    # and junk that is not a list of conversations parses to nothing, not a crash
-    assert parse_chatgpt_export(_write({"unexpected": True})) == []
+    for invalid in (["not a conversation"], {"unexpected": True}):
+        try:
+            parse_chatgpt_export(_write(invalid))
+            raise AssertionError("invalid export was accepted")
+        except ValueError:
+            pass
     return "malformed nodes warn and are skipped; valid turns still parse"
 
 
 def check_parser_is_offline_and_writes_nothing():
-    # 1. the parser modules import only the standard library
-    sources = {p.name: p.read_text(encoding="utf-8")
-               for p in sorted((PACKAGE_DIR / "ingest").glob("*.py"))}
-    assert sources, "ingest package missing"
+    # 1. the parser modules import only the standard library. store.py is Slice 2
+    # (persist) and is allowed to talk to the database; it is not imported here.
+    parser_modules = ("__init__.py", "chatgpt.py", "models.py")
+    sources = {name: (PACKAGE_DIR / "ingest" / name).read_text(encoding="utf-8")
+               for name in parser_modules}
     forbidden = ("sqlite3", "import mcp", "requests", "urllib", "socket",
                  "openai", "controller", "from .db", "from ..")
     for name, src in sources.items():
         for token in forbidden:
             assert token not in src, (name, token)
+    store_path = PACKAGE_DIR / "ingest" / "store.py"
+    assert store_path.is_file(), "Slice 2 persist module missing"
+    store_src = store_path.read_text(encoding="utf-8")
+    assert "eval(" not in store_src and "exec(" not in store_src
 
     # 2. parsing an export creates no database, even when one is configured
     workdir = tempfile.mkdtemp(prefix="hh_ingest_nod_")
@@ -435,22 +462,128 @@ def check_parser_is_offline_and_writes_nothing():
     assert not [f for f in os.listdir(workdir) if f.endswith(".db")], os.listdir(workdir)
 
     # 3. the CLI dry run parses and reports, and also writes no database
-    cli_env = dict(os.environ, HUNGRY_HIPPA_DB=db_path)
-    cli = subprocess.run([sys.executable, "-m", "hungry_hippa.cli", "ingest", "chatgpt",
-                          export, "--dry-run"], env=cli_env, cwd=workdir,
-                         capture_output=True, text=True, timeout=120)
+    cli_env = _cli_env(db_path)
+    cli = _run_cli(["ingest", "chatgpt", export, "--dry-run"], env=cli_env, cwd=workdir)
     assert cli.returncode == 0, cli.stderr[-400:]
     assert "No database writes" in cli.stdout, cli.stdout
     assert "Conversations: 1" in cli.stdout and "Turns:" in cli.stdout, cli.stdout
     assert not os.path.exists(db_path), "the CLI dry run created a database"
 
-    # 4. without --dry-run the command refuses rather than pretending to import
-    refused = subprocess.run([sys.executable, "-m", "hungry_hippa.cli", "ingest",
-                              "chatgpt", export], env=cli_env, cwd=workdir,
-                             capture_output=True, text=True, timeout=120)
+    # 4. without --dry-run or --apply the command refuses rather than writing
+    refused = _run_cli(["ingest", "chatgpt", export], env=cli_env, cwd=workdir)
     assert refused.returncode == 1, refused.returncode
-    assert "only --dry-run" in refused.stdout, refused.stdout
+    assert "refusing to write" in refused.stdout, refused.stdout
+    assert "--apply" in refused.stdout, refused.stdout
+    assert not os.path.exists(db_path), "a refused ingest created a database"
     return "stdlib-only imports; parses without creating a database; dry run enforced"
+
+
+def check_apply_persists_canonical_turns_not_memories():
+    workdir = tempfile.mkdtemp(prefix="hh_ingest_apply_")
+    db_path = os.path.join(workdir, "hungry_hippa.db")
+    export = _write(_regenerated_reply_export())
+    env = _cli_env(db_path)
+    first = _run_cli(["ingest", "chatgpt", export, "--apply"], env=env, cwd=workdir)
+    assert first.returncode == 0, (first.stderr[-400:], first.stdout[-400:])
+    assert "ChatGPT export ingested" in first.stdout, first.stdout
+    assert "Conversations: 1" in first.stdout
+    assert "Turns: 4" in first.stdout
+    assert "Turns inserted: 4" in first.stdout
+    assert "Turns already present: 0" in first.stdout
+    assert "No episodes" in first.stdout
+    assert os.path.isfile(db_path), "apply did not create the database"
+    # imported text is untrusted: CLI logs must not dump turn bodies
+    assert "Try heat first." not in first.stdout
+    assert "Soak it in solvent X" not in first.stdout
+    assert "what solvent frees a seized housing?" not in first.stdout
+    raw = open(export, "rb").read()
+    digest = hashlib.sha256(raw).hexdigest()
+    assert digest in first.stdout, first.stdout
+
+    conn = sqlite3.connect(db_path)
+    try:
+        turns = conn.execute(
+            "SELECT source, session_id, turn_id, role, occurred_at, content "
+            "FROM ingest_turns ORDER BY rowid"
+        ).fetchall()
+        assert len(turns) == 4, turns
+        assert {row[0] for row in turns} == {"chatgpt"}
+        assert {row[1] for row in turns} == {"conv-regen"}
+        assert [row[2] for row in turns] == ["n-a", "n-b1", "n-b2", "n-c"]
+        assert turns[0][3] == "user" and turns[1][3] == "assistant"
+        assert all(row[4] is not None for row in turns)
+        assert turns[1][5] == "Try heat first."
+        archive = conn.execute(
+            "SELECT sha256, byte_length, original_path, archived_path FROM ingest_archives"
+        ).fetchone()
+        assert archive is not None
+        assert archive[0] == digest
+        assert archive[1] == len(raw)
+        assert archive[2] == os.path.abspath(export)
+        assert archive[3] == ""
+        copied = conn.execute("SELECT raw_bytes FROM ingest_archive_bytes").fetchone()[0]
+        assert hashlib.sha256(copied).hexdigest() == digest
+        assert conn.execute("SELECT COUNT(*) FROM episodes").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM beliefs").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM evidence").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM memory_fts").fetchone()[0] == 0
+    finally:
+        conn.close()
+
+    second = _run_cli(["ingest", "chatgpt", export, "--apply"], env=env, cwd=workdir)
+    assert second.returncode == 0, (second.stderr[-400:], second.stdout[-400:])
+    assert "Turns inserted: 0" in second.stdout, second.stdout
+    assert "Turns already present: 4" in second.stdout
+    conn = sqlite3.connect(db_path)
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM ingest_turns").fetchone()[0] == 4
+        assert conn.execute("SELECT COUNT(*) FROM ingest_conversations").fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM ingest_archives").fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM episodes").fetchone()[0] == 0
+    finally:
+        conn.close()
+    return "apply writes chatgpt turns + archive hash; second run is a no-op; no memories"
+
+
+def check_apply_refuses_malformed_conversation():
+    workdir = tempfile.mkdtemp(prefix="hh_ingest_malformed_")
+    db_path = os.path.join(workdir, "hungry_hippa.db")
+    payload = _linear_export() + ["not a conversation", {"unexpected": True}]
+    export = _write(payload)
+    env = _cli_env(db_path)
+    result = _run_cli(["ingest", "chatgpt", export, "--apply"], env=env, cwd=workdir)
+    assert result.returncode == 1, (result.stderr, result.stdout)
+    assert "mapping object" in result.stdout, result.stdout
+    assert not os.path.exists(db_path), "rejected input created a database"
+    return "malformed conversation rejects the whole export before writes"
+
+
+def check_apply_refuses_symlink_and_omits_eval():
+    workdir = tempfile.mkdtemp(prefix="hh_ingest_link_")
+    db_path = os.path.join(workdir, "hungry_hippa.db")
+    export = _write(_linear_export())
+    link = os.path.join(workdir, "conversations.json")
+    os.symlink(export, link)
+    env = _cli_env(db_path)
+    refused = _run_cli(["ingest", "chatgpt", link, "--apply"], env=env, cwd=workdir)
+    assert refused.returncode == 1, refused.returncode
+    assert "symlink" in refused.stdout.lower(), refused.stdout
+    assert not os.path.exists(db_path), "symlink ingest created a database"
+    nested = os.path.join(workdir, "nested")
+    os.mkdir(nested)
+    target = os.path.join(workdir, "via.json")
+    with open(export, "rb") as src, open(target, "wb") as dst:
+        dst.write(src.read())
+    rel = os.path.join(nested, "..", "via.json")
+    ok = _run_cli(["ingest", "chatgpt", rel, "--dry-run"], env=env, cwd=workdir)
+    assert ok.returncode == 0, (ok.stderr[-400:], ok.stdout[-400:])
+    assert "No database writes" in ok.stdout
+    chatgpt = (PACKAGE_DIR / "ingest" / "chatgpt.py").read_text(encoding="utf-8")
+    store = (PACKAGE_DIR / "ingest" / "store.py").read_text(encoding="utf-8")
+    cli = (PACKAGE_DIR / "cli.py").read_text(encoding="utf-8")
+    for src in (chatgpt, store, cli):
+        assert "eval(" not in src and "exec(" not in src
+    return "leaf symlink refused; .. canonicalized; no eval/exec"
 
 
 # --------------------------------------------------------------------------- runner
@@ -485,6 +618,12 @@ def run_all() -> List[Dict[str, Any]]:
     check("malformed_node_does_not_kill_conversation",
           check_malformed_node_does_not_kill_conversation)
     check("parser_is_offline_and_writes_nothing", check_parser_is_offline_and_writes_nothing)
+    check("apply_persists_canonical_turns_not_memories",
+          check_apply_persists_canonical_turns_not_memories)
+    check("apply_refuses_malformed_conversation",
+          check_apply_refuses_malformed_conversation)
+    check("apply_refuses_symlink_and_omits_eval",
+          check_apply_refuses_symlink_and_omits_eval)
     return results
 
 

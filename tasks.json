@@ -1,0 +1,136 @@
+{
+  "schema_version": 1,
+  "updated": "2026-09-18",
+  "branch": "codex/first-usable-ingestion",
+  "released": {
+    "version": "1.0.0",
+    "sha": "9b9593f62b76c044470f9bc5684656aadb3f07d9"
+  },
+  "tasks": [
+    {
+      "id": "BASELINE",
+      "status": "done",
+      "evidence": "docs/baseline-2026-09-18.md",
+      "result": "Remote and local reality verified; existing work preserved"
+    },
+    {
+      "id": "IMPORT-HARDEN",
+      "status": "done",
+      "commit": "f283a97",
+      "evidence": [
+        "docs/INGESTION.md",
+        "tests/test_ingest_integrity.py"
+      ],
+      "result": "Exact bytes, bounded ChatGPT input, immutable provenance and conflict-safe repeat imports"
+    },
+    {
+      "id": "CI-INSTALL",
+      "status": "done",
+      "commit": "4f945e0",
+      "evidence": [
+        "scripts/check_all.py",
+        "scripts/check_install.py"
+      ],
+      "result": "25 shared steps passed locally and CI succeeded on Python 3.10/3.12/3.13/3.14 at 8f99431"
+    },
+    {
+      "id": "INGEST-MEASURE",
+      "status": "done",
+      "evidence": "eval/ingest-results.json",
+      "next": "Expand real-export adapter coverage and fix extraction safely; no public dataset claims",
+      "result": "All nine synthetic runs recorded from clean 8f99431; all provenance and backup checks passed"
+    },
+    {
+      "id": "EXTRACT-REVIEW",
+      "status": "next",
+      "existing_branch": "feat/ingest-extract",
+      "acceptance": [
+        "No checkpoint advance for malformed model output",
+        "No silent prompt truncation",
+        "Atomic candidates/checkpoints",
+        "Evidence-linked quarantine then explicit review"
+      ],
+      "dependency": "Rebase experimental migration IDs onto schema v7"
+    },
+    {
+      "id": "RECONCILE-TRUST",
+      "status": "next",
+      "existing_branch": "feat/ingest-reconcile",
+      "acceptance": [
+        "Unapproved candidates cannot strengthen or supersede approved memory",
+        "Correction updates future recall while retaining provenance"
+      ]
+    },
+    {
+      "id": "RETRIEVAL-REGRESSION",
+      "status": "open",
+      "evidence": "eval/results.json scenario 10",
+      "acceptance": [
+        "Reproduce scale-recall failures",
+        "Measure BM25 contribution and fix only with regression evidence",
+        "Publish all failures and comparative denominators"
+      ]
+    },
+    {
+      "id": "RESTORE-UX",
+      "status": "open",
+      "acceptance": [
+        "Restore into a new destination without overwriting existing data",
+        "Verify SQLite and source integrity",
+        "Test CLI correction and deletion with provenance"
+      ]
+    },
+    {
+      "id": "ADAPTERS-DOGFOOD",
+      "status": "open",
+      "acceptance": [
+        "Review existing Hermes prototype",
+        "Add provider/generic adapters with hostile-input checks",
+        "Use authorized real histories locally without publishing private fixtures"
+      ]
+    },
+    {
+      "id": "EXTERNAL-BENCHMARK",
+      "status": "open",
+      "evidence": "BENCHMARKS.md",
+      "acceptance": [
+        "Pinned dataset/hash and isolated evaluator labels",
+        "Turn/session recall and precision",
+        "Fixed model/context budgets and raw outcomes"
+      ]
+    },
+    {
+      "id": "SPONSORS",
+      "status": "owner_action",
+      "evidence": "SUPPORT.md",
+      "result": "No visible listing/funding links; repository material prepared",
+      "next": "Owner completes GitHub personal-account enrollment; verify destination before enabling FUNDING.yml"
+    },
+    {
+      "id": "BRAND-LOGO",
+      "status": "done",
+      "evidence": [
+        "assets/branding/hungry-hippa-logo.png",
+        "assets/branding/README.md"
+      ],
+      "result": "Maintainer-approved original preserved byte-for-byte; README, demo and support pages use it; future UI reference recorded",
+      "sha256": "73579d1d7e947fd4b253c67b638a6af0aae34c2af704d87b180c7f5d53a9807e"
+    }
+  ],
+  "verification": {
+    "code_sha": "8f99431471df8fb149676227401f0567763c8474",
+    "remote_checks": [
+      "git ls-remote",
+      "GitHub connector branch API"
+    ],
+    "ci_url": "https://github.com/TRUE-BLUE-INDUSTRIES/hungry-hippa/actions/runs/35384714272",
+    "ci_result": "success",
+    "python_versions": [
+      "3.10",
+      "3.12",
+      "3.13",
+      "3.14"
+    ],
+    "local_steps": 25
+  }
+}

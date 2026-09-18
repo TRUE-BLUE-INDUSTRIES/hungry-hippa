@@ -437,6 +437,37 @@ class SemanticMemory:
         new["contradicts"] = belief_id
         return new
 
+    def link_open_contradiction(self, belief_id: str, other_id: str, *,
+                                session_id: str = "") -> Dict[str, Any]:
+        """Cross-link two claims as contradictions without picking a winner.
+
+        Ingest reconcile must not silently resolve. Both rows keep their status,
+        quarantine flag, and evidence; only the ``contradictions`` lists grow.
+        """
+        a = self.get_belief(belief_id)
+        b = self.get_belief(other_id)
+        if not a or not b:
+            return {"error": "unknown belief"}
+        now = _db.now_iso()
+
+        def _upd(conn) -> None:
+            for row, other in ((a, other_id), (b, belief_id)):
+                cluster = list(row.get("contradictions") or [])
+                if other not in cluster:
+                    cluster.append(other)
+                conn.execute(
+                    "UPDATE beliefs SET contradictions = ?, updated_at = ? "
+                    "WHERE belief_id = ?",
+                    (_db.jdump(cluster), now, row["belief_id"]),
+                )
+
+        self.db._run(_upd, write=True)
+        self.db.log_mutation(
+            "contradict_open", "belief", belief_id,
+            f"kept_both other={other_id} resolved=false", session_id,
+        )
+        return {"kept": [belief_id, other_id], "resolved": False}
+
     def remove_belief(self, belief_id: str, session_id: str = "") -> bool:
         """Explicit removal (correct individual memories, §19.14)."""
         def _rm(conn) -> bool:
