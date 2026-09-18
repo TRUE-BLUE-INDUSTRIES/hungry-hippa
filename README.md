@@ -1,6 +1,9 @@
 # Hungry Hippa
 
-**One memory. Any AI. Your machine.**
+**One memory. Every AI. You own it.**
+
+Today: local SQLite memory and six stdio MCP tools. Additional client adapters
+and the complete historical import-to-recall workflow are still in progress.
 
 Hungry Hippa gives AI a memory you own. It keeps useful memory on your machine and
 lets connected AI tools remember it later. The model can change. The provider can
@@ -319,21 +322,20 @@ Caller identity defaults to `mcp-untrusted`: untrusted writers get quarantine, u
 readers get only their own unclassified, non-quarantined rows, and purge is denied. This
 is an actor/policy check, not capability-based security.
 
-### Reading a ChatGPT export (parsing only)
-
-Historical ingestion starts with a parser and nothing else: it turns an OpenAI/ChatGPT
-`conversations.json` export into normalized turns with their branch provenance, and writes
-nothing to the store.
+### Importing a ChatGPT export
 
 ```bash
-hungry-hippa ingest chatgpt ~/Downloads/conversations.json --dry-run
+hungry-hippa ingest chatgpt conversations.json --dry-run
+hungry-hippa ingest chatgpt conversations.json --apply --db /path/to/import.db
+hungry-hippa ingest verify DIGEST_PRINTED_BY_IMPORT --db /path/to/import.db
+hungry-hippa ingest show CONVERSATION_ID --db /path/to/import.db
 ```
 
-Every supported textual turn is kept — including answers that were regenerated away and
-prompts that were edited, which is what makes a later import reconcilable instead of
-rewritten. `current_path_turn_ids` identifies the branch the export considered active. No
-database writes, no model calls, no new MCP tools. See
-[docs/INGESTION.md](docs/INGESTION.md).
+The import preserves exact source bytes, all supported text branches and
+per-export provenance. Repeat imports are safe; conflicting identities are
+refused. Raw history remains separate from memory: importing alone does not
+make its text available to AI recall. See [ingestion](docs/INGESTION.md) for
+limits, backup behavior, and the pending extraction step.
 
 ### Reviewing quarantined memories (operator CLI)
 
@@ -376,7 +378,7 @@ More detail: [docs/SECURITY.md](docs/SECURITY.md), [docs/MIGRATION.md](docs/MIGR
 ## Evidence, not adjectives
 
 Every claim in this README points at a suite that proves it. `python scripts/check_all.py`
-runs all of them (16 steps, 14 suites) and also fails if a test file exists that no step
+runs all registered suites and also fails if a test file exists that no step
 runs.
 
 | Claim | Where the evidence is |
@@ -454,3 +456,11 @@ MIT — see [LICENSE](LICENSE). Dependency and content notes:
 
 Report issues via GitHub (no security email address exists or should be assumed):
 [SECURITY.md](SECURITY.md).
+
+## Project status and support
+
+See [project state](PROJECT_STATE.md), [architecture](ARCHITECTURE.md),
+[roadmap](ROADMAP.md), [decisions](DECISIONS.md) and [benchmarks](BENCHMARKS.md)
+for current evidence and limitations. [Supporting Hungry Hippa](SUPPORT.md)
+describes open-source priorities and Sponsors preparation; no active funding
+link has been verified yet.

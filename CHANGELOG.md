@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Safe historical-import increment
+- Integrate existing canonical ChatGPT ingestion work without enabling model extraction.
+- Bound hostile JSON, regular-file reads, graph depth and expanded lineage; reject
+  ambiguous identities and malformed export envelopes explicitly.
+- Preserve exact export bytes, per-archive branch snapshots and turn provenance in
+  schema v7. Refuse conflicting turns transactionally; duplicate imports are no-ops.
+- Add explicit import destinations, `ingest verify` and `ingest show`; SQLite backup
+  recovery retains raw bytes. No beliefs/episodes are created by importing.
+- Align CI with the shared runner and validate a fresh installed wheel over real MCP.
+- Add reproducible synthetic ingestion measurements and durable project documentation.
+
+## v1.0.0 — released 2026-09-18
+
+The following baseline changes shipped at `9b9593f`; parser-only statements describe
+that release, before the unreleased write path above.
+
 ### Added
 - `hungry_hippa.ingest`: historical-ingestion Slice 1 — a lossless parser for ChatGPT
   `conversations.json` exports (`parse_chatgpt_export(path) -> list[ParsedConversation]`).

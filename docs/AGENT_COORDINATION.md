@@ -1,3 +1,7 @@
+> Historical coordination record. For current work, read [PROJECT_STATE.md](../PROJECT_STATE.md),
+> [AGENTS.md](../AGENTS.md) and verified Git state. The assignments and checkout
+> states below are not a current deployment inventory.
+
 # Current follow-up ownership
 
 Codex owns the remaining follow-up under the operator’s latest instruction.
