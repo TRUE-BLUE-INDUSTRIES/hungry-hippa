@@ -5,8 +5,8 @@ bytes are not stored in SQLite. Layer 2 is canonical conversation and turn
 rows. Neither layer writes ``episodes``: raw history is not a memory.
 
 The ChatGPT parser stays independent of this module. Callers parse first
-(``parse_chatgpt_export``) and then persist. The CLI write path is a later
-slice; this is the library API it will call.
+(``parse_chatgpt_export``) and then persist. The CLI ``--apply`` path calls
+this API; it does not extract memories.
 """
 
 from __future__ import annotations

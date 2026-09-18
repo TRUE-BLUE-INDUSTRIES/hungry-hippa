@@ -2,9 +2,10 @@
 
 Slice 1 is the ChatGPT parser: lossless, stdlib-only, no database. Slice 2
 persists those turns as raw history (archive pointer + canonical conversation
-and turn tables). Nothing here extracts memories, writes episodes, opens a
+and turn tables). Slice 3 is the CLI write path (`hungry-hippa ingest chatgpt
+FILE --apply`). Nothing here extracts memories, writes episodes, opens a
 network connection, or calls a model; the MCP surface is untouched and still
-exactly six tools. The CLI write path is a later slice.
+exactly six tools.
 
 Parse public API::
 
@@ -15,7 +16,7 @@ Parse public API::
         convo.turns                 # every supported textual turn, all branches
         convo.current_path_turn_ids  # the branch the export considered active
 
-Persist (library only; HH-04 wires the CLI)::
+Persist::
 
     from hungry_hippa.ingest.store import persist_parsed_export
 
@@ -39,6 +40,7 @@ from .chatgpt import (
     parse_chatgpt_conversation,
     parse_chatgpt_export,
     parse_chatgpt_payload,
+    resolve_export_path,
 )
 
 __all__ = [
@@ -51,4 +53,5 @@ __all__ = [
     "parse_chatgpt_export",
     "parse_chatgpt_payload",
     "parse_chatgpt_conversation",
+    "resolve_export_path",
 ]
