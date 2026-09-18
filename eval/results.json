@@ -1,7 +1,7 @@
 {
   "product": "Hungry Hippa",
-  "generated_at": "2026-09-15T05:10:06.434657+00:00",
-  "revision": "6574bc65913313d84fd850105f6d86b54e1b0230",
+  "generated_at": "2026-09-15T05:13:13.731904+00:00",
+  "revision": "710b604575a074c1c740c32145f312cdded03a20",
   "python": "3.14.7",
   "sqlite": "3.53.4",
   "platform": "Linux-7.1.9-arch1-2-x86_64-with-glibc2.44",
@@ -18,14 +18,14 @@
           "recall_rate": 1.0,
           "incorrect_memory_rate": 0.0,
           "context_chars": 86,
-          "latency_ms": 1.935079
+          "latency_ms": 1.942801
         },
         "without_memory": {
           "precision": null,
           "recall_rate": 0.0,
           "incorrect_memory_rate": null,
           "context_chars": 0,
-          "latency_ms": 0.544759
+          "latency_ms": 0.55319
         },
         "baseline": "Empty controller DB; no conversation or model",
         "scope": "Structured recall, not proof of an agent choosing an action"
@@ -41,14 +41,14 @@
           "recall_rate": 1.0,
           "incorrect_memory_rate": 0.0,
           "context_chars": 166,
-          "latency_ms": 0.887999
+          "latency_ms": 0.879621
         },
         "without_memory": {
           "precision": null,
           "recall_rate": 0.0,
           "incorrect_memory_rate": null,
           "context_chars": 0,
-          "latency_ms": 0.50958
+          "latency_ms": 0.51118
         },
         "baseline": "Empty controller DB; no conversation or model",
         "scope": "Structured recall, not proof of an agent choosing an action"
@@ -64,14 +64,14 @@
           "recall_rate": 1.0,
           "incorrect_memory_rate": 0.0,
           "context_chars": 210,
-          "latency_ms": 0.857059
+          "latency_ms": 0.858521
         },
         "without_memory": {
           "precision": null,
           "recall_rate": 0.0,
           "incorrect_memory_rate": null,
           "context_chars": 0,
-          "latency_ms": 0.5076
+          "latency_ms": 0.504221
         },
         "baseline": "Empty controller DB; no conversation or model",
         "scope": "Structured recall, not proof of an agent choosing an action"
@@ -86,7 +86,7 @@
         "recall_rate": 1.0,
         "incorrect_memory_rate": 0.0,
         "context_chars": 117,
-        "latency_ms": 0.824399
+        "latency_ms": 0.834031
       }
     },
     {
@@ -138,25 +138,25 @@
           {
             "episodes": 10,
             "repeats": 15,
-            "median_ms": 2.677999,
-            "min_ms": 2.634268,
-            "max_ms": 2.744858,
+            "median_ms": 2.667851,
+            "min_ms": 2.636932,
+            "max_ms": 2.887422,
             "samples_ms": [
-              2.685989,
-              2.722719,
-              2.744858,
-              2.655159,
-              2.677999,
-              2.676629,
-              2.649219,
-              2.685088,
-              2.710229,
-              2.641729,
-              2.675769,
-              2.699889,
-              2.634268,
-              2.675619,
-              2.712679
+              2.672582,
+              2.742762,
+              2.651671,
+              2.669222,
+              2.657332,
+              2.663871,
+              2.651042,
+              2.887422,
+              2.725931,
+              2.654042,
+              2.636932,
+              2.665361,
+              2.685492,
+              2.667851,
+              2.667872
             ],
             "storage_bytes": 217088,
             "file_bytes": {
@@ -166,25 +166,25 @@
           {
             "episodes": 100,
             "repeats": 15,
-            "median_ms": 2.991859,
-            "min_ms": 2.960209,
-            "max_ms": 3.099588,
+            "median_ms": 2.973492,
+            "min_ms": 2.952602,
+            "max_ms": 3.036882,
             "samples_ms": [
-              3.013039,
-              3.065008,
-              3.004469,
-              2.960209,
-              2.977738,
-              3.009419,
-              2.966699,
-              3.099588,
-              3.004829,
-              2.970289,
-              2.994768,
-              2.986179,
-              2.991859,
-              2.969438,
-              2.991369
+              2.980282,
+              2.982712,
+              3.005591,
+              2.970692,
+              2.971242,
+              2.967152,
+              2.984952,
+              2.973222,
+              2.959201,
+              2.988422,
+              3.036882,
+              2.973492,
+              2.952602,
+              2.995272,
+              2.962421
             ],
             "storage_bytes": 262144,
             "file_bytes": {
@@ -194,25 +194,25 @@
           {
             "episodes": 1000,
             "repeats": 15,
-            "median_ms": 3.603608,
-            "min_ms": 3.551858,
-            "max_ms": 3.633729,
+            "median_ms": 3.595093,
+            "min_ms": 3.558912,
+            "max_ms": 3.923952,
             "samples_ms": [
-              3.600839,
-              3.589908,
-              3.593899,
-              3.598038,
-              3.633729,
-              3.612688,
-              3.551858,
-              3.598499,
-              3.616048,
-              3.610748,
-              3.613869,
-              3.605708,
-              3.576018,
-              3.611779,
-              3.603608
+              3.609873,
+              3.609572,
+              3.923952,
+              3.590372,
+              3.581693,
+              3.564522,
+              3.558912,
+              3.664582,
+              3.619362,
+              3.592893,
+              3.771412,
+              3.819782,
+              3.595093,
+              3.594932,
+              3.587982
             ],
             "storage_bytes": 724992,
             "file_bytes": {
