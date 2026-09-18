@@ -364,8 +364,9 @@ def _cmd_ingest(args) -> None:
     memory database, so there is no path from a forgotten flag to a write.
     ``--apply`` on chatgpt/hermes writes canonical ingest rows via the persist
     library. ``ingest extract --apply`` reads those rows and writes quarantined
-    hypotheses. Neither path goes through ``_controller()``, so they cannot
-    mint ``user_explicit`` provenance.
+    hypotheses. ``ingest reconcile`` classifies those hypotheses against
+    existing memories. None of these paths go through ``_controller()``, so
+    they cannot mint ``user_explicit`` provenance.
     """
     action = getattr(args, "ingest_command", "") or ""
     if action == "chatgpt":
@@ -374,9 +375,12 @@ def _cmd_ingest(args) -> None:
         return _cmd_ingest_hermes(args)
     if action == "extract":
         return _cmd_ingest_extract(args)
+    if action == "reconcile":
+        return _cmd_ingest_reconcile(args)
     print("Usage: hungry-hippa ingest chatgpt <conversations.json> [--dry-run|--apply]")
     print("       hungry-hippa ingest hermes <dir> [--dry-run|--apply]")
     print("       hungry-hippa ingest extract [--dry-run|--apply]")
+    print("       hungry-hippa ingest reconcile [--dry-run|--apply]")
     return None
 
 
@@ -626,6 +630,53 @@ def _cmd_ingest_extract(args) -> None:
     print(f"Episodes written: {result.episodes_written:,}")
     print(f"Candidates skipped: {result.candidates_skipped:,}")
     print("Quarantined hypotheses only; no verified user_explicit; channel=import.")
+
+
+def _cmd_ingest_reconcile(args) -> None:
+    """Classify extract candidates against existing memories (Layer 4)."""
+    apply = bool(getattr(args, "apply", False))
+    dry_run = bool(getattr(args, "dry_run", False))
+    if apply and dry_run:
+        _print_json({"error": "pass only one of --dry-run or --apply"})
+        sys.exit(1)
+    if not apply and not dry_run:
+        _print_json({"error": ("refusing to write: pass --dry-run to classify "
+                               "pending candidates, or --apply to record decisions. "
+                               "Writes are not the default.")})
+        sys.exit(1)
+
+    from .ingest.reconcile import (
+        CLASSES,
+        ExtractRefused,
+        reconcile_store,
+        require_extract_db_env,
+    )
+
+    try:
+        db_path = require_extract_db_env()
+    except ExtractRefused as e:
+        _print_json({"error": str(e)})
+        sys.exit(1)
+
+    from .config import load_config
+    from .db import Database
+
+    cfg = load_config()
+    db = Database(db_path)
+    result = reconcile_store(db, dry_run=dry_run, cfg=cfg)
+    title = "Ingest reconcile (dry-run)" if dry_run else "Ingest reconcile applied"
+    print(title)
+    if result.job_id:
+        print(f"Job: {result.job_id}")
+    print(f"Candidates pending: {result.candidates_pending:,}")
+    print(f"Candidates processed: {result.candidates_processed:,}")
+    for name in CLASSES:
+        print(f"{name}: {result.counts.get(name, 0):,}")
+    if dry_run:
+        print("No decisions recorded, no Layer 1/2 deletes (classify only).")
+    else:
+        print("Contradictions left open (both claims + evidence kept).")
+        print("No Layer 1/2 deletes; extract stays write-candidates.")
 
 
 _QUARANTINE_SOURCE_CLASSES = ("user_explicit", "document", "tool_result")
@@ -1076,6 +1127,19 @@ def register_cli(subparser) -> None:
     ing_extract.add_argument(
         "--limit", type=int, default=0,
         help="max turns to process this run (0 = all pending)",
+    )
+    ing_reconcile = ing_subs.add_parser(
+        "reconcile",
+        help="Classify extract candidates against existing memories (Layer 4)",
+    )
+    reconcile_mode = ing_reconcile.add_mutually_exclusive_group()
+    reconcile_mode.add_argument(
+        "--dry-run", dest="dry_run", action="store_true",
+        help="classify pending candidates; write no decisions (the safe default unless --apply)",
+    )
+    reconcile_mode.add_argument(
+        "--apply", dest="apply", action="store_true",
+        help="record classifications; contradictions stay open (both claims kept)",
     )
 
     exp = subs.add_parser("export", help="Export memory as JSON")

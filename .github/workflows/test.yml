@@ -88,6 +88,12 @@ jobs:
       - name: ingest canonical store
         run: python tests/test_ingest_store.py
 
+      - name: ingest extract (local LM)
+        run: python tests/test_ingest_extract.py
+
+      - name: ingest reconcile (Layer 4)
+        run: python tests/test_ingest_reconcile.py
+
       - name: import + packaging hygiene
         run: python tests/test_import_hygiene.py
 

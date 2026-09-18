@@ -31,6 +31,7 @@ _ID_PREFIX = {
     "episode": "E", "entity": "EN", "relationship": "R", "belief": "B",
     "procedure": "P", "evidence": "EV", "vector": "V", "consolidation": "CR",
     "ingest_archive": "IA", "ingest_extract_job": "IX",
+    "ingest_reconcile_job": "IR", "ingest_reconcile_decision": "IRD",
 }
 
 
@@ -665,6 +666,188 @@ class Database:
             return dict(row) if row else None
 
         return self._run(_g)
+
+    def list_pending_reconcile_candidates(self) -> List[Dict[str, Any]]:
+        """Quarantined import hypotheses that have no reconcile decision yet."""
+        def _g(conn: sqlite3.Connection) -> List[Dict[str, Any]]:
+            rows = [dict(r) for r in conn.execute(
+                "SELECT b.* FROM beliefs b"
+                " LEFT JOIN ingest_reconcile_decisions d"
+                " ON d.candidate_id = b.belief_id"
+                " WHERE b.quarantined = 1"
+                " AND b.ingestion_channel = 'import'"
+                " AND b.status = 'active'"
+                " AND d.candidate_id IS NULL"
+                " ORDER BY b.created_at ASC, b.belief_id ASC"
+            )]
+            for row in rows:
+                ev = conn.execute(
+                    "SELECT evidence_id FROM belief_evidence WHERE belief_id = ?",
+                    (row["belief_id"],),
+                ).fetchall()
+                row["evidence_ids"] = [r["evidence_id"] for r in ev]
+                row["derived_from"] = jload(row.get("derived_from"), [])
+                row["related_entities"] = jload(row.get("related_entities"), [])
+                row["contradictions"] = jload(row.get("contradictions"), [])
+            return rows
+
+        return self._run(_g) or []
+
+    def list_existing_memories_for_reconcile(
+        self, *, exclude_id: str = ""
+    ) -> List[Dict[str, Any]]:
+        """Beliefs reconcile compares a candidate against.
+
+        Established (non-quarantined) rows, plus import hypotheses that already
+        have a decision. Other pending extract candidates are excluded so they
+        are classified independently, then folded in by the caller in created
+        order.
+        """
+        def _g(conn: sqlite3.Connection) -> List[Dict[str, Any]]:
+            sql = (
+                "SELECT b.* FROM beliefs b"
+                " WHERE b.status IN ('active', 'superseded', 'contradicted')"
+            )
+            params: List[Any] = []
+            if exclude_id:
+                sql += " AND b.belief_id != ?"
+                params.append(exclude_id)
+            sql += (
+                " AND (b.quarantined = 0"
+                " OR b.belief_id IN (SELECT candidate_id FROM ingest_reconcile_decisions)"
+                " OR IFNULL(b.ingestion_channel, '') != 'import')"
+                " ORDER BY b.created_at ASC, b.belief_id ASC"
+            )
+            rows = [dict(r) for r in conn.execute(sql, params)]
+            for row in rows:
+                ev = conn.execute(
+                    "SELECT evidence_id FROM belief_evidence WHERE belief_id = ?",
+                    (row["belief_id"],),
+                ).fetchall()
+                row["evidence_ids"] = [r["evidence_id"] for r in ev]
+                row["derived_from"] = jload(row.get("derived_from"), [])
+                row["related_entities"] = jload(row.get("related_entities"), [])
+                row["contradictions"] = jload(row.get("contradictions"), [])
+            return rows
+
+        return self._run(_g) or []
+
+    def create_ingest_reconcile_job(self, *, dry_run: bool = False) -> str:
+        job_id = self.next_id("ingest_reconcile_job")
+        now = now_iso()
+
+        def _c(conn: sqlite3.Connection) -> None:
+            conn.execute(
+                "UPDATE ingest_reconcile_jobs SET status = 'abandoned', updated_at = ?"
+                " WHERE status = 'running'",
+                (now,),
+            )
+            conn.execute(
+                "INSERT INTO ingest_reconcile_jobs("
+                "job_id, status, dry_run, candidates_seen, candidates_processed,"
+                " duplicate_n, reinforcement_n, contradiction_n, update_n,"
+                " supersession_n, low_confidence_n, irrelevant_n, error,"
+                " started_at, updated_at, finished_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (job_id, "running", 1 if dry_run else 0, 0, 0,
+                 0, 0, 0, 0, 0, 0, 0, "", now, now, None),
+            )
+
+        self._run(_c, write=True)
+        return job_id
+
+    def update_ingest_reconcile_job(self, job_id: str, **fields: Any) -> None:
+        if not job_id or not fields:
+            return
+        allowed = {
+            "status", "dry_run", "candidates_seen", "candidates_processed",
+            "duplicate_n", "reinforcement_n", "contradiction_n", "update_n",
+            "supersession_n", "low_confidence_n", "irrelevant_n", "error",
+            "finished_at",
+        }
+        sets = ["updated_at = ?"]
+        params: List[Any] = [now_iso()]
+        for key, value in fields.items():
+            if key not in allowed:
+                continue
+            sets.append(f"{key} = ?")
+            params.append(value)
+        params.append(job_id)
+        sql = f"UPDATE ingest_reconcile_jobs SET {', '.join(sets)} WHERE job_id = ?"
+
+        def _u(conn: sqlite3.Connection) -> None:
+            conn.execute(sql, params)
+
+        self._run(_u, write=True)
+
+    def record_ingest_reconcile_decision(
+        self,
+        *,
+        job_id: str,
+        candidate_id: str,
+        matched_id: str = "",
+        classification: str,
+        similarity: float = 0.0,
+        reason: str = "",
+        evidence_ids: Optional[List[str]] = None,
+        applied: bool = False,
+    ) -> str:
+        """Insert a decision. UNIQUE(candidate_id): a re-run is a no-op."""
+        decision_id = self.next_id("ingest_reconcile_decision")
+        now = now_iso()
+
+        def _c(conn: sqlite3.Connection) -> str:
+            existing = conn.execute(
+                "SELECT decision_id FROM ingest_reconcile_decisions"
+                " WHERE candidate_id = ?",
+                (candidate_id,),
+            ).fetchone()
+            if existing:
+                return str(existing["decision_id"])
+            conn.execute(
+                "INSERT INTO ingest_reconcile_decisions("
+                "decision_id, job_id, candidate_id, matched_id, classification,"
+                " similarity, reason, evidence_ids, applied, created_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (decision_id, job_id or "", candidate_id, matched_id or "",
+                 classification, float(similarity), reason or "",
+                 jdump(list(evidence_ids or [])), 1 if applied else 0, now),
+            )
+            return decision_id
+
+        return self._run(_c, write=True) or ""
+
+    def get_ingest_reconcile_decision(
+        self, candidate_id: str
+    ) -> Optional[Dict[str, Any]]:
+        def _g(conn: sqlite3.Connection) -> Optional[Dict[str, Any]]:
+            row = conn.execute(
+                "SELECT * FROM ingest_reconcile_decisions WHERE candidate_id = ?",
+                (candidate_id,),
+            ).fetchone()
+            if not row:
+                return None
+            d = dict(row)
+            d["evidence_ids"] = jload(d.get("evidence_ids"), [])
+            return d
+
+        return self._run(_g)
+
+    def count_ingest_reconcile_decisions(self) -> int:
+        def _g(conn: sqlite3.Connection) -> int:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM ingest_reconcile_decisions"
+            ).fetchone()
+            return int(row["n"] if row else 0)
+
+        return int(self._run(_g) or 0)
+
+    def list_ingest_turns_count(self) -> int:
+        def _g(conn: sqlite3.Connection) -> int:
+            row = conn.execute("SELECT COUNT(*) AS n FROM ingest_turns").fetchone()
+            return int(row["n"] if row else 0)
+
+        return int(self._run(_g) or 0)
 
 
 def _upsert_ingest_archive(

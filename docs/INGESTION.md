@@ -12,6 +12,7 @@ tables, not in `episodes`.
 | 3 — CLI write | `ingest chatgpt FILE --apply` persists via the Slice 2 library | extract memories, write episodes/beliefs, mint `user_explicit`, change MCP |
 | Hermes | same parse shape + same persist, from a sessions export dir | open `state.db`, extract memories, change MCP, follow symlinks |
 | 4 — extract | local LM Studio reads stored turns in small batches and writes quarantined hypotheses | mint `user_explicit`, overwrite existing beliefs, call Grok/Nous, change MCP |
+| 5 — reconcile | compare those hypotheses to existing memories; classify; keep contradictions open | mint `user_explicit`, delete Layer 1/2, pick a contradiction winner, change MCP |
 
 The MCP surface is unchanged: still exactly six tools.
 
@@ -324,7 +325,7 @@ Without `--dry-run` or `--apply` the command **refuses**. `--dry-run` counts pen
 | `ingestion_channel` | `import` |
 | `user_explicit` | never minted, even if the model asks |
 
-Every candidate links to immutable `evidence` rows whose `source_ref` names the ingest turn (`kind=ingest_turn`, plus `source` / `session_id` / `turn_id`). Existing active claims are left alone: a light normalized-text heuristic skips duplicates. Full reconcile is a later slice.
+Every candidate links to immutable `evidence` rows whose `source_ref` names the ingest turn (`kind=ingest_turn`, plus `source` / `session_id` / `turn_id`). Existing active claims are left alone: a light normalized-text heuristic skips duplicates. Full compare-and-classify is Slice 5 (`ingest reconcile`).
 
 ### Batching and resume
 
@@ -342,6 +343,57 @@ Grok and Nous are not used. The MCP surface is still exactly six tools.
 - This LM Studio build rejects `response_format: json_object` (only `json_schema` or `text`); the extractor omits `response_format` and asks for JSON in the prompt.
 - Model returns non-JSON, tool-call payloads, or claims that cite unknown turn ids: the batch is skipped (turns still checkpointed so a poison response cannot loop forever).
 - Qwen thinking can swallow `max_tokens` as `reasoning_content` if thinking is re-enabled; this slice sends `enable_thinking: false`.
-- Duplicate heuristic is string-level only; contradictions against protected facts are not resolved here (HH-07).
+- Duplicate heuristic is string-level only; Layer 4 (`ingest reconcile`) does the full compare-and-classify.
 - `--apply` without `HUNGRY_HIPPA_DB` refuses, because the default discovery path can be the live Hermes store.
 - Extracted hypotheses are quarantined, so default recall does not surface them until an operator approves.
+
+---
+
+## Slice 5 — reconcile (Layer 4)
+
+Extract writes candidates. Reconcile compares each quarantined import hypothesis
+to memories already in the store and classifies it. Extract stays
+"write candidates"; this command is the separate compare step.
+
+```bash
+export HUNGRY_HIPPA_DB=/tmp/hh-reconcile.db
+
+hungry-hippa ingest reconcile --dry-run
+hungry-hippa ingest reconcile --apply
+```
+
+Without `--dry-run` or `--apply` the command **refuses**. `--dry-run` is the
+safe default. The command requires `HUNGRY_HIPPA_DB` and refuses the known live
+Hermes/Grok stores, same as extract.
+
+### Classes
+
+| Class | Meaning | Apply |
+|---|---|---|
+| duplicate | same claim, evidence already attached | archive the candidate; keep the existing row |
+| reinforcement | same claim, new evidence | attach evidence, nudge confidence, archive the candidate |
+| contradiction | opposite polarity or conflicting values | **keep both claims and all evidence**; cross-link; do not pick a winner |
+| update | refinement (existing tokens ⊂ candidate tokens) | keep both; `derived_from` records `update_of:` |
+| supersession | replacement language (`now`, `moved to`, …) | unprotected: mark old `superseded`, graph `SUPERSEDES` with `valid_from`; protected: leave the existing claim, keep the candidate quarantined |
+| low-confidence | too short, or a weak overlap | leave quarantined |
+| irrelevant | no meaningful overlap with existing memories | leave quarantined |
+
+Re-running `--apply`, or re-importing / re-extracting the same export, is a
+no-op at this layer (`UNIQUE` on the candidate id). Layer 1 archive pointers
+and Layer 2 turns are never deleted. Schema **v8** adds
+`ingest_reconcile_jobs` and `ingest_reconcile_decisions`; `down_sql` drops
+only those two tables.
+
+Library:
+
+```python
+from hungry_hippa.ingest.reconcile import classify, reconcile_store, MemoryView
+
+decision = classify(candidate, existing_memories)
+result = reconcile_store(db)            # apply
+preview = reconcile_store(db, dry_run=True)
+```
+
+The classifier is deterministic (token overlap, polarity, replacement cues). It
+does not call a model. It does not mint `user_explicit`. MCP is still exactly
+six tools. Claim text is not printed by the CLI.
