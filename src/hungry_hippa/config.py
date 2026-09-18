@@ -144,7 +144,7 @@ DEFAULTS: Dict[str, Any] = {
         "chat_model": "qwen/qwen3.8-27b",
         "api_key": "lm-studio",
         "timeout_s": 90,
-        "max_tokens": 768,
+        "max_tokens": 2048,
         "batch_turns": 4,
         "batch_chars": 2400,
     },

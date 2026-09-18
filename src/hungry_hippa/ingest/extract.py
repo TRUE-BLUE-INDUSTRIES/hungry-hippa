@@ -53,7 +53,10 @@ DEFAULT_CHAT_MODEL = "qwen/qwen3.8-27b"
 DEFAULT_API_KEY = "lm-studio"
 DEFAULT_BATCH_TURNS = 4
 DEFAULT_BATCH_CHARS = 2400
-DEFAULT_MAX_TOKENS = 768
+# This LM Studio/Qwen3 build still emits reasoning_content even with
+# enable_thinking=false. 768 completion tokens is eaten by reasoning and the
+# JSON truncates (finish_reason=length). 2048 leaves room for the object.
+DEFAULT_MAX_TOKENS = 2048
 DEFAULT_HEALTH_TIMEOUT_S = 5.0
 DEFAULT_EXTRACT_TIMEOUT_S = 90.0
 TURN_PROMPT_CHARS = 800

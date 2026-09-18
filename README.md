@@ -319,21 +319,23 @@ Caller identity defaults to `mcp-untrusted`: untrusted writers get quarantine, u
 readers get only their own unclassified, non-quarantined rows, and purge is denied. This
 is an actor/policy check, not capability-based security.
 
-### Reading a ChatGPT export (parsing only)
+### Reading a ChatGPT export
 
-Historical ingestion starts with a parser and nothing else: it turns an OpenAI/ChatGPT
-`conversations.json` export into normalized turns with their branch provenance, and writes
-nothing to the store.
+Historical ingestion parses an OpenAI/ChatGPT `conversations.json` into normalized
+turns with branch provenance. `--dry-run` writes nothing. `--apply` persists a Layer 1
+archive pointer plus Layer 2 conversation/turn rows (not episodes). Extraction and
+reconcile are separate commands; extracted hypotheses stay quarantined.
 
 ```bash
 hungry-hippa ingest chatgpt ~/Downloads/conversations.json --dry-run
+hungry-hippa ingest chatgpt ~/Downloads/conversations.json --apply   # needs HUNGRY_HIPPA_DB
 ```
 
 Every supported textual turn is kept — including answers that were regenerated away and
-prompts that were edited, which is what makes a later import reconcilable instead of
-rewritten. `current_path_turn_ids` identifies the branch the export considered active. No
-database writes, no model calls, no new MCP tools. See
-[docs/INGESTION.md](docs/INGESTION.md).
+prompts that were edited. `current_path_turn_ids` identifies the branch the export
+considered active. No new MCP tools. The HH-08 e2e (`python eval/ingest_e2e.py`) runs this
+pipeline against a **synthetic** fixture on a throwaway database — never the operator's
+real export. See [docs/INGESTION.md](docs/INGESTION.md).
 
 ### Reviewing quarantined memories (operator CLI)
 

@@ -342,7 +342,10 @@ Grok and Nous are not used. The MCP surface is still exactly six tools.
 - LM Studio down, or `qwen/qwen3.8-27b` not loaded: `--apply` fails clearly; store unchanged (no job).
 - This LM Studio build rejects `response_format: json_object` (only `json_schema` or `text`); the extractor omits `response_format` and asks for JSON in the prompt.
 - Model returns non-JSON, tool-call payloads, or claims that cite unknown turn ids: the batch is skipped (turns still checkpointed so a poison response cannot loop forever).
-- Qwen thinking can swallow `max_tokens` as `reasoning_content` if thinking is re-enabled; this slice sends `enable_thinking: false`.
+- Qwen thinking can swallow `max_tokens` as `reasoning_content`. This slice sends
+  `enable_thinking: false`, but the current LM Studio/Qwen3.8-27b build still
+  emits ~700 reasoning tokens. Default `max_tokens` is 2048 so the JSON object
+  can finish (768 truncated mid-claim on this host).
 - Duplicate heuristic is string-level only; Layer 4 (`ingest reconcile`) does the full compare-and-classify.
 - `--apply` without `HUNGRY_HIPPA_DB` refuses, because the default discovery path can be the live Hermes store.
 - Extracted hypotheses are quarantined, so default recall does not surface them until an operator approves.
@@ -397,3 +400,39 @@ preview = reconcile_store(db, dry_run=True)
 The classifier is deterministic (token overlap, polarity, replacement cues). It
 does not call a model. It does not mint `user_explicit`. MCP is still exactly
 six tools. Claim text is not printed by the CLI.
+
+---
+
+## HH-08 — ChatGPT export → recall with evidence
+
+The first practical target: a **synthetic** ChatGPT `conversations.json` (never
+the operator's real export) is ingested, optionally extracted, and recalled with
+a why-trace.
+
+```bash
+export HUNGRY_HIPPA_DB=/tmp/hh-e2e.db          # throwaway; live stores are refused
+python eval/ingest_e2e.py                     # live extract if LM Studio is up
+python eval/ingest_e2e.py --offline           # CI path: no chat model
+python eval/ingest_e2e.py --json              # machine-readable report
+```
+
+What it proves:
+
+1. `ingest chatgpt FILE --apply` persists Layer 1 (archive pointer + optional
+   `0600` copy) and Layer 2 (canonical conversations/turns, including an
+   abandoned regenerated branch).
+2. `ingest extract --apply` (local `qwen/qwen3.8-27b` at `127.0.0.1:1234`) when
+   the chat model is loaded; skipped clearly when it is not.
+3. `ingest reconcile --apply`.
+4. `hungry-hippa recall` / `why` return the planted dated fact (`52Nm` on
+   12 March 2026) with evidence ids pointing at the ingest turn.
+
+Extracted memories stay **quarantined**. The live demo uses owner CLI
+`recall --quarantined` (`include_quarantined`) on the throwaway DB. Default
+recall must not surface them. Production quarantine is not weakened for the
+demo. When extract is skipped, the script stores an owner memory whose evidence
+still cites the planted ingest turn, so CI can prove persist + recall/why
+without a live model.
+
+Fixture: `eval/fixtures/chatgpt_e2e_conversations.json` (invented mill-setup
+notes; no personal data). MCP is still exactly six tools.

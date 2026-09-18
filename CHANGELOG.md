@@ -3,6 +3,19 @@
 ## Unreleased
 
 ### Added
+- Extract chat `max_tokens` default 768 → 2048. This LM Studio/Qwen3.8-27b build
+  still emits `reasoning_content` despite `enable_thinking: false`; 768 truncated
+  the JSON mid-claim (`finish_reason=length`) and extract wrote nothing.
+- HH-08 ChatGPT ingest e2e: `eval/ingest_e2e.py` plus `tests/test_ingest_e2e.py`.
+  Synthetic `eval/fixtures/chatgpt_e2e_conversations.json` (invented mill-setup
+  notes, planted 52Nm / 12 March 2026 fact; never a real export) is ingested with
+  `ingest chatgpt --apply` into a throwaway `HUNGRY_HIPPA_DB`. Raw archive pointer
+  + normalized turns are asserted. Live `ingest extract --apply` against local
+  LM Studio is optional (SKIP when chat is down); CI still proves ingest persist
+  plus recall/why of a directly stored owner memory whose evidence points at the
+  planted turn. Extracted hypotheses stay quarantined; the live demo uses owner
+  CLI `recall --quarantined`. MCP still exactly six tools. Live Hermes/Grok
+  stores are refused.
 - `hungry-hippa ingest reconcile [--dry-run|--apply]`: Layer 4 historical ingest.
   Compares extract candidates to existing memories and classifies each as
   duplicate, reinforcement, contradiction, update, supersession, low-confidence,
