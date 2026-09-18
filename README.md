@@ -1,3 +1,6 @@
+<img width="873" height="597" alt="image" src="https://github.com/user-attachments/assets/24e27307-8725-43bf-b230-5fbb41b34fd5" />
+
+
 # Hungry Hippa
 
 **One memory. Any AI. Your machine.**
