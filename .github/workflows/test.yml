@@ -82,6 +82,9 @@ jobs:
       - name: chatgpt export parser
         run: python tests/test_chatgpt_ingest.py
 
+      - name: ingest canonical store
+        run: python tests/test_ingest_store.py
+
       - name: import + packaging hygiene
         run: python tests/test_import_hygiene.py
 

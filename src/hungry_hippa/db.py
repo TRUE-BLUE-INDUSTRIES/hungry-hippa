@@ -30,6 +30,7 @@ logger = logging.getLogger("hungry_hippa.db")
 _ID_PREFIX = {
     "episode": "E", "entity": "EN", "relationship": "R", "belief": "B",
     "procedure": "P", "evidence": "EV", "vector": "V", "consolidation": "CR",
+    "ingest_archive": "IA",
 }
 
 
@@ -410,6 +411,228 @@ class Database:
             }
 
         return self._run(_h) or {"path": self.path, "counts": {}, "failures": self.failures}
+
+    # ---------------------------------------------------- ingest (raw history)
+
+    def persist_ingest(
+        self,
+        *,
+        archive: Dict[str, Any],
+        conversations: List[Dict[str, Any]],
+        turns: List[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        """Store a Layer 1 archive pointer and Layer 2 conversations/turns.
+
+        One transaction. Turns are idempotent on ``(source, session_id, turn_id)``
+        (first write wins). Conversations upsert on ``(source, session_id)`` so a
+        later export of the same session can refresh title and current path.
+        This does not write episodes, beliefs, evidence, or FTS: raw history is
+        not memory.
+        """
+
+        def _persist(conn: sqlite3.Connection) -> Dict[str, Any]:
+            archive_id, archive_inserted = _upsert_ingest_archive(conn, archive)
+            conv_before = conn.execute(
+                "SELECT COUNT(*) FROM ingest_conversations"
+            ).fetchone()[0]
+            turn_before = conn.execute(
+                "SELECT COUNT(*) FROM ingest_turns"
+            ).fetchone()[0]
+            stored_at = now_iso()
+            for convo in conversations:
+                _upsert_ingest_conversation(conn, convo, archive_id, stored_at)
+            for turn in turns:
+                _insert_ingest_turn(conn, turn, stored_at)
+            conv_after = conn.execute(
+                "SELECT COUNT(*) FROM ingest_conversations"
+            ).fetchone()[0]
+            turn_after = conn.execute(
+                "SELECT COUNT(*) FROM ingest_turns"
+            ).fetchone()[0]
+            detail = (
+                f"archive={archive_id} sha256={(archive.get('sha256') or '')[:16]} "
+                f"conversations={len(conversations)} turns={len(turns)}"
+            )[:2000]
+            conn.execute(
+                "INSERT INTO mutation_log(ts, action, target_kind, target_id, detail, session_id)"
+                " VALUES (?,?,?,?,?,?)",
+                (stored_at, "ingest_persist", "ingest_archive", archive_id, detail, ""),
+            )
+            return {
+                "archive_id": archive_id,
+                "archive_inserted": archive_inserted,
+                "conversations_inserted": conv_after - conv_before,
+                "conversations_seen": len(conversations),
+                "turns_inserted": turn_after - turn_before,
+                "turns_seen": len(turns),
+            }
+
+        return self._run(_persist, write=True)
+
+    def ingest_counts(self) -> Dict[str, int]:
+        """Row counts for the canonical ingest tables only (not memory tables)."""
+
+        def _c(conn: sqlite3.Connection) -> Dict[str, int]:
+            out: Dict[str, int] = {}
+            for table in ("ingest_archives", "ingest_conversations", "ingest_turns"):
+                out[table] = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            return out
+
+        return self._run(_c) or {
+            "ingest_archives": -1,
+            "ingest_conversations": -1,
+            "ingest_turns": -1,
+        }
+
+    def get_ingest_archive(self, sha256: str) -> Optional[Dict[str, Any]]:
+        def _g(conn: sqlite3.Connection) -> Optional[Dict[str, Any]]:
+            row = conn.execute(
+                "SELECT * FROM ingest_archives WHERE sha256 = ?", (sha256,)
+            ).fetchone()
+            return dict(row) if row else None
+
+        return self._run(_g)
+
+    def get_ingest_conversation(
+        self, source: str, session_id: str
+    ) -> Optional[Dict[str, Any]]:
+        def _g(conn: sqlite3.Connection) -> Optional[Dict[str, Any]]:
+            row = conn.execute(
+                "SELECT * FROM ingest_conversations WHERE source = ? AND session_id = ?",
+                (source, session_id),
+            ).fetchone()
+            if not row:
+                return None
+            out = dict(row)
+            out["current_path_turn_ids"] = jload(out.get("current_path_turn_ids"), [])
+            out["current_path_node_ids"] = jload(out.get("current_path_node_ids"), [])
+            out["warnings"] = jload(out.get("warnings"), [])
+            out["source_metadata"] = jload(out.get("source_metadata"), {})
+            return out
+
+        return self._run(_g)
+
+    def get_ingest_turns(self, source: str, session_id: str) -> List[Dict[str, Any]]:
+        def _g(conn: sqlite3.Connection) -> List[Dict[str, Any]]:
+            rows = conn.execute(
+                "SELECT * FROM ingest_turns WHERE source = ? AND session_id = ?"
+                " ORDER BY rowid",
+                (source, session_id),
+            ).fetchall()
+            out: List[Dict[str, Any]] = []
+            for row in rows:
+                item = dict(row)
+                item["branch_path"] = tuple(jload(item.get("branch_path"), []) or [])
+                item["source_metadata"] = jload(item.get("source_metadata"), {})
+                out.append(item)
+            return out
+
+        return self._run(_g) or []
+
+
+def _upsert_ingest_archive(
+    conn: sqlite3.Connection, archive: Dict[str, Any]
+) -> tuple:
+    sha256 = str(archive.get("sha256") or "")
+    if not sha256:
+        raise ValueError("ingest archive sha256 is required")
+    row = conn.execute(
+        "SELECT archive_id FROM ingest_archives WHERE sha256 = ?", (sha256,)
+    ).fetchone()
+    if row:
+        archived_path = str(archive.get("archived_path") or "")
+        if archived_path:
+            conn.execute(
+                "UPDATE ingest_archives SET archived_path = ? "
+                "WHERE archive_id = ? AND archived_path = ''",
+                (archived_path, row["archive_id"]),
+            )
+        return row["archive_id"], False
+    conn.execute(
+        "INSERT OR IGNORE INTO counters(name, value) VALUES ('ingest_archive', 0)"
+    )
+    n = conn.execute(
+        "UPDATE counters SET value = value + 1 WHERE name = 'ingest_archive' RETURNING value"
+    ).fetchone()["value"]
+    archive_id = f"IA-{n:04d}"
+    conn.execute(
+        "INSERT INTO ingest_archives("
+        "archive_id, source, original_path, sha256, byte_length, archived_path, captured_at)"
+        " VALUES (?,?,?,?,?,?,?)",
+        (
+            archive_id,
+            str(archive.get("source") or ""),
+            str(archive.get("original_path") or ""),
+            sha256,
+            int(archive.get("byte_length") or 0),
+            str(archive.get("archived_path") or ""),
+            now_iso(),
+        ),
+    )
+    return archive_id, True
+
+
+def _upsert_ingest_conversation(
+    conn: sqlite3.Connection,
+    convo: Dict[str, Any],
+    archive_id: str,
+    stored_at: str,
+) -> None:
+    conn.execute(
+        "INSERT INTO ingest_conversations("
+        "source, session_id, archive_id, title, current_node, created_at, updated_at,"
+        " current_path_turn_ids, current_path_node_ids, warnings, source_metadata, stored_at)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
+        " ON CONFLICT(source, session_id) DO UPDATE SET"
+        " archive_id=excluded.archive_id,"
+        " title=excluded.title,"
+        " current_node=excluded.current_node,"
+        " created_at=excluded.created_at,"
+        " updated_at=excluded.updated_at,"
+        " current_path_turn_ids=excluded.current_path_turn_ids,"
+        " current_path_node_ids=excluded.current_path_node_ids,"
+        " warnings=excluded.warnings,"
+        " source_metadata=excluded.source_metadata,"
+        " stored_at=excluded.stored_at",
+        (
+            str(convo.get("source") or ""),
+            str(convo.get("session_id") or ""),
+            archive_id,
+            str(convo.get("title") or ""),
+            convo.get("current_node"),
+            convo.get("created_at"),
+            convo.get("updated_at"),
+            jdump(convo.get("current_path_turn_ids") or []),
+            jdump(convo.get("current_path_node_ids") or []),
+            jdump(convo.get("warnings") or []),
+            jdump(convo.get("source_metadata") or {}),
+            stored_at,
+        ),
+    )
+
+
+def _insert_ingest_turn(
+    conn: sqlite3.Connection, turn: Dict[str, Any], stored_at: str
+) -> None:
+    conn.execute(
+        "INSERT OR IGNORE INTO ingest_turns("
+        "source, session_id, turn_id, parent_turn_id, role, content, occurred_at,"
+        " branch_path, source_metadata, on_current_path, stored_at)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            str(turn.get("source") or ""),
+            str(turn.get("session_id") or ""),
+            str(turn.get("turn_id") or ""),
+            turn.get("parent_turn_id"),
+            str(turn.get("role") or ""),
+            str(turn.get("content") or ""),
+            turn.get("occurred_at"),
+            jdump(list(turn.get("branch_path") or [])),
+            jdump(turn.get("source_metadata") or {}),
+            1 if turn.get("on_current_path") else 0,
+            stored_at,
+        ),
+    )
 
 
 def backup_sqlite(src: str, dest: str) -> None:
