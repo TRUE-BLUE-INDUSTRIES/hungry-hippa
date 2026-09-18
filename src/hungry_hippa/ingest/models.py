@@ -1,9 +1,10 @@
 """Provider-neutral shapes produced by the ingestion parsers.
 
-Slice 1 defines the *shape* only. Nothing in this package writes to the memory
-database, and nothing here imports the runtime's storage, policy or MCP layers:
-a parser's job is to turn a provider export into an inspectable, deterministic
-sequence of turns and then stop.
+Slice 1 defines the *shape* only. This module does not write to the memory
+database and does not import the runtime's storage, policy or MCP layers: a
+parser's job is to turn a provider export into an inspectable, deterministic
+sequence of turns and then stop. Slice 2 persists these values as raw history
+without mutating them.
 
 Two ideas are deliberately separate:
 

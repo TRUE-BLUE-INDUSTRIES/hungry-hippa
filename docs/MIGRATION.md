@@ -89,3 +89,11 @@ the server with the token in its environment, or keep using an in-process adapte
 hungry-hippa status                      # counts only
 HUNGRY_HIPPA_DB=/path/to/copy.db hungry-hippa recall "<query>"
 ```
+
+## Unreleased historical-import migrations
+
+Schema v6 adds canonical import tables; v7 stores exact source bytes and per-export
+provenance. Existing episode/belief rows are preserved. Pointer-only v6 imports
+remain unverified until reimported from their original exports. Upgrades create a
+pre-migration backup. Database backups then include all newly retained export bytes.
+See [INGESTION.md](INGESTION.md) for prototype-branch compatibility and limits.

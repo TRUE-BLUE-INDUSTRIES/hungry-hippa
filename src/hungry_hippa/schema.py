@@ -330,6 +330,97 @@ ALTER TABLE episodes DROP COLUMN verified_source_class;
 ALTER TABLE episodes DROP COLUMN claimed_source_class;
 """,
     },
+    6: {
+        "description": "Canonical ingest store: raw archive pointers (path, sha256, byte length) and conversation/turn tables. New tables; episodes are not reused — raw history is not memory.",
+        "up": """
+CREATE TABLE ingest_archives (
+  archive_id TEXT PRIMARY KEY,
+  source TEXT NOT NULL DEFAULT '',
+  original_path TEXT NOT NULL,
+  sha256 TEXT NOT NULL,
+  byte_length INTEGER NOT NULL,
+  archived_path TEXT NOT NULL DEFAULT '',
+  captured_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX ix_ingest_archives_sha256 ON ingest_archives(sha256);
+CREATE INDEX ix_ingest_archives_source ON ingest_archives(source);
+
+CREATE TABLE ingest_conversations (
+  source TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  archive_id TEXT NOT NULL,
+  title TEXT NOT NULL DEFAULT '',
+  current_node TEXT,
+  created_at REAL,
+  updated_at REAL,
+  current_path_turn_ids TEXT NOT NULL DEFAULT '[]',
+  current_path_node_ids TEXT NOT NULL DEFAULT '[]',
+  warnings TEXT NOT NULL DEFAULT '[]',
+  source_metadata TEXT NOT NULL DEFAULT '{}',
+  stored_at TEXT NOT NULL,
+  PRIMARY KEY (source, session_id),
+  FOREIGN KEY (archive_id) REFERENCES ingest_archives(archive_id)
+);
+CREATE INDEX ix_ingest_conversations_archive ON ingest_conversations(archive_id);
+
+CREATE TABLE ingest_turns (
+  source TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  turn_id TEXT NOT NULL,
+  parent_turn_id TEXT,
+  role TEXT NOT NULL DEFAULT '',
+  content TEXT NOT NULL DEFAULT '',
+  occurred_at REAL,
+  branch_path TEXT NOT NULL DEFAULT '[]',
+  source_metadata TEXT NOT NULL DEFAULT '{}',
+  on_current_path INTEGER NOT NULL DEFAULT 0,
+  stored_at TEXT NOT NULL,
+  PRIMARY KEY (source, session_id, turn_id),
+  FOREIGN KEY (source, session_id) REFERENCES ingest_conversations(source, session_id)
+);
+CREATE INDEX ix_ingest_turns_session ON ingest_turns(source, session_id);
+CREATE INDEX ix_ingest_turns_occurred ON ingest_turns(occurred_at);
+""",
+        "down": """
+DROP TABLE IF EXISTS ingest_turns;
+DROP TABLE IF EXISTS ingest_conversations;
+DROP TABLE IF EXISTS ingest_archives;
+""",
+    },
+    7: {
+        "description": "Preserve exact imported bytes and immutable per-archive conversation/turn provenance. Existing v6 pointers remain explicitly unverified until reimported.",
+        "up": """
+CREATE TABLE ingest_archive_bytes (
+  archive_id TEXT PRIMARY KEY REFERENCES ingest_archives(archive_id),
+  raw_bytes BLOB NOT NULL
+);
+CREATE TABLE ingest_snapshots (
+  archive_id TEXT NOT NULL REFERENCES ingest_archives(archive_id),
+  source TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  conversation_json TEXT NOT NULL,
+  PRIMARY KEY (archive_id, source, session_id)
+);
+CREATE TABLE ingest_turn_sources (
+  archive_id TEXT NOT NULL REFERENCES ingest_archives(archive_id),
+  source TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  turn_id TEXT NOT NULL,
+  on_current_path INTEGER NOT NULL,
+  source_metadata TEXT NOT NULL,
+  PRIMARY KEY (archive_id, source, session_id, turn_id),
+  FOREIGN KEY (source, session_id, turn_id)
+    REFERENCES ingest_turns(source, session_id, turn_id)
+);
+CREATE INDEX ix_ingest_turn_sources_turn
+  ON ingest_turn_sources(source, session_id, turn_id);
+""",
+        "down": """
+DROP TABLE IF EXISTS ingest_turn_sources;
+DROP TABLE IF EXISTS ingest_snapshots;
+DROP TABLE IF EXISTS ingest_archive_bytes;
+""",
+    },
 }
 
 CURRENT_VERSION = max(MIGRATIONS.keys())
