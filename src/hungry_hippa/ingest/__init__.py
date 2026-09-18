@@ -6,8 +6,10 @@ and turn tables). Slice 3 is the CLI write path (`hungry-hippa ingest chatgpt
 FILE --apply`). Hermes sessions use the same parse shape and the same persist
 API (`hungry-hippa ingest hermes DIR --apply`). Slice 4 (`ingest/extract.py`)
 reads stored turns and proposes quarantined hypotheses via a local LM Studio
-model; it is not imported here, so a parse still opens no network connection
-and writes no episodes. The MCP surface is untouched and still exactly six tools.
+model. Slice 5 (`ingest/reconcile.py`) classifies those hypotheses against
+existing memories. Neither is imported here, so a parse still opens no network
+connection and writes no episodes. The MCP surface is untouched and still
+exactly six tools.
 
 Parse public API::
 

@@ -19,6 +19,13 @@ The following baseline changes shipped at `9b9593f`; parser-only statements desc
 that release, before the unreleased write path above.
 
 ### Added
+- `hungry-hippa ingest reconcile [--dry-run|--apply]`: Layer 4 historical ingest.
+  Compares extract candidates to existing memories and classifies each as
+  duplicate, reinforcement, contradiction, update, supersession, low-confidence,
+  or irrelevant. Contradictions stay open (both claims + evidence). Re-import /
+  re-extract of the same export is a no-op. Schema v8 adds reversible decision
+  tables. Requires `HUNGRY_HIPPA_DB` (refuses live Hermes/Grok stores). MCP still
+  exactly six tools.
 - `hungry-hippa ingest extract [--dry-run|--apply]`: Slice 4 historical ingest.
   A local LM Studio chat model (`qwen/qwen3.8-27b` at `127.0.0.1:1234`) reads
   stored `ingest_turns` in small batches and writes **quarantined hypotheses**

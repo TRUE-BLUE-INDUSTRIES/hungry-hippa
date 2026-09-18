@@ -210,7 +210,7 @@ def check_v7_tables_on_fresh_db():
     from hungry_hippa.schema import CURRENT_VERSION
 
     path = _fresh_db()
-    assert CURRENT_VERSION == 7, CURRENT_VERSION
+    assert CURRENT_VERSION >= 7, CURRENT_VERSION
     conn = sqlite3.connect(path)
     try:
         tables = {r[0] for r in conn.execute(
@@ -220,7 +220,7 @@ def check_v7_tables_on_fresh_db():
         conn.close()
     assert "ingest_extract_jobs" in tables and "ingest_extract_progress" in tables
     assert "ingest_turns" in tables
-    assert versions == {1, 2, 3, 4, 5, 6, 7}, versions
+    assert {1, 2, 3, 4, 5, 6, 7}.issubset(versions), versions
     return "fresh database is schema v7 with extract checkpoint tables"
 
 
