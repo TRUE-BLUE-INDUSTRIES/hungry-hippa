@@ -95,3 +95,27 @@ offline and repeatable instead, and says so rather than quietly mixing modes.
 
 Do not hand-edit `results.json` or `REPORT.md`; they are outputs. If a number
 looks wrong, fix the harness and re-run.
+
+## HH-08 ingest e2e (ChatGPT export → recall)
+
+A separate path from the ten-scenario harness. It is the first *imported-history*
+check: synthetic ChatGPT export → persist → optional local extract → recall/why.
+
+```bash
+python eval/ingest_e2e.py --offline --json    # CI: no chat model
+python eval/ingest_e2e.py                     # live extract if LM Studio is up
+python tests/test_ingest_e2e.py               # wired into scripts/check_all.py
+```
+
+- Fixture: `eval/fixtures/chatgpt_e2e_conversations.json` — invented workshop
+  mill notes with a planted dated fact (`52Nm` on 12 March 2026). **Not** a real
+  ChatGPT export; do not replace it with the operator's `conversations.json`.
+- Database: throwaway `HUNGRY_HIPPA_DB` under `/tmp`. Live Hermes/Grok stores
+  are refused.
+- Live extract is optional. When LM Studio chat is down the suite still passes
+  by proving ingest persist + recall of a directly stored owner memory whose
+  evidence points at the planted ingest turn.
+- Extracted hypotheses remain quarantined. The live demo uses owner CLI
+  `recall --quarantined`; default recall must hide them.
+- The report records retrieval `latency_ms` and whether the answer was
+  supported by evidence ids. MCP remains six tools.

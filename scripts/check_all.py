@@ -44,6 +44,7 @@ STEPS: Sequence[Tuple[str, List[str]]] = (
     ("ingest canonical store", ["python", "tests/test_ingest_store.py"]),
     ("ingest extract (local LM)", ["python", "tests/test_ingest_extract.py"]),
     ("ingest reconcile (Layer 4)", ["python", "tests/test_ingest_reconcile.py"]),
+    ("ingest chatgpt e2e (offline + optional live)", ["python", "tests/test_ingest_e2e.py"]),
     ("import + packaging hygiene", ["python", "tests/test_import_hygiene.py"]),
     ("backup + rotation", ["python", "tests/test_backup_rotation.py"]),
     ("security", ["python", "tests/test_security.py"]),
