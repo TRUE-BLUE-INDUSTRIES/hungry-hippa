@@ -406,15 +406,20 @@ def check_malformed_node_does_not_kill_conversation():
 
 
 def check_parser_is_offline_and_writes_nothing():
-    # 1. the parser modules import only the standard library
-    sources = {p.name: p.read_text(encoding="utf-8")
-               for p in sorted((PACKAGE_DIR / "ingest").glob("*.py"))}
-    assert sources, "ingest package missing"
+    # 1. the parser modules import only the standard library. store.py is Slice 2
+    # (persist) and is allowed to talk to the database; it is not imported here.
+    parser_modules = ("__init__.py", "chatgpt.py", "models.py")
+    sources = {name: (PACKAGE_DIR / "ingest" / name).read_text(encoding="utf-8")
+               for name in parser_modules}
     forbidden = ("sqlite3", "import mcp", "requests", "urllib", "socket",
                  "openai", "controller", "from .db", "from ..")
     for name, src in sources.items():
         for token in forbidden:
             assert token not in src, (name, token)
+    store_path = PACKAGE_DIR / "ingest" / "store.py"
+    assert store_path.is_file(), "Slice 2 persist module missing"
+    store_src = store_path.read_text(encoding="utf-8")
+    assert "eval(" not in store_src and "exec(" not in store_src
 
     # 2. parsing an export creates no database, even when one is configured
     workdir = tempfile.mkdtemp(prefix="hh_ingest_nod_")
