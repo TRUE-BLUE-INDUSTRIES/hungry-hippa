@@ -138,6 +138,16 @@ DEFAULTS: Dict[str, Any] = {
         "mirror_builtin_memory_writes": True,
         "staging_max_turns": 200,
     },
+    # --- ingest extraction (local LM Studio only; never Grok/Nous) ---
+    "ingest_extract": {
+        "chat_url": "http://127.0.0.1:1234/v1",
+        "chat_model": "qwen/qwen3.8-27b",
+        "api_key": "lm-studio",
+        "timeout_s": 90,
+        "max_tokens": 768,
+        "batch_turns": 4,
+        "batch_chars": 2400,
+    },
 }
 
 

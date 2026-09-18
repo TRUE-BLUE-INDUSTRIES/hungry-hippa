@@ -72,6 +72,7 @@ CHANNEL_LOCAL = "local"
 CHANNEL_CLI = "cli"
 CHANNEL_AGENT_TOOL = "agent_tool"
 CHANNEL_CONSOLIDATION = "consolidation"
+CHANNEL_IMPORT = "import"
 
 # Source classes the runtime assigns itself, rather than believing a caller:
 # the model's own report of where something came from, and anything an

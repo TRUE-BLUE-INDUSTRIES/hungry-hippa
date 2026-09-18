@@ -3,6 +3,13 @@
 ## Unreleased
 
 ### Added
+- `hungry-hippa ingest extract [--dry-run|--apply]`: Slice 4 historical ingest.
+  A local LM Studio chat model (`qwen/qwen3.8-27b` at `127.0.0.1:1234`) reads
+  stored `ingest_turns` in small batches and writes **quarantined hypotheses**
+  with evidence rows pointing at turn ids. Never mints verified `user_explicit`;
+  `ingestion_channel=import`. Schema v7 adds reversible extract-job checkpoints.
+  Requires `HUNGRY_HIPPA_DB` (refuses live Hermes/Grok stores). Offline/no-model
+  `--apply` fails clearly without writing memories. MCP still exactly six tools.
 - `hungry_hippa.ingest`: historical-ingestion Slice 1 — a lossless parser for ChatGPT
   `conversations.json` exports (`parse_chatgpt_export(path) -> list[ParsedConversation]`).
   Every supported textual turn is kept, including regenerated answers and edited prompts,

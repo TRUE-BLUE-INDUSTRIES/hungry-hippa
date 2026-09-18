@@ -147,7 +147,7 @@ def test_v6_ingest_tables_and_down_sql():
     from hungry_hippa.schema import CURRENT_VERSION, MIGRATIONS
     from hungry_hippa.db import Database
 
-    assert CURRENT_VERSION == 6, CURRENT_VERSION
+    assert CURRENT_VERSION >= 6, CURRENT_VERSION
     assert 6 in MIGRATIONS and MIGRATIONS[6]["down"].strip(), MIGRATIONS.keys()
     assert "ingest_turns" in MIGRATIONS[6]["up"]
     assert "episodes" not in MIGRATIONS[6]["up"] or "CREATE TABLE episodes" not in MIGRATIONS[6]["up"]
@@ -181,6 +181,51 @@ def test_v6_ingest_tables_and_down_sql():
     finally:
         conn.close()
     return "v6 up creates ingest tables; down_sql drops them; episodes remain"
+
+
+def test_v7_extract_checkpoints_and_down_sql():
+    """Schema v7 adds extract checkpoints; down_sql drops them and leaves ingest + episodes."""
+    from hungry_hippa.schema import CURRENT_VERSION, MIGRATIONS
+    from hungry_hippa.db import Database
+
+    assert CURRENT_VERSION == 7, CURRENT_VERSION
+    assert 7 in MIGRATIONS and MIGRATIONS[7]["down"].strip()
+    assert "ingest_extract_jobs" in MIGRATIONS[7]["up"]
+    assert "ingest_extract_progress" in MIGRATIONS[7]["up"]
+    assert "CREATE TABLE episodes" not in MIGRATIONS[7]["up"]
+    assert "CREATE TABLE beliefs" not in MIGRATIONS[7]["up"]
+
+    path = os.path.join(tempfile.mkdtemp(prefix="hh_mig_v7_"), "hungry_hippa.db")
+    Database(path)
+    conn = sqlite3.connect(path)
+    try:
+        versions = {r[0] for r in conn.execute("SELECT version FROM schema_migrations")}
+        assert 7 in versions, versions
+        tables = {r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        assert "ingest_extract_jobs" in tables and "ingest_extract_progress" in tables
+        assert "ingest_turns" in tables and "episodes" in tables
+        conn.execute(
+            "INSERT INTO episodes(episode_id, ts_start, ts_end, context, outcome,"
+            " importance, confidence, status, created_at, updated_at)"
+            " VALUES ('E-mig7','2020-01-01T00:00:00Z','2020-01-01T00:00:00Z',"
+            " 'v7 down must not drop me','success',0.5,0.5,'active',"
+            " '2020-01-01T00:00:00Z','2020-01-01T00:00:00Z')"
+        )
+        conn.executescript(MIGRATIONS[7]["down"])
+        tables_after = {r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        assert "ingest_extract_jobs" not in tables_after
+        assert "ingest_extract_progress" not in tables_after
+        assert "ingest_turns" in tables_after
+        assert "episodes" in tables_after
+        kept = conn.execute(
+            "SELECT context FROM episodes WHERE episode_id = 'E-mig7'"
+        ).fetchone()
+        assert kept and "v7 down must not drop me" in kept[0]
+    finally:
+        conn.close()
+    return "v7 up creates extract checkpoints; down_sql drops them; ingest and episodes remain"
 
 
 def test_rollback_instructions_exist():
@@ -302,6 +347,7 @@ def run_all() -> list:
           test_implicit_open_backs_up_before_upgrading)
     check("rollback_instructions_exist", test_rollback_instructions_exist)
     check("v6_ingest_tables_and_down_sql", test_v6_ingest_tables_and_down_sql)
+    check("v7_extract_checkpoints_and_down_sql", test_v7_extract_checkpoints_and_down_sql)
     return results
 
 

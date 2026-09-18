@@ -42,6 +42,7 @@ STEPS: Sequence[Tuple[str, List[str]]] = (
     ("chatgpt export parser", ["python", "tests/test_chatgpt_ingest.py"]),
     ("hermes session ingest", ["python", "tests/test_hermes_ingest.py"]),
     ("ingest canonical store", ["python", "tests/test_ingest_store.py"]),
+    ("ingest extract (local LM)", ["python", "tests/test_ingest_extract.py"]),
     ("import + packaging hygiene", ["python", "tests/test_import_hygiene.py"]),
     ("backup + rotation", ["python", "tests/test_backup_rotation.py"]),
     ("security", ["python", "tests/test_security.py"]),

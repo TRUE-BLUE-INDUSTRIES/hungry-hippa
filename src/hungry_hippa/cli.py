@@ -362,17 +362,21 @@ def _cmd_ingest(args) -> None:
 
     Dry-run is the safe default: without ``--apply`` this never opens the
     memory database, so there is no path from a forgotten flag to a write.
-    ``--apply`` writes canonical ingest rows via the persist library. It does
-    not go through ``_controller()``, so it cannot mint ``user_explicit``
-    provenance or extract episodes/beliefs.
+    ``--apply`` on chatgpt/hermes writes canonical ingest rows via the persist
+    library. ``ingest extract --apply`` reads those rows and writes quarantined
+    hypotheses. Neither path goes through ``_controller()``, so they cannot
+    mint ``user_explicit`` provenance.
     """
     action = getattr(args, "ingest_command", "") or ""
     if action == "chatgpt":
         return _cmd_ingest_chatgpt(args)
     if action == "hermes":
         return _cmd_ingest_hermes(args)
+    if action == "extract":
+        return _cmd_ingest_extract(args)
     print("Usage: hungry-hippa ingest chatgpt <conversations.json> [--dry-run|--apply]")
     print("       hungry-hippa ingest hermes <dir> [--dry-run|--apply]")
+    print("       hungry-hippa ingest extract [--dry-run|--apply]")
     return None
 
 
@@ -556,6 +560,72 @@ def _cmd_ingest_hermes(args) -> None:
     print(f"Turns inserted: {inserted:,}")
     print(f"Turns already present: {already:,}")
     print("No episodes, no beliefs, no model calls (canonical history only).")
+
+
+def _cmd_ingest_extract(args) -> None:
+    """Extract quarantined hypotheses from stored ingest turns."""
+    apply = bool(getattr(args, "apply", False))
+    dry_run = bool(getattr(args, "dry_run", False))
+    if apply and dry_run:
+        _print_json({"error": "pass only one of --dry-run or --apply"})
+        sys.exit(1)
+    if not apply and not dry_run:
+        _print_json({"error": ("refusing to write: pass --dry-run to report pending "
+                               "turns, or --apply to extract quarantined hypotheses. "
+                               "Writes are not the default.")})
+        sys.exit(1)
+
+    from .ingest.extract import (
+        ExtractRefused,
+        ExtractorUnavailable,
+        extract_from_store,
+        extractor_from_config,
+        require_extract_db_env,
+    )
+
+    try:
+        db_path = require_extract_db_env()
+    except ExtractRefused as e:
+        _print_json({"error": str(e)})
+        sys.exit(1)
+
+    from .config import load_config
+    from .db import Database
+
+    cfg = load_config()
+    db = Database(db_path)
+    source_filter = str(getattr(args, "source", "") or "")
+    limit = int(getattr(args, "limit", 0) or 0)
+    if dry_run:
+        result = extract_from_store(
+            db, extractor=None, source_filter=source_filter, dry_run=True, cfg=cfg,
+        )
+        print("Ingest extract (dry-run)")
+        print(f"Conversations pending: {result.conversations_pending:,}")
+        print(f"Turns pending: {result.turns_pending:,}")
+        print("No beliefs, no episodes, no model calls (pending-count only).")
+        return
+
+    try:
+        extractor = extractor_from_config(cfg)
+        result = extract_from_store(
+            db, extractor=extractor, source_filter=source_filter, limit=limit,
+            dry_run=False, cfg=cfg,
+        )
+    except ExtractorUnavailable as e:
+        _print_json({"error": str(e)})
+        sys.exit(1)
+    except ExtractRefused as e:
+        _print_json({"error": str(e)})
+        sys.exit(1)
+    print("Ingest extract applied")
+    print(f"Job: {result.job_id or '-'}")
+    print(f"Turns pending: {result.turns_pending:,}")
+    print(f"Turns processed: {result.turns_processed:,}")
+    print(f"Beliefs written: {result.beliefs_written:,}")
+    print(f"Episodes written: {result.episodes_written:,}")
+    print(f"Candidates skipped: {result.candidates_skipped:,}")
+    print("Quarantined hypotheses only; no verified user_explicit; channel=import.")
 
 
 _QUARANTINE_SOURCE_CLASSES = ("user_explicit", "document", "tool_result")
@@ -985,6 +1055,27 @@ def register_cli(subparser) -> None:
     hermes_mode.add_argument(
         "--apply", dest="apply", action="store_true",
         help="persist canonical turns and an archive pointer (idempotent)",
+    )
+    ing_extract = ing_subs.add_parser(
+        "extract",
+        help="Extract quarantined hypotheses from stored ingest turns",
+    )
+    extract_mode = ing_extract.add_mutually_exclusive_group()
+    extract_mode.add_argument(
+        "--dry-run", dest="dry_run", action="store_true",
+        help="report pending turns; write no memories (the safe default unless --apply)",
+    )
+    extract_mode.add_argument(
+        "--apply", dest="apply", action="store_true",
+        help="call the local LM Studio chat model and write quarantined hypotheses",
+    )
+    ing_extract.add_argument(
+        "--source", default="",
+        help="only this ingest source (chatgpt, hermes, …); default: all",
+    )
+    ing_extract.add_argument(
+        "--limit", type=int, default=0,
+        help="max turns to process this run (0 = all pending)",
     )
 
     exp = subs.add_parser("export", help="Export memory as JSON")

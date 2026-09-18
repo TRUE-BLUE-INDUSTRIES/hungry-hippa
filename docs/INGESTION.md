@@ -11,7 +11,7 @@ tables, not in `episodes`.
 | 2 — persist | store a Layer 1 archive pointer + Layer 2 conversation/turn rows | copy the file into SQLite, write episodes, extract memories, change MCP |
 | 3 — CLI write | `ingest chatgpt FILE --apply` persists via the Slice 2 library | extract memories, write episodes/beliefs, mint `user_explicit`, change MCP |
 | Hermes | same parse shape + same persist, from a sessions export dir | open `state.db`, extract memories, change MCP, follow symlinks |
-| 4+ | recall-with-why (HH-08), extraction | not this document |
+| 4 — extract | local LM Studio reads stored turns in small batches and writes quarantined hypotheses | mint `user_explicit`, overwrite existing beliefs, call Grok/Nous, change MCP |
 
 The MCP surface is unchanged: still exactly six tools.
 
@@ -293,3 +293,55 @@ Hermes transcripts are a list, not a ChatGPT-style tree. `parent_turn_id` is the
 - Not verified against a copy of the operator's personal sessions (those files must not be committed). Fixtures match the inspected export shape.
 
 The ChatGPT parser is unchanged. MCP is still exactly six tools.
+
+---
+
+## Slice 4 — extract
+
+Layer 3 of historical ingest: stored `ingest_turns` become **candidate memories**. A local LM Studio chat model proposes them; Hungry Hippa stores them as data. Conversation content is hostile: it is never `eval`'d, `exec`'d, or turned into a tool call.
+
+```bash
+# Always point at a throwaway or dedicated store. The default path can resolve
+# to the live Hermes database; this command refuses to run without HUNGRY_HIPPA_DB
+# and refuses the known live stores.
+export HUNGRY_HIPPA_DB=/tmp/hh-extract.db
+
+hungry-hippa ingest extract --dry-run
+hungry-hippa ingest extract --apply
+hungry-hippa ingest extract --apply --source chatgpt --limit 16
+```
+
+Without `--dry-run` or `--apply` the command **refuses**. `--dry-run` counts pending turns and does not call a model or write beliefs/episodes (opening the database may apply schema v7 checkpoint tables). `--apply` probes the local chat model first; if it is down, the command exits with an error and writes no job, belief, episode, or evidence rows.
+
+### What is written
+
+| Field | Value |
+|---|---|
+| `kind` | `hypothesis` (beliefs) |
+| `quarantined` | always |
+| `claimed_source_class` | `document` if the user stated it, else `agent_inference` |
+| `verified_source_class` | `agent_reported` (extraction is model inference, never operator attestation) |
+| `ingestion_channel` | `import` |
+| `user_explicit` | never minted, even if the model asks |
+
+Every candidate links to immutable `evidence` rows whose `source_ref` names the ingest turn (`kind=ingest_turn`, plus `source` / `session_id` / `turn_id`). Existing active claims are left alone: a light normalized-text heuristic skips duplicates. Full reconcile is a later slice.
+
+### Batching and resume
+
+The loaded chat model (`qwen/qwen3.8-27b`) has an 8192-token context. Extraction never loads the archive into one prompt. Default batches are 4 turns / ~2400 content characters. Schema **v7** adds `ingest_extract_jobs` and `ingest_extract_progress` (per `source, session_id`). Re-running `--apply` continues from the last checkpointed turn. `down_sql` drops only those two tables.
+
+### Local model
+
+Default: `POST http://127.0.0.1:1234/v1/chat/completions` with model `qwen/qwen3.8-27b`. Loopback only; HTTP proxies are ignored so archive text cannot leave the box. Thinking is disabled (`enable_thinking: false`). The system prompt is the constant `EXTRACT_SYSTEM_PROMPT` in `src/hungry_hippa/ingest/extract.py`. Override URL/model with `HUNGRY_HIPPA_EXTRACT_URL` / `HUNGRY_HIPPA_EXTRACT_MODEL` (still must be loopback).
+
+Grok and Nous are not used. The MCP surface is still exactly six tools.
+
+### Known failure modes
+
+- LM Studio down, or `qwen/qwen3.8-27b` not loaded: `--apply` fails clearly; store unchanged (no job).
+- This LM Studio build rejects `response_format: json_object` (only `json_schema` or `text`); the extractor omits `response_format` and asks for JSON in the prompt.
+- Model returns non-JSON, tool-call payloads, or claims that cite unknown turn ids: the batch is skipped (turns still checkpointed so a poison response cannot loop forever).
+- Qwen thinking can swallow `max_tokens` as `reasoning_content` if thinking is re-enabled; this slice sends `enable_thinking: false`.
+- Duplicate heuristic is string-level only; contradictions against protected facts are not resolved here (HH-07).
+- `--apply` without `HUNGRY_HIPPA_DB` refuses, because the default discovery path can be the live Hermes store.
+- Extracted hypotheses are quarantined, so default recall does not surface them until an operator approves.

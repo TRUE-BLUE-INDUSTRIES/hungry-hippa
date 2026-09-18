@@ -387,6 +387,45 @@ DROP TABLE IF EXISTS ingest_conversations;
 DROP TABLE IF EXISTS ingest_archives;
 """,
     },
+    7: {
+        "description": "Ingest extraction checkpoints: resumable job + per-conversation progress. New tables only; episodes, beliefs, evidence, and ingest history are unchanged.",
+        "up": """
+CREATE TABLE ingest_extract_jobs (
+  job_id TEXT PRIMARY KEY,
+  status TEXT NOT NULL DEFAULT 'running',
+  model TEXT NOT NULL DEFAULT '',
+  source_filter TEXT NOT NULL DEFAULT '',
+  last_source TEXT NOT NULL DEFAULT '',
+  last_session_id TEXT NOT NULL DEFAULT '',
+  last_turn_rowid INTEGER NOT NULL DEFAULT 0,
+  turns_seen INTEGER NOT NULL DEFAULT 0,
+  turns_processed INTEGER NOT NULL DEFAULT 0,
+  candidates_written INTEGER NOT NULL DEFAULT 0,
+  candidates_skipped INTEGER NOT NULL DEFAULT 0,
+  error TEXT NOT NULL DEFAULT '',
+  started_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  finished_at TEXT
+);
+CREATE INDEX ix_ingest_extract_jobs_status ON ingest_extract_jobs(status);
+
+CREATE TABLE ingest_extract_progress (
+  source TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  last_turn_rowid INTEGER NOT NULL DEFAULT 0,
+  last_turn_id TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'pending',
+  job_id TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (source, session_id)
+);
+CREATE INDEX ix_ingest_extract_progress_status ON ingest_extract_progress(status);
+""",
+        "down": """
+DROP TABLE IF EXISTS ingest_extract_progress;
+DROP TABLE IF EXISTS ingest_extract_jobs;
+""",
+    },
 }
 
 CURRENT_VERSION = max(MIGRATIONS.keys())

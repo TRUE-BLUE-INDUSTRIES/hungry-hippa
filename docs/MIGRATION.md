@@ -77,8 +77,9 @@ written, so memories are not stranded by the move.
    private memories to a ticket or log).
 
 Schema v3 `down_sql` drops `product_meta` only. It does not delete episodes or
-beliefs. There is no automatic down-migrator in the CLI; restoring the `.bak`
-file is the supported rollback.
+beliefs. Schema v7 `down_sql` drops `ingest_extract_jobs` and
+`ingest_extract_progress` only. There is no automatic down-migrator in the CLI;
+restoring the `.bak` file is the supported rollback.
 
 ## Using the migrated database
 
