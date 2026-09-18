@@ -95,5 +95,24 @@ SQLite backup recovery. No model or network is used. `--smoke` is a 100-message
 correctness gate in CI; it is not a throughput acceptance threshold. Raw runs,
 code hash, commit, dirty status, hardware and configuration are recorded.
 
-The first recorded full run will be linked here after measurement from a clean
-committed tree. Public benchmark/answer-quality metrics above remain unmeasured.
+[Full synthetic import results](eval/ingest-results.json), measured from clean
+commit `8f99431471df8fb149676227401f0567763c8474`, retain every run and the
+hardware/configuration metadata. CPU: Ryzen 9 9950X3D; Python 3.14.7; no models.
+
+| Messages | Runs | Median import time | Median messages/sec | Median verify time |
+|---:|---:|---:|---:|---:|
+
+| 100 | 3 | 6.41 ms | 15,594 | 3.17 ms |
+| 1,000 | 3 | 60.01 ms | 16,664 | 28.51 ms |
+| 5,000 | 3 | 305.01 ms | 16,393 | 146.43 ms |
+
+All nine runs retained every expected turn, added zero turns on duplicate import,
+and verified the evidence after SQLite backup recovery. These are synthetic,
+bounded workloads and are not an estimate of every real export's throughput.
+
+The [refreshed memory challenge](eval/results.json) on the same clean commit
+still fails factual recall at all three growth points (100/500/2,000 episodes).
+That scenario is excluded from the harness's headline comparable recall aggregate;
+7/7 success in the small comparable scenarios does **not** mean all recall passes.
+This existing failure remains open in the task ledger. Public-dataset answer
+quality, vector recall and competitor comparisons remain unmeasured.

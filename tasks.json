@@ -31,13 +31,14 @@
         "scripts/check_all.py",
         "scripts/check_install.py"
       ],
-      "result": "25 local steps passed; remote matrix pending publication"
+      "result": "25 shared steps passed locally and CI succeeded on Python 3.10/3.12/3.13/3.14 at 8f99431"
     },
     {
       "id": "INGEST-MEASURE",
-      "status": "in_progress",
-      "evidence": "eval/ingest_benchmark.py",
-      "next": "Record clean-tree full synthetic runs and independently verify pushed SHA/CI"
+      "status": "done",
+      "evidence": "eval/ingest-results.json",
+      "next": "Expand real-export adapter coverage and fix extraction safely; no public dataset claims",
+      "result": "All nine synthetic runs recorded from clean 8f99431; all provenance and backup checks passed"
     },
     {
       "id": "EXTRACT-REVIEW",
@@ -105,5 +106,21 @@
       "result": "No visible listing/funding links; repository material prepared",
       "next": "Owner completes GitHub personal-account enrollment; verify destination before enabling FUNDING.yml"
     }
-  ]
+  ],
+  "verification": {
+    "code_sha": "8f99431471df8fb149676227401f0567763c8474",
+    "remote_checks": [
+      "git ls-remote",
+      "GitHub connector branch API"
+    ],
+    "ci_url": "https://github.com/TRUE-BLUE-INDUSTRIES/hungry-hippa/actions/runs/35384714272",
+    "ci_result": "success",
+    "python_versions": [
+      "3.10",
+      "3.12",
+      "3.13",
+      "3.14"
+    ],
+    "local_steps": 25
+  }
 }

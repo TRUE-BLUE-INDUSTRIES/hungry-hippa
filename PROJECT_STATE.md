@@ -25,7 +25,12 @@ All **25 verification steps** passed locally on Python 3.14.7 / MCP 2.2.0,
 including **12 new adversarial/integrity tests**, existing MCP/security suites,
 synthetic benchmark smoke and a freshly installed wheel exercised outside the
 checkout. CI now uses that same runner and checks Python 3.10/3.12/3.13/3.14.
-Final remote verification and measured artifacts are recorded below after push.
+Code/docs commit `8f99431471df8fb149676227401f0567763c8474` was pushed and
+independently matched by both `git ls-remote` and the GitHub connector branch API.
+[CI run 35384714272](https://github.com/TRUE-BLUE-INDUSTRIES/hungry-hippa/actions/runs/35384714272)
+completed successfully for that exact commit on **all four Python versions**.
+The subsequent publication commit contains documentation and recorded results only;
+it does not change the measured runtime or verification code.
 
 ## Known limits and next work
 
@@ -47,3 +52,12 @@ Final remote verification and measured artifacts are recorded below after push.
 [decisions](DECISIONS.md), [benchmarks](BENCHMARKS.md) and [security](SECURITY.md)
 carry the next cycle. Sponsors material is prepared; enrollment is an account-owner
 financial/legal step, documented in [SUPPORT.md](SUPPORT.md). No funding URL invented.
+
+## Reproducible measurements
+
+Clean-tree results at `8f99431` are committed in [ingest-results.json](eval/ingest-results.json)
+and the refreshed [memory challenge](eval/REPORT.md). Ingestion medians are
+15,594 / 16,664 / 16,393 messages/sec at 100 / 1,000 / 5,000 synthetic messages,
+three runs each. All provenance/duplicate/backup checks passed. Existing memory
+challenge growth recall remains 0/3; that failure is retained, not removed from
+raw results. These runs do not establish real-export quality or a system ranking.
