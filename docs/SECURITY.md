@@ -289,6 +289,20 @@ Database helpers return empty results instead of raising into the agent loop, an
 `db.failures` counts them. The MCP server converts handler exceptions into
 `isError` tool results so one bad call cannot take down a session.
 
+### Local embeddings
+
+Optional. `vectors.py` POSTs recalled/stored text to a **loopback** embed server
+so semantic recall can run without a cloud API. Defaults:
+
+- backend `openai-compat` at `http://127.0.0.1:1234/v1` (LM Studio), model
+  `text-embedding-nomic-embed-text-v1.5`
+- selectable backend `ollama` at `http://127.0.0.1:11434`
+
+A URL whose host is not loopback (`127.0.0.0/8`, `::1`, `localhost`) is refused
+without making the request. HTTP proxy environment variables are ignored, so
+`HTTP_PROXY` cannot take memory text off-box. If the server is down, disabled,
+or the URL is refused, retrieval uses FTS5 + graph (fail-open).
+
 ## Encryption at rest
 
 Not implemented. Hungry Hippa writes a plain SQLite database (WAL mode). If the
@@ -315,7 +329,9 @@ Additional requirements if you enable them:
 - No tamper-evident audit trail. `mutation_log` is append-only by convention; it
   is not a hash chain, and someone with write access to the file can alter it.
 - No multi-user accounts, quotas, or tenant isolation. One database, one owner.
-- No network transport, remote access or OAuth. There is no listener to secure.
+- No network transport, remote access or OAuth. MCP is stdio-only. The only
+  outbound HTTP is optional embedding against a loopback URL, and it fail-opens
+  rather than calling a remote embed API.
 - No automatic detection of poisoned content from a client that claims an owner
   label. Such a claim is remapped to `mcp-untrusted`, but quarantine protects against
   untrusted *actors*, not against a compromised process that can already start a server

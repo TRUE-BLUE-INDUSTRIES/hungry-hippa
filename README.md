@@ -153,7 +153,7 @@ flowchart TB
         ATTN["attention.py<br/>importance scoring"]
         CONS["consolidation.py<br/>sleep pass"]
         FORG["forgetting.py<br/>decay, archival"]
-        VEC["vectors.py<br/>optional Ollama embeddings"]
+        VEC["vectors.py<br/>optional local embeddings"]
         OBS["observability.py<br/>why / changed / forgotten"]
     end
 
@@ -213,7 +213,10 @@ defaults, so you only list what you are changing.
     "max_items": 6,
     "recency_half_life_days": 45,
     "vectors_enabled": true,
-    "embedding_model": "nomic-embed-text",
+    "embedding_backend": "openai-compat",
+    "embedding_model": "text-embedding-nomic-embed-text-v1.5",
+    "embed_url": "http://127.0.0.1:1234/v1",
+    "embed_api_key": "lm-studio",
     "ollama_url": "http://127.0.0.1:11434"
   },
   "consolidation": {
@@ -238,6 +241,13 @@ defaults, so you only list what you are changing.
 Every key shown above exists in `config.py`'s `DEFAULTS`; the file also carries
 `attention`, `source_confidence`, `contradiction`, `forgetting` and `procedural`
 sections, plus `schema_version`. `db_path: ""` means "use the default location".
+
+Embeddings stay on loopback. `embedding_backend` is `openai-compat` (LM Studio
+and other OpenAI-compatible local servers; default
+`http://127.0.0.1:1234/v1`) or `ollama` (`ollama_url`, default
+`http://127.0.0.1:11434`). A non-loopback URL is refused; recall then uses
+keyword + graph. Ollama users set `"embedding_backend": "ollama"` and keep
+their existing `ollama_url` / `embedding_model`.
 
 Environment:
 
@@ -363,10 +373,10 @@ never deleted implicitly, and there is no path from quarantine review to purge.
 | A `DeprecationWarning` about `LIVING_CORTEX_DB` | You are using the old environment key. Switch to `HUNGRY_HIPPA_DB`; the old key still works. |
 | Recall returns nothing for something you know is stored | Common causes: the query has no matching tokens (FTS is keyword-based; enable vectors for paraphrases), a `project` filter excludes it, the item is **quarantined** (untrusted write — review with `hungry-hippa recall "<topic>" --quarantined`), or the row is `archived`/`superseded` and correctly no longer current. |
 | Everything is missing for a second client | That client is using the default `mcp-untrusted` actor. Untrusted actors only read their own unclassified, non-quarantined rows. Give that client its own actor label and accept the isolation, or launch its server with the owner token if it genuinely runs as you — and read the limitation in `docs/SECURITY.md` first. `actor_id` alone never changes this. |
-| Recall quality dropped | Vector search may be off (Ollama not running, or `vectors_enabled: false`). Recall then degrades to keyword + graph, which is the documented failure mode. |
+| Recall quality dropped | Vector search may be off (local embed server not running, or `vectors_enabled: false`). Recall then degrades to keyword + graph, which is the documented failure mode. |
 | An MCP client connects but no tools appear | Tool names are namespaced by the client (e.g. `hungry-hippa__hippa_recall`). Check `grok mcp doctor <name>` or your client's equivalent, and read the server's stderr log — this server writes nothing to stdout except protocol frames. |
 | `purge` is refused | Purge needs `confirmation: true` **and** an owner-authorized instance; it is denied by default over MCP. Use `mode: "archival"` for reversible forgetting. |
-| Retrieval is slow | Retrieval latency grows slowly with store size (≈3–4 ms median at 2 000 episodes in `eval/REPORT.md`). If it is far worse, check for a huge `max_items` or an Ollama timeout on every call. |
+| Retrieval is slow | Retrieval latency grows slowly with store size (≈3–4 ms median at 2 000 episodes in `eval/REPORT.md`). If it is far worse, check for a huge `max_items` or an embed-server timeout on every call. |
 | The FTS index looks inconsistent | The schema layer self-heals: if the FTS table is empty while source rows exist, it is rebuilt from source on open. If that fails, the affected database logs a warning and recall degrades to graph-only. |
 
 More detail: [docs/SECURITY.md](docs/SECURITY.md), [docs/MIGRATION.md](docs/MIGRATION.md),
@@ -410,7 +420,7 @@ hungry-hippa/
 │   ├── semantic.py       # beliefs, provenance, contradictions
 │   ├── procedural.py     # procedural learning + validation
 │   ├── retrieval.py      # hybrid retrieval + context compiler
-│   ├── vectors.py        # optional local embeddings (Ollama, fail-safe)
+│   ├── vectors.py        # optional local embeddings (LM Studio / Ollama, fail-safe)
 │   ├── consolidation.py  # "sleep" pass
 │   ├── forgetting.py     # decay / compression / archival
 │   ├── attention.py      # importance scoring

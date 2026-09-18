@@ -72,8 +72,11 @@ DEFAULTS: Dict[str, Any] = {
         "vector_top_k": 8,
         "graph_hop_limit": 2,
         "recency_half_life_days": 45,
-        "embedding_model": "nomic-embed-text",
-        "ollama_url": "http://127.0.0.1:11434",
+        "embedding_backend": "openai-compat",  # openai-compat | ollama
+        "embedding_model": "text-embedding-nomic-embed-text-v1.5",
+        "embed_url": "http://127.0.0.1:1234/v1",  # OpenAI-compat base (LM Studio)
+        "embed_api_key": "lm-studio",            # Bearer token; empty disables header
+        "ollama_url": "http://127.0.0.1:11434",  # used when backend is ollama
         "vectors_enabled": True,
         "embed_timeout_s": 10,
     },
