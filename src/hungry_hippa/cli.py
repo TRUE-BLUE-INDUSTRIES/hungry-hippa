@@ -369,7 +369,10 @@ def _cmd_ingest(args) -> None:
     action = getattr(args, "ingest_command", "") or ""
     if action == "chatgpt":
         return _cmd_ingest_chatgpt(args)
+    if action == "hermes":
+        return _cmd_ingest_hermes(args)
     print("Usage: hungry-hippa ingest chatgpt <conversations.json> [--dry-run|--apply]")
+    print("       hungry-hippa ingest hermes <dir> [--dry-run|--apply]")
     return None
 
 
@@ -447,6 +450,110 @@ def _cmd_ingest_chatgpt(args) -> None:
     _print_ingest_counts(counts)
     print(f"Archive sha256: {result.sha256}")
     print(f"Turns inserted: {result.turns_inserted:,}")
+    print(f"Turns already present: {already:,}")
+    print("No episodes, no beliefs, no model calls (canonical history only).")
+
+
+def _cmd_ingest_hermes(args) -> None:
+    """Parse Hermes session files; persist only when ``--apply`` is given."""
+    given = getattr(args, "dir", "") or ""
+    if not given:
+        _print_json({"error": "a Hermes sessions directory (or .json/.jsonl file) is required"})
+        sys.exit(1)
+
+    apply = bool(getattr(args, "apply", False))
+    dry_run = bool(getattr(args, "dry_run", False))
+    if apply and dry_run:
+        _print_json({"error": "pass only one of --dry-run or --apply"})
+        sys.exit(1)
+    if not apply and not dry_run:
+        _print_json({"error": ("refusing to write: pass --dry-run to parse and "
+                               "report, or --apply to persist canonical turns. "
+                               "Writes are not the default.")})
+        sys.exit(1)
+
+    from .ingest import parse_hermes_export, resolve_hermes_path, summarize
+
+    try:
+        path = resolve_hermes_path(given)
+    except FileNotFoundError:
+        _print_json({"error": f"no such file or directory: {given}"})
+        sys.exit(1)
+    except IsADirectoryError:
+        _print_json({"error": f"not a directory or session file: {given}"})
+        sys.exit(1)
+    except (OSError, ValueError) as e:
+        _print_json({"error": str(e)})
+        sys.exit(1)
+
+    try:
+        conversations = parse_hermes_export(path)
+    except json.JSONDecodeError as e:
+        _print_json({"error": f"not valid JSON: {e}"})
+        sys.exit(1)
+    except (OSError, UnicodeDecodeError) as e:
+        _print_json({"error": f"could not read export: {type(e).__name__}"})
+        sys.exit(1)
+
+    counts = summarize(conversations)
+    if dry_run:
+        print("Hermes sessions parsed")
+        _print_ingest_counts(counts)
+        print("No database writes, no model calls, no network access (parsing only).")
+        return
+
+    from .config import load_config, resolve_db_path
+    from .db import Database
+    from .ingest.store import persist_parsed_export
+
+    db_path = os.path.abspath(resolve_db_path(load_config()))
+    archive_dir = os.path.join(os.path.dirname(db_path), "ingest_archives")
+    groups: Dict[str, List[Any]] = {}
+    for convo in conversations:
+        src = (convo.source_metadata or {}).get("export_path")
+        if not isinstance(src, str) or not src:
+            src = path
+        groups.setdefault(src, []).append(convo)
+
+    if not groups:
+        print("Hermes sessions ingested")
+        _print_ingest_counts(counts)
+        print("Archives: 0")
+        print("Turns inserted: 0")
+        print("Turns already present: 0")
+        print("No episodes, no beliefs, no model calls (canonical history only).")
+        return
+
+    db = Database(db_path)
+    inserted = 0
+    seen = 0
+    archives = 0
+    last_sha = ""
+    for src, convos in sorted(groups.items()):
+        if os.path.isdir(src):
+            _print_json({"error": "refusing to hash a directory as an archive; "
+                         "session files are persisted individually"})
+            sys.exit(1)
+        result = persist_parsed_export(
+            db, convos, source_path=src, copy_to=archive_dir,
+        )
+        if not result.ok:
+            _print_json({"error": result.error or "persist failed",
+                         "file": os.path.basename(src)})
+            sys.exit(1)
+        inserted += result.turns_inserted
+        seen += result.turns_seen
+        archives += 1
+        last_sha = result.sha256
+
+    already = max(0, seen - inserted)
+    print("Hermes sessions ingested")
+    _print_ingest_counts(counts)
+    if archives == 1 and last_sha:
+        print(f"Archive sha256: {last_sha}")
+    else:
+        print(f"Archives: {archives:,}")
+    print(f"Turns inserted: {inserted:,}")
     print(f"Turns already present: {already:,}")
     print("No episodes, no beliefs, no model calls (canonical history only).")
 
@@ -859,6 +966,23 @@ def register_cli(subparser) -> None:
         help="parse and report; store nothing (the safe default unless --apply)",
     )
     ing_mode.add_argument(
+        "--apply", dest="apply", action="store_true",
+        help="persist canonical turns and an archive pointer (idempotent)",
+    )
+    ing_hermes = ing_subs.add_parser(
+        "hermes",
+        help="Parse a Hermes sessions export directory into normalized turns",
+    )
+    ing_hermes.add_argument(
+        "dir",
+        help="Hermes sessions directory, or one .json/.jsonl session file",
+    )
+    hermes_mode = ing_hermes.add_mutually_exclusive_group()
+    hermes_mode.add_argument(
+        "--dry-run", dest="dry_run", action="store_true",
+        help="parse and report; store nothing (the safe default unless --apply)",
+    )
+    hermes_mode.add_argument(
         "--apply", dest="apply", action="store_true",
         help="persist canonical turns and an archive pointer (idempotent)",
     )

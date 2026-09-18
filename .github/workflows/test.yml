@@ -82,6 +82,9 @@ jobs:
       - name: chatgpt export parser
         run: python tests/test_chatgpt_ingest.py
 
+      - name: hermes session ingest
+        run: python tests/test_hermes_ingest.py
+
       - name: ingest canonical store
         run: python tests/test_ingest_store.py
 

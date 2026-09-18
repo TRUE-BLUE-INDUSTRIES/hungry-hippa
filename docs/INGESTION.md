@@ -10,6 +10,7 @@ tables, not in `episodes`.
 | 1 — parse | ChatGPT `conversations.json` → `ParsedConversation` | write a database, call a model, filter, classify |
 | 2 — persist | store a Layer 1 archive pointer + Layer 2 conversation/turn rows | copy the file into SQLite, write episodes, extract memories, change MCP |
 | 3 — CLI write | `ingest chatgpt FILE --apply` persists via the Slice 2 library | extract memories, write episodes/beliefs, mint `user_explicit`, change MCP |
+| Hermes | same parse shape + same persist, from a sessions export dir | open `state.db`, extract memories, change MCP, follow symlinks |
 | 4+ | recall-with-why (HH-08), extraction | not this document |
 
 The MCP surface is unchanged: still exactly six tools.
@@ -125,8 +126,9 @@ entry that is not an object at all.
 ### Slice 1 guarantees
 
 - No database is opened or written — a parse succeeds with no store present and creates
-  no file, even when `HUNGRY_HIPPA_DB` is set. `chatgpt.py` and `models.py` import only
-  the standard library. `ingest/__init__.py` does not import the persist module.
+  no file, even when `HUNGRY_HIPPA_DB` is set. `chatgpt.py`, `hermes.py` and `models.py`
+  import only the standard library. `ingest/__init__.py` does not import the persist
+  module.
   (Importing `hungry_hippa.ingest` still executes the parent package's ordinary imports;
   the guarantee is about behaviour, not import isolation.)
 - No model calls, no network access, no MCP tools.
@@ -237,3 +239,57 @@ conversations become warnings and do not abort the rest of the file.
 Treat the export as hostile: no `eval`/`exec`, leaf symlinks refused
 (`O_NOFOLLOW`), extra paths inside the JSON never opened, turn bodies not
 printed in logs or CLI output. MCP is still exactly six tools.
+
+---
+
+## Hermes sessions
+
+Hermes live transcripts sit in SQLite (`~/.hermes/state.db`). This adapter does
+**not** open that database. It reads an export directory the operator names —
+the same shape `hermes sessions export` and `/save json` write, plus the legacy
+`{session_id}.jsonl` divert path under `~/.hermes/sessions/` (empty on the
+development host when inspected). Personal session files were not copied into
+the repo; tests use synthetic fixtures that match the inspected JSON shape.
+
+```python
+from hungry_hippa.ingest import parse_hermes_export
+
+conversations = parse_hermes_export("~/exports/hermes-sessions")
+```
+
+```bash
+hungry-hippa ingest hermes ~/exports/hermes-sessions --dry-run
+hungry-hippa ingest hermes ~/exports/hermes-sessions --apply
+hungry-hippa ingest hermes ./one_session.jsonl --dry-run
+```
+
+Without `--dry-run` or `--apply` the command **refuses**. `--apply` calls
+`persist_parsed_export` per session file (Layer 1 archive pointer + optional
+`0600` copy; Layer 2 `source=hermes` conversation/turn rows). It does not write
+`episodes`, `beliefs`, `evidence`, or `memory_fts`. Turn bodies are not printed.
+
+### What is accepted
+
+| Input | Meaning |
+|---|---|
+| A directory | regular `.json` / `.jsonl` files under it, recursive, no symlink follow |
+| One `.json` or `.jsonl` file | a session snapshot, a JSONL export (one session object per line), or a legacy message-per-line transcript |
+
+Anything else (markdown, HTML, `state.db`, a leaf symlink, a non-file/non-directory) is refused. `sessions.json` (the routing index: `session_key → SessionEntry`, no messages) is skipped. Paths found inside JSON are never opened. A walk never leaves the given root.
+
+Session ids are the provider's (`id` / `session_id`, typically `YYYYMMDD_HHMMSS_<hex>`). Message ids are the export's integer (or string) `id`, stored as text. They are never regenerated. A legacy `{session_id}.jsonl` with no `id` on the session object uses the filename stem — that stem *is* the Hermes session id.
+
+### Normalized turn (`source=hermes`)
+
+Hermes transcripts are a list, not a ChatGPT-style tree. `parent_turn_id` is the previous message's id. `branch_path` is the linear prefix. When a message has `active` set to `0`/`false`, it is kept as a turn and left off `current_path_turn_ids` (the closest analog of an abandoned branch). Tool-call-only assistant messages with no text produce no turn (a warning records that they were there); tool-role messages with text are kept. Tool-call **arguments** are not copied into metadata. Reasoning fields are not ingested as conversation text.
+
+### Known limitations
+
+- Live Hermes history is SQLite. This importer reads files, not `state.db`. To ingest a live profile, export first (`hermes sessions export backup.jsonl` or copy `~/.hermes/sessions/` if JSONL files are present).
+- No sibling-branch mapping: regenerations/rewinds appear only when the export includes inactive messages (`active=0`).
+- Empty assistant `tool_calls` turns are skipped; the following tool result still points at that structural id as `parent_turn_id`.
+- Multimodal parts that are not text (`image_url`, …) are skipped with `unsupported_content_types`.
+- Directory `--apply` hashes each session file separately because `persist_parsed_export` takes a file, not a directory.
+- Not verified against a copy of the operator's personal sessions (those files must not be committed). Fixtures match the inspected export shape.
+
+The ChatGPT parser is unchanged. MCP is still exactly six tools.
