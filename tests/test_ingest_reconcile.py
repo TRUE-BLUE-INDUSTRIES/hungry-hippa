@@ -223,7 +223,7 @@ class FakeExtractor:
 
 # ---------------------------------------------------------------- classify
 
-def check_v8_tables_on_fresh_db():
+def check_v9_tables_on_fresh_db():
     from hungry_hippa.schema import CURRENT_VERSION
 
     path = _fresh_db()
@@ -238,8 +238,8 @@ def check_v8_tables_on_fresh_db():
     assert "ingest_reconcile_jobs" in tables
     assert "ingest_reconcile_decisions" in tables
     assert "ingest_turns" in tables and "ingest_extract_jobs" in tables
-    assert versions == {1, 2, 3, 4, 5, 6, 7, 8}, versions
-    return "fresh database is schema v8 with reconcile decision tables"
+    assert versions == {1, 2, 3, 4, 5, 6, 7, 8, 9}, versions
+    return "fresh database is schema v9 with reconcile decision tables"
 
 
 def check_classify_each_class_on_fixtures():
@@ -740,7 +740,7 @@ def run_all() -> List[Dict[str, Any]]:
             results.append({"name": name, "passed": False,
                             "detail": f"{type(e).__name__}: {e}"})
 
-    check("v8_tables_on_fresh_db", check_v8_tables_on_fresh_db)
+    check("v9_tables_on_fresh_db", check_v9_tables_on_fresh_db)
     check("classify_each_class_on_fixtures", check_classify_each_class_on_fixtures)
     check("property_classify_is_deterministic", check_property_classify_is_deterministic)
     check("property_contradiction_never_picks_a_winner",
