@@ -30,7 +30,7 @@ logger = logging.getLogger("hungry_hippa.db")
 _ID_PREFIX = {
     "episode": "E", "entity": "EN", "relationship": "R", "belief": "B",
     "procedure": "P", "evidence": "EV", "vector": "V", "consolidation": "CR",
-    "ingest_archive": "IA",
+    "ingest_archive": "IA", "ingest_extract_job": "IX",
 }
 
 
@@ -597,6 +597,143 @@ class Database:
             return out
 
         return self._run(_g) or []
+
+    def list_ingest_turns_for_extract(self, source_filter: str = "") -> List[Dict[str, Any]]:
+        """Turns plus sqlite rowid, ordered for batched extraction."""
+
+        def _g(conn: sqlite3.Connection) -> List[Dict[str, Any]]:
+            sql = (
+                "SELECT t.rowid AS turn_rowid, t.source, t.session_id, t.turn_id,"
+                " t.parent_turn_id, t.role, t.content, t.occurred_at,"
+                " t.on_current_path, c.title AS session_title"
+                " FROM ingest_turns t"
+                " JOIN ingest_conversations c"
+                " ON c.source = t.source AND c.session_id = t.session_id"
+            )
+            params: List[Any] = []
+            if source_filter:
+                sql += " WHERE t.source = ?"
+                params.append(source_filter)
+            sql += " ORDER BY t.source, t.session_id, t.rowid"
+            return [dict(r) for r in conn.execute(sql, params)]
+
+        return self._run(_g) or []
+
+    def find_evidence_by_source_ref(self, source_ref: str) -> Optional[Dict[str, Any]]:
+        def _g(conn: sqlite3.Connection) -> Optional[Dict[str, Any]]:
+            row = conn.execute(
+                "SELECT * FROM evidence WHERE source_ref = ? ORDER BY captured_at LIMIT 1",
+                (source_ref,),
+            ).fetchone()
+            return dict(row) if row else None
+
+        return self._run(_g)
+
+    def list_active_belief_claims(self) -> List[str]:
+        def _g(conn: sqlite3.Connection) -> List[str]:
+            return [r[0] for r in conn.execute(
+                "SELECT claim FROM beliefs WHERE status = 'active'")]
+
+        return self._run(_g) or []
+
+    def get_ingest_extract_progress(
+        self, source: str, session_id: str
+    ) -> Optional[Dict[str, Any]]:
+        def _g(conn: sqlite3.Connection) -> Optional[Dict[str, Any]]:
+            row = conn.execute(
+                "SELECT * FROM ingest_extract_progress"
+                " WHERE source = ? AND session_id = ?",
+                (source, session_id),
+            ).fetchone()
+            return dict(row) if row else None
+
+        return self._run(_g)
+
+    def upsert_ingest_extract_progress(
+        self,
+        *,
+        source: str,
+        session_id: str,
+        last_turn_rowid: int,
+        last_turn_id: str,
+        status: str,
+        job_id: str,
+    ) -> None:
+        now = now_iso()
+
+        def _u(conn: sqlite3.Connection) -> None:
+            conn.execute(
+                "INSERT INTO ingest_extract_progress("
+                "source, session_id, last_turn_rowid, last_turn_id, status, job_id, updated_at)"
+                " VALUES (?,?,?,?,?,?,?)"
+                " ON CONFLICT(source, session_id) DO UPDATE SET"
+                " last_turn_rowid=excluded.last_turn_rowid,"
+                " last_turn_id=excluded.last_turn_id,"
+                " status=excluded.status,"
+                " job_id=excluded.job_id,"
+                " updated_at=excluded.updated_at",
+                (source, session_id, int(last_turn_rowid), last_turn_id or "",
+                 status, job_id, now),
+            )
+
+        self._run(_u, write=True)
+
+    def create_ingest_extract_job(
+        self, *, model: str = "", source_filter: str = ""
+    ) -> str:
+        job_id = self.next_id("ingest_extract_job")
+        now = now_iso()
+
+        def _c(conn: sqlite3.Connection) -> None:
+            conn.execute(
+                "UPDATE ingest_extract_jobs SET status = 'abandoned', updated_at = ?"
+                " WHERE status = 'running'",
+                (now,),
+            )
+            conn.execute(
+                "INSERT INTO ingest_extract_jobs("
+                "job_id, status, model, source_filter, last_source, last_session_id,"
+                " last_turn_rowid, turns_seen, turns_processed, candidates_written,"
+                " candidates_skipped, error, started_at, updated_at, finished_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (job_id, "running", model or "", source_filter or "",
+                 "", "", 0, 0, 0, 0, 0, "", now, now, None),
+            )
+
+        self._run(_c, write=True)
+        return job_id
+
+    def update_ingest_extract_job(self, job_id: str, **fields: Any) -> None:
+        if not job_id or not fields:
+            return
+        allowed = {
+            "status", "model", "source_filter", "last_source", "last_session_id",
+            "last_turn_rowid", "turns_seen", "turns_processed",
+            "candidates_written", "candidates_skipped", "error", "finished_at",
+        }
+        sets = ["updated_at = ?"]
+        params: List[Any] = [now_iso()]
+        for key, value in fields.items():
+            if key not in allowed:
+                continue
+            sets.append(f"{key} = ?")
+            params.append(value)
+        params.append(job_id)
+        sql = f"UPDATE ingest_extract_jobs SET {', '.join(sets)} WHERE job_id = ?"
+
+        def _u(conn: sqlite3.Connection) -> None:
+            conn.execute(sql, params)
+
+        self._run(_u, write=True)
+
+    def get_ingest_extract_job(self, job_id: str) -> Optional[Dict[str, Any]]:
+        def _g(conn: sqlite3.Connection) -> Optional[Dict[str, Any]]:
+            row = conn.execute(
+                "SELECT * FROM ingest_extract_jobs WHERE job_id = ?", (job_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+        return self._run(_g)
 
 
 def _upsert_ingest_archive(

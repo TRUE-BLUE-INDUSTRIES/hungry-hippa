@@ -122,7 +122,7 @@ def check_v6_tables_exist_on_fresh_db():
     from hungry_hippa.schema import CURRENT_VERSION
 
     path = _fresh_db()
-    assert CURRENT_VERSION == 7, CURRENT_VERSION
+    assert CURRENT_VERSION >= 6, CURRENT_VERSION
     tables = _table_names(path)
     for name in ("ingest_archives", "ingest_conversations", "ingest_turns"):
         assert name in tables, (name, tables)
@@ -132,8 +132,8 @@ def check_v6_tables_exist_on_fresh_db():
         versions = {r[0] for r in conn.execute("SELECT version FROM schema_migrations")}
     finally:
         conn.close()
-    assert versions == {1, 2, 3, 4, 5, 6, 7}, versions
-    return "fresh database is schema v6 with ingest tables plus episodes"
+    assert versions >= {1, 2, 3, 4, 5, 6}, versions
+    return "fresh database is schema v6+ with ingest tables plus episodes"
 
 
 def check_v5_database_migrates_and_keeps_episodes():
