@@ -147,7 +147,7 @@ def test_v6_ingest_tables_and_down_sql():
     from hungry_hippa.schema import CURRENT_VERSION, MIGRATIONS
     from hungry_hippa.db import Database
 
-    assert CURRENT_VERSION == 6, CURRENT_VERSION
+    assert CURRENT_VERSION == 7, CURRENT_VERSION
     assert 6 in MIGRATIONS and MIGRATIONS[6]["down"].strip(), MIGRATIONS.keys()
     assert "ingest_turns" in MIGRATIONS[6]["up"]
     assert "episodes" not in MIGRATIONS[6]["up"] or "CREATE TABLE episodes" not in MIGRATIONS[6]["up"]
@@ -169,6 +169,7 @@ def test_v6_ingest_tables_and_down_sql():
             " 'v6 down must not drop me','success',0.5,0.5,'active',"
             " '2020-01-01T00:00:00Z','2020-01-01T00:00:00Z')"
         )
+        conn.executescript(MIGRATIONS[7]["down"])
         conn.executescript(MIGRATIONS[6]["down"])
         tables_after = {r[0] for r in conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table'")}

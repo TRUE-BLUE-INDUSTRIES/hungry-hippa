@@ -18,7 +18,6 @@ import argparse
 import os
 import subprocess
 import sys
-import sys
 from pathlib import Path
 from typing import List, Sequence, Tuple
 
@@ -40,6 +39,7 @@ STEPS: Sequence[Tuple[str, List[str]]] = (
     ("resource limits", ["python", "tests/test_resource_limits.py"]),
     ("quarantine review CLI", ["python", "tests/test_quarantine_cli.py"]),
     ("chatgpt export parser", ["python", "tests/test_chatgpt_ingest.py"]),
+    ("hostile import + evidence integrity", ["python", "tests/test_ingest_integrity.py"]),
     ("ingest canonical store", ["python", "tests/test_ingest_store.py"]),
     ("import + packaging hygiene", ["python", "tests/test_import_hygiene.py"]),
     ("backup + rotation", ["python", "tests/test_backup_rotation.py"]),

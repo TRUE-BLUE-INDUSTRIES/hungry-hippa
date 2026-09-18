@@ -420,18 +420,48 @@ class Database:
         archive: Dict[str, Any],
         conversations: List[Dict[str, Any]],
         turns: List[Dict[str, Any]],
+        raw_bytes: Optional[bytes] = None,
     ) -> Optional[Dict[str, Any]]:
         """Store a Layer 1 archive pointer and Layer 2 conversations/turns.
 
-        One transaction. Turns are idempotent on ``(source, session_id, turn_id)``
-        (first write wins). Conversations upsert on ``(source, session_id)`` so a
-        later export of the same session can refresh title and current path.
+        One transaction, including the exact source bytes. Reused turn IDs with
+        changed content/lineage are refused. Each export retains its own branch
+        snapshot; a duplicate archive never rolls back the latest import view.
         This does not write episodes, beliefs, evidence, or FTS: raw history is
         not memory.
         """
 
         def _persist(conn: sqlite3.Connection) -> Dict[str, Any]:
+            # Serialize quota checks and deduplication across processes, not just
+            # threads sharing this Database instance.
+            conn.execute("BEGIN IMMEDIATE")
+            if not isinstance(raw_bytes, bytes):
+                raise ValueError("exact source bytes are required")
+            if (hashlib.sha256(raw_bytes).hexdigest() != archive.get("sha256")
+                    or len(raw_bytes) != archive.get("byte_length")):
+                raise ValueError("source bytes do not match archive digest/length")
+            seen = conn.execute(
+                "SELECT a.archive_id, b.raw_bytes FROM ingest_archives a "
+                "JOIN ingest_archive_bytes b USING (archive_id) WHERE a.sha256 = ?",
+                (archive["sha256"],),
+            ).fetchone()
+            if seen:
+                if bytes(seen["raw_bytes"]) != raw_bytes:
+                    raise ValueError("stored archive integrity mismatch")
+                return {"archive_id": seen["archive_id"], "archive_inserted": False,
+                        "conversations_inserted": 0, "conversations_seen": len(conversations),
+                        "turns_inserted": 0, "turns_seen": len(turns)}
+            # Bound persistent growth independently of runtime memory-write caps.
+            # Size includes SQLite's current page count (including committed WAL).
+            page_size = conn.execute("PRAGMA page_size").fetchone()[0]
+            pages = conn.execute("PRAGMA page_count").fetchone()[0]
+            ceiling = _limits.max_db_bytes()
+            estimate = len(raw_bytes) + 3 * len(jdump([conversations, turns]).encode("utf-8"))
+            if pages * page_size + estimate > ceiling:
+                raise ValueError("import exceeds database size budget")
             archive_id, archive_inserted = _upsert_ingest_archive(conn, archive)
+            conn.execute("INSERT INTO ingest_archive_bytes VALUES (?,?)",
+                         (archive_id, raw_bytes))
             conv_before = conn.execute(
                 "SELECT COUNT(*) FROM ingest_conversations"
             ).fetchone()[0]
@@ -440,9 +470,25 @@ class Database:
             ).fetchone()[0]
             stored_at = now_iso()
             for convo in conversations:
+                conn.execute(
+                    "INSERT INTO ingest_snapshots VALUES (?,?,?,?)",
+                    (archive_id, convo["source"], convo["session_id"], jdump(convo)),
+                )
                 _upsert_ingest_conversation(conn, convo, archive_id, stored_at)
+                conn.execute(
+                    "UPDATE ingest_turns SET on_current_path = 0 "
+                    "WHERE source = ? AND session_id = ?",
+                    (convo["source"], convo["session_id"]),
+                )
             for turn in turns:
                 _insert_ingest_turn(conn, turn, stored_at)
+                conn.execute(
+                    "INSERT INTO ingest_turn_sources VALUES (?,?,?,?,?,?)",
+                    (archive_id, turn["source"], turn["session_id"], turn["turn_id"],
+                     int(turn["on_current_path"]), jdump(turn["source_metadata"])),
+                )
+            if conn.execute("PRAGMA page_count").fetchone()[0] * page_size > ceiling:
+                raise ValueError("import exceeds database size budget")
             conv_after = conn.execute(
                 "SELECT COUNT(*) FROM ingest_conversations"
             ).fetchone()[0]
@@ -493,6 +539,28 @@ class Database:
 
         return self._run(_g)
 
+    def get_ingest_archive_bytes(self, sha256: str) -> Optional[bytes]:
+        def _g(conn: sqlite3.Connection) -> Optional[bytes]:
+            row = conn.execute(
+                "SELECT b.raw_bytes FROM ingest_archive_bytes b "
+                "JOIN ingest_archives a USING (archive_id) WHERE a.sha256 = ?",
+                (sha256,),
+            ).fetchone()
+            return bytes(row[0]) if row else None
+        return self._run(_g)
+
+    def get_ingest_turn_sources(self, source: str, session_id: str,
+                               turn_id: str) -> List[Dict[str, Any]]:
+        def _g(conn: sqlite3.Connection) -> List[Dict[str, Any]]:
+            rows = conn.execute(
+                "SELECT s.archive_id, a.sha256, a.byte_length, s.on_current_path "
+                "FROM ingest_turn_sources s JOIN ingest_archives a USING (archive_id) "
+                "WHERE s.source = ? AND s.session_id = ? AND s.turn_id = ? "
+                "ORDER BY s.archive_id", (source, session_id, turn_id),
+            ).fetchall()
+            return [dict(row) for row in rows]
+        return self._run(_g) or []
+
     def get_ingest_conversation(
         self, source: str, session_id: str
     ) -> Optional[Dict[str, Any]]:
@@ -524,6 +592,7 @@ class Database:
                 item = dict(row)
                 item["branch_path"] = tuple(jload(item.get("branch_path"), []) or [])
                 item["source_metadata"] = jload(item.get("source_metadata"), {})
+                item["source_metadata"]["on_current_path"] = bool(item["on_current_path"])
                 out.append(item)
             return out
 
@@ -614,6 +683,23 @@ def _upsert_ingest_conversation(
 def _insert_ingest_turn(
     conn: sqlite3.Connection, turn: Dict[str, Any], stored_at: str
 ) -> None:
+    existing = conn.execute(
+        "SELECT * FROM ingest_turns WHERE source = ? AND session_id = ? AND turn_id = ?",
+        (turn["source"], turn["session_id"], turn["turn_id"]),
+    ).fetchone()
+    if existing:
+        for field in ("parent_turn_id", "role", "content", "occurred_at"):
+            if existing[field] != turn.get(field):
+                raise ValueError("existing turn identity conflicts with imported evidence")
+        if jload(existing["branch_path"], []) != list(turn.get("branch_path") or []):
+            raise ValueError("existing turn lineage conflicts with imported evidence")
+        conn.execute(
+            "UPDATE ingest_turns SET on_current_path = ?, source_metadata = ? "
+            "WHERE source = ? AND session_id = ? AND turn_id = ?",
+            (int(turn["on_current_path"]), jdump(turn["source_metadata"]),
+             turn["source"], turn["session_id"], turn["turn_id"]),
+        )
+        return
     conn.execute(
         "INSERT OR IGNORE INTO ingest_turns("
         "source, session_id, turn_id, parent_turn_id, role, content, occurred_at,"

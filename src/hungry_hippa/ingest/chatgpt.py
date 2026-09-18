@@ -20,10 +20,12 @@ present a conversation that never happened. So:
 Structural nodes (no ``message``, or no textual content) produce no turn but are
 still part of every ``branch_path`` that passes through them, so lineage survives.
 
-Tolerated malformations (each becomes a warning on the conversation, never an
-exception): a node that is not an object, a non-string or unknown child id, a
+Tolerated node malformations (each becomes a warning on the conversation):
+a node that is not an object, a non-string or unknown child id, a
 duplicate child id, a cycle, a message that is not an object, a content payload
 that is not text, a missing or non-numeric timestamp, a conversation with no id.
+Unsupported export shapes, ambiguous identities, and resource-limit violations
+are errors. No partial parse result is returned for those errors.
 
 Supported content
 -----------------
@@ -38,17 +40,33 @@ turn's metadata so nothing silently disappears.
 
 from __future__ import annotations
 
+import hashlib
 import json
-import logging
+import math
 import os
 import stat
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from .models import NormalizedTurn, ParsedConversation
 
-logger = logging.getLogger(__name__)
-
 SOURCE = "chatgpt"
+
+# Fixed admission limits keep parsing predictable before any database is opened.
+MAX_EXPORT_BYTES = 64 * 1024 * 1024
+MAX_JSON_DEPTH = 64
+MAX_JSON_ITEMS = 1_000_000
+MAX_CONVERSATIONS = 10_000
+MAX_TOTAL_NODES = 100_000
+MAX_NODES_PER_CONVERSATION = 20_000
+MAX_BRANCH_DEPTH = 2_048
+MAX_TOTAL_PATH_ENTRIES = 1_000_000
+MAX_TOTAL_PATH_BYTES = 64 * 1024 * 1024
+MAX_ID_CHARS = 512
+_READ_CHUNK = 1024 * 1024
+
+
+class ExportValidationError(ValueError):
+    """The entire export is unsafe or ambiguous to normalize."""
 
 #: Content types that are deliberately not turned into text. Reasoning traces and
 #: injected context are provider-internal; representing them as conversation would
@@ -96,24 +114,100 @@ def resolve_export_path(path: "os.PathLike[str] | str") -> str:
     return absolute
 
 
-def load_export(path: "os.PathLike[str] | str") -> Any:
-    """Load an export file as JSON. Raises on unreadable or invalid JSON.
+def read_export_bytes(path: "os.PathLike[str] | str") -> bytes:
+    """Read one bounded, immutable snapshot for parsing, hashing and archiving.
 
-    Opens with ``O_NOFOLLOW`` so a leaf symlink swapped in after the path check
-    is still refused. Does not ``eval``/``exec`` the file.
+    The descriptor is checked after opening. Nonblocking mode prevents a FIFO
+    swapped in after the initial path check from hanging the process.
     """
     resolved = resolve_export_path(path)
-    flags = os.O_RDONLY
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
     fd = os.open(resolved, flags)
     try:
-        with os.fdopen(fd, "r", encoding="utf-8") as fh:
-            fd = -1
-            return json.load(fh)
+        before = os.fstat(fd)
+        if not stat.S_ISREG(before.st_mode):
+            raise OSError("export path is not a regular file")
+        if before.st_size > MAX_EXPORT_BYTES:
+            raise ExportValidationError(f"export exceeds {MAX_EXPORT_BYTES} bytes")
+        chunks: List[bytes] = []
+        size = 0
+        while True:
+            chunk = os.read(fd, min(_READ_CHUNK, MAX_EXPORT_BYTES + 1 - size))
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > MAX_EXPORT_BYTES:
+                raise ExportValidationError(f"export exceeds {MAX_EXPORT_BYTES} bytes")
+            chunks.append(chunk)
+        after = os.fstat(fd)
+        identity = lambda s: (s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns)
+        if identity(before) != identity(after) or size != after.st_size:
+            raise ExportValidationError("export changed while being read; retry with a stable file")
+        return b"".join(chunks)
     finally:
-        if fd >= 0:
-            os.close(fd)
+        os.close(fd)
+
+
+def _check_json_structure(data: bytes) -> None:
+    """Bound nesting and container entries before the JSON decoder allocates."""
+    depth = entries = 0
+    quoted = escaped = False
+    for ch in data:
+        if quoted:
+            if escaped:
+                escaped = False
+            elif ch == 92:  # backslash
+                escaped = True
+            elif ch == 34:
+                quoted = False
+        elif ch == 34:
+            quoted = True
+        elif ch in (91, 123):  # [ {
+            depth += 1
+            entries += 1
+            if depth > MAX_JSON_DEPTH:
+                raise ExportValidationError(f"JSON nesting exceeds {MAX_JSON_DEPTH}")
+        elif ch in (93, 125):
+            depth -= 1
+        elif ch == 44:
+            entries += 1
+        if entries > MAX_JSON_ITEMS:
+            raise ExportValidationError(f"JSON item count exceeds {MAX_JSON_ITEMS}")
+
+
+def _unique_object(pairs: List[Tuple[str, Any]]) -> Dict[str, Any]:
+    out: Dict[str, Any] = {}
+    for key, value in pairs:
+        if key in out:
+            raise ExportValidationError("duplicate JSON object key is ambiguous")
+        out[key] = value
+    return out
+
+
+def _reject_constant(value: str) -> Any:
+    raise ExportValidationError("non-finite JSON numbers are not supported")
+
+
+def _decode_export_bytes(data: bytes) -> Any:
+    if not isinstance(data, bytes):
+        raise TypeError("export snapshot must be immutable bytes")
+    if len(data) > MAX_EXPORT_BYTES:
+        raise ExportValidationError(f"export exceeds {MAX_EXPORT_BYTES} bytes")
+    _check_json_structure(data)
+    payload = json.loads(data.decode("utf-8"), object_pairs_hook=_unique_object,
+                         parse_constant=_reject_constant)
+    _validate_payload(payload)
+    return payload
+
+
+def load_export(path: "os.PathLike[str] | str") -> Any:
+    """Decode a bounded export snapshot, refusing ambiguous JSON."""
+    return _decode_export_bytes(read_export_bytes(path))
+
+
+def parse_chatgpt_bytes(data: bytes) -> List[ParsedConversation]:
+    """Normalize exactly the immutable bytes the caller can hash and archive."""
+    return _parse_payload(_decode_export_bytes(data))
 
 
 def parse_chatgpt_export(path: "os.PathLike[str] | str") -> List[ParsedConversation]:
@@ -121,33 +215,80 @@ def parse_chatgpt_export(path: "os.PathLike[str] | str") -> List[ParsedConversat
 
     The file is either a JSON array of conversations (what ChatGPT exports) or an
     object with a ``conversations`` array. Order follows the file, so repeated
-    runs on the same export produce the same result. One malformed conversation
-    becomes warnings, not a failed file.
+    runs on the same export produce the same result. Fatal format, identity or
+    resource errors reject the export; malformed individual nodes produce warnings.
     """
-    return parse_chatgpt_payload(load_export(path))
+    return parse_chatgpt_bytes(read_export_bytes(path))
 
 
 def parse_chatgpt_payload(payload: Any) -> List[ParsedConversation]:
-    """Parse an already-decoded export payload.
+    """Parse already-decoded JSON with the same admission checks as file input."""
+    _validate_payload(payload)
+    return _parse_payload(payload)
 
-    A conversation that raises is recorded as a warning and skipped; the rest
-    of the file still parses. Logs carry the conversation index and exception
-    type, never turn text.
-    """
-    entries = _conversation_entries(payload)
-    conversations: List[ParsedConversation] = []
-    for i, entry in enumerate(entries):
+
+def _validate_payload(payload: Any) -> None:
+    # Iterator frames avoid a second list containing every object in the input.
+    stack = [(iter((payload,)), 0)]
+    items = text_bytes = 0
+    while stack:
+        values, depth = stack[-1]
         try:
-            conversations.append(parse_chatgpt_conversation(entry, index=i))
-        except Exception as e:  # noqa: BLE001 — hostile export; isolate one entry
-            logger.warning("conversation %s skipped (%s)", i, type(e).__name__)
-            conversations.append(ParsedConversation(
-                source=SOURCE,
-                session_id=f"{SOURCE}-conversation-{i}",
-                title=None,
-                warnings=(f"conversation {i} failed to parse "
-                          f"({type(e).__name__}); skipped",),
-            ))
+            value = next(values)
+        except StopIteration:
+            stack.pop()
+            continue
+        items += 1
+        if items > MAX_JSON_ITEMS:
+            raise ExportValidationError(f"JSON item count exceeds {MAX_JSON_ITEMS}")
+        if isinstance(value, str):
+            try:
+                text_bytes += len(value.encode("utf-8"))
+            except UnicodeEncodeError as exc:
+                raise ExportValidationError("unpaired Unicode surrogate in export") from exc
+            if text_bytes > MAX_EXPORT_BYTES:
+                raise ExportValidationError("decoded text exceeds export byte limit")
+        elif isinstance(value, float):
+            if not math.isfinite(value):
+                raise ExportValidationError("non-finite JSON numbers are not supported")
+        elif isinstance(value, (dict, list)):
+            if depth >= MAX_JSON_DEPTH:
+                raise ExportValidationError(f"JSON nesting exceeds {MAX_JSON_DEPTH}")
+            if isinstance(value, dict):
+                if any(not isinstance(key, str) for key in value):
+                    raise ExportValidationError("JSON object keys must be strings")
+                from itertools import chain
+                children = chain(value.keys(), value.values())
+            else:
+                children = iter(value)
+            stack.append((iter(children), depth + 1))
+        elif value is not None and not isinstance(value, (int, bool)):
+            raise ExportValidationError("export contains a non-JSON value")
+
+
+def _parse_payload(payload: Any) -> List[ParsedConversation]:
+    entries = _conversation_entries(payload)
+    if len(entries) > MAX_CONVERSATIONS:
+        raise ExportValidationError(f"conversation count exceeds {MAX_CONVERSATIONS}")
+    total_nodes = 0
+    for entry in entries:
+        if not isinstance(entry, dict) or not isinstance(entry.get("mapping"), dict):
+            raise ExportValidationError("each conversation must be an object with a mapping object")
+        count = len(entry["mapping"])
+        if count > MAX_NODES_PER_CONVERSATION:
+            raise ExportValidationError(f"conversation nodes exceed {MAX_NODES_PER_CONVERSATION}")
+        total_nodes += count
+        if total_nodes > MAX_TOTAL_NODES:
+            raise ExportValidationError(f"export nodes exceed {MAX_TOTAL_NODES}")
+    conversations: List[ParsedConversation] = []
+    seen: set = set()
+    path_budget = [0, 0]
+    for i, entry in enumerate(entries):
+        convo = _parse_conversation(entry, index=i, path_budget=path_budget)
+        if convo.session_id in seen:
+            raise ExportValidationError("duplicate conversation id is ambiguous")
+        seen.add(convo.session_id)
+        conversations.append(convo)
     return conversations
 
 
@@ -161,31 +302,52 @@ def _conversation_entries(payload: Any) -> List[Any]:
         # A single conversation object is a valid convenience input.
         if "mapping" in payload:
             return [payload]
-    return []
+    raise ExportValidationError("expected a conversations array or a conversation mapping")
 
 
 # ---------------------------------------------------------------- one conversation
 
+def _validate_id(value: str) -> None:
+    if len(value) > MAX_ID_CHARS:
+        raise ExportValidationError(f"identifier exceeds {MAX_ID_CHARS} characters")
+
+
+def _check_lineage_limits(nodes: Dict[str, Dict[str, Any]], budget: List[int]) -> None:
+    """Cap the *expanded* lineage, not just the number of compact input nodes."""
+    for nid in nodes:
+        _validate_id(nid)
+    sizes = {nid: len(nid.encode("utf-8")) for nid in nodes}
+    for nid in nodes:
+        seen: set = set()
+        cur: Optional[str] = nid
+        while cur is not None and cur not in seen:
+            seen.add(cur)
+            budget[0] += 1
+            budget[1] += sizes[cur]
+            if len(seen) > MAX_BRANCH_DEPTH:
+                raise ExportValidationError(f"branch depth exceeds {MAX_BRANCH_DEPTH}")
+            if budget[0] > MAX_TOTAL_PATH_ENTRIES or budget[1] > MAX_TOTAL_PATH_BYTES:
+                raise ExportValidationError("expanded conversation lineage exceeds resource budget")
+            cur = _parent_of(cur, nodes)
+
 def parse_chatgpt_conversation(entry: Any, *, index: int = 0) -> ParsedConversation:
-    """Parse one conversation object from the export.
+    """Parse one conversation, with the same validation as a complete export."""
+    return parse_chatgpt_payload([entry])[0]
 
-    ``index`` is only used to build a deterministic, clearly-synthetic session id
-    when the export itself provides none.
-    """
+
+def _parse_conversation(entry: Dict[str, Any], *, index: int,
+                        path_budget: List[int]) -> ParsedConversation:
     warnings: List[str] = []
-
-    if not isinstance(entry, dict):
-        return ParsedConversation(
-            source=SOURCE, session_id=f"{SOURCE}-conversation-{index}", title=None,
-            warnings=(f"conversation {index} is not an object "
-                      f"({type(entry).__name__}); nothing could be parsed",),
-        )
-
     raw_id = entry.get("id")
+    if raw_id is not None and not isinstance(raw_id, str):
+        raise ExportValidationError("conversation id must be a string")
     session_id = raw_id if isinstance(raw_id, str) and raw_id else ""
     if not session_id:
-        session_id = f"{SOURCE}-conversation-{index}"
-        warnings.append("conversation has no id; using its position in the export")
+        encoded = json.dumps(entry, sort_keys=True, ensure_ascii=False,
+                             separators=(",", ":"), allow_nan=False).encode("utf-8")
+        session_id = f"{SOURCE}-content-{hashlib.sha256(encoded).hexdigest()}"
+        warnings.append("conversation has no id; using a content-derived id")
+    _validate_id(session_id)
 
     title = entry.get("title")
     if title is not None and not isinstance(title, str):
@@ -193,6 +355,7 @@ def parse_chatgpt_conversation(entry: Any, *, index: int = 0) -> ParsedConversat
         title = str(title)
 
     nodes = _collect_nodes(entry.get("mapping"), warnings)
+    _check_lineage_limits(nodes, path_budget)
     children = {nid: _children_of(nid, node, nodes, warnings)
                 for nid, node in nodes.items()}
     order = _traversal_order(nodes, children, warnings)
@@ -353,14 +516,16 @@ def _traversal_order(nodes: Dict[str, Dict[str, Any]],
     visited: set = set()
 
     def walk(nid: str) -> None:
-        if nid in visited:
-            warnings.append(f"node {nid!r} is reachable more than once "
-                            f"(cycle or shared child); walked once")
-            return
-        visited.add(nid)
-        order.append(nid)
-        for child in children.get(nid, []):
-            walk(child)
+        pending = [nid]
+        while pending:
+            current = pending.pop()
+            if current in visited:
+                warnings.append(f"node {current!r} is reachable more than once "
+                                "(cycle or shared child); walked once")
+                continue
+            visited.add(current)
+            order.append(current)
+            pending.extend(reversed(children.get(current, [])))
 
     for root in _roots(nodes, children):
         walk(root)
@@ -500,16 +665,13 @@ def _timestamp_of(nid: str, message: Dict[str, Any],
 
 
 def _as_time(value: Any) -> Optional[float]:
-    if isinstance(value, bool) or value is None:
+    if value is None or isinstance(value, bool):
         return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, str):
-        try:
-            return float(value.strip())
-        except (TypeError, ValueError):
-            return None
-    return None
+    try:
+        result = float(value)
+        return result if math.isfinite(result) else None
+    except (TypeError, ValueError, OverflowError):
+        return None
 
 
 def _turn_metadata(nid: str, message: Dict[str, Any], content_type: str,

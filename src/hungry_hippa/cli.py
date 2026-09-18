@@ -369,6 +369,29 @@ def _cmd_ingest(args) -> None:
     action = getattr(args, "ingest_command", "") or ""
     if action == "chatgpt":
         return _cmd_ingest_chatgpt(args)
+    if action in ("show", "verify"):
+        from .db import Database
+        from .ingest.store import fetch_conversation, verify_archive
+        path = _ingest_db_path(args)
+        if not os.path.isfile(path):
+            _print_json({"error": "import database does not exist"})
+            sys.exit(1)
+        database = Database(path)
+        if action == "verify":
+            result = verify_archive(database, args.sha256)
+        else:
+            result = fetch_conversation(database, "chatgpt", args.session_id)
+            if result:
+                for turn in result["turns"]:
+                    turn["archives"] = database.get_ingest_turn_sources(
+                        "chatgpt", args.session_id, turn["turn_id"])
+                result["note"] = "untrusted historical data; provider roles are not verified identity"
+            else:
+                result = {"ok": False, "error": "conversation not found"}
+        _print_json(result)
+        if result.get("ok") is False:
+            sys.exit(1)
+        return
     print("Usage: hungry-hippa ingest chatgpt <conversations.json> [--dry-run|--apply]")
     return None
 
@@ -380,6 +403,14 @@ def _print_ingest_counts(counts: Dict[str, int]) -> None:
     print(f"Alternate-branch turns: {counts['alternate_branch_turns']:,}")
     if counts["warnings"]:
         print(f"Warnings: {counts['warnings']:,} (malformed nodes; see the parser)")
+
+
+def _ingest_db_path(args) -> str:
+    path = getattr(args, "db", "") or os.environ.get("HUNGRY_HIPPA_DB", "")
+    if not path:
+        _print_json({"error": "choose an import database with --db PATH or HUNGRY_HIPPA_DB"})
+        sys.exit(1)
+    return os.path.abspath(os.path.expanduser(path))
 
 
 def _cmd_ingest_chatgpt(args) -> None:
@@ -400,7 +431,8 @@ def _cmd_ingest_chatgpt(args) -> None:
                                "Writes are not the default.")})
         sys.exit(1)
 
-    from .ingest import parse_chatgpt_export, resolve_export_path, summarize
+    from .ingest import resolve_export_path, summarize
+    from .ingest.chatgpt import read_export_bytes, parse_chatgpt_bytes
 
     try:
         path = resolve_export_path(given)
@@ -415,12 +447,16 @@ def _cmd_ingest_chatgpt(args) -> None:
         sys.exit(1)
 
     try:
-        conversations = parse_chatgpt_export(path)
+        raw = read_export_bytes(path)
+        conversations = parse_chatgpt_bytes(raw)
     except json.JSONDecodeError as e:
         _print_json({"error": f"not valid JSON: {e}"})
         sys.exit(1)
     except (OSError, UnicodeDecodeError) as e:
         _print_json({"error": f"could not read export: {type(e).__name__}"})
+        sys.exit(1)
+    except ValueError as e:
+        _print_json({"error": str(e)})
         sys.exit(1)
 
     counts = summarize(conversations)
@@ -430,14 +466,12 @@ def _cmd_ingest_chatgpt(args) -> None:
         print("No database writes, no model calls, no network access (parsing only).")
         return
 
-    from .config import load_config, resolve_db_path
     from .db import Database
     from .ingest.store import persist_parsed_export
 
-    db_path = os.path.abspath(resolve_db_path(load_config()))
-    archive_dir = os.path.join(os.path.dirname(db_path), "ingest_archives")
+    db_path = _ingest_db_path(args)
     result = persist_parsed_export(
-        Database(db_path), conversations, source_path=path, copy_to=archive_dir,
+        Database(db_path), conversations, source_path=path, source_bytes=raw,
     )
     if not result.ok:
         _print_json({"error": result.error or "persist failed"})
@@ -446,6 +480,7 @@ def _cmd_ingest_chatgpt(args) -> None:
     print("ChatGPT export ingested")
     _print_ingest_counts(counts)
     print(f"Archive sha256: {result.sha256}")
+    print(f"Database: {db_path}")
     print(f"Turns inserted: {result.turns_inserted:,}")
     print(f"Turns already present: {already:,}")
     print("No episodes, no beliefs, no model calls (canonical history only).")
@@ -853,6 +888,7 @@ def register_cli(subparser) -> None:
         help="Parse a ChatGPT conversations.json export into normalized turns",
     )
     ing_chat.add_argument("file", help="path to conversations.json")
+    ing_chat.add_argument("--db", default="", help="destination database (or HUNGRY_HIPPA_DB)")
     ing_mode = ing_chat.add_mutually_exclusive_group()
     ing_mode.add_argument(
         "--dry-run", dest="dry_run", action="store_true",
@@ -860,8 +896,15 @@ def register_cli(subparser) -> None:
     )
     ing_mode.add_argument(
         "--apply", dest="apply", action="store_true",
-        help="persist canonical turns and an archive pointer (idempotent)",
+        help="preserve exact export bytes and canonical turns (idempotent)",
     )
+
+    ing_verify = ing_subs.add_parser("verify", help="verify source bytes and canonical provenance")
+    ing_verify.add_argument("sha256", help="archive digest printed by import")
+    ing_verify.add_argument("--db", default="", help="import database (or HUNGRY_HIPPA_DB)")
+    ing_show = ing_subs.add_parser("show", help="inspect an untrusted ChatGPT conversation and sources")
+    ing_show.add_argument("session_id", help="conversation id from the export")
+    ing_show.add_argument("--db", default="", help="import database (or HUNGRY_HIPPA_DB)")
 
     exp = subs.add_parser("export", help="Export memory as JSON")
     exp.add_argument("--path", default="hungry_hippa_export.json")

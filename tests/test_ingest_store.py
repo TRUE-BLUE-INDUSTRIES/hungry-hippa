@@ -122,7 +122,7 @@ def check_v6_tables_exist_on_fresh_db():
     from hungry_hippa.schema import CURRENT_VERSION
 
     path = _fresh_db()
-    assert CURRENT_VERSION == 6, CURRENT_VERSION
+    assert CURRENT_VERSION == 7, CURRENT_VERSION
     tables = _table_names(path)
     for name in ("ingest_archives", "ingest_conversations", "ingest_turns"):
         assert name in tables, (name, tables)
@@ -132,7 +132,7 @@ def check_v6_tables_exist_on_fresh_db():
         versions = {r[0] for r in conn.execute("SELECT version FROM schema_migrations")}
     finally:
         conn.close()
-    assert versions == {1, 2, 3, 4, 5, 6}, versions
+    assert versions == {1, 2, 3, 4, 5, 6, 7}, versions
     return "fresh database is schema v6 with ingest tables plus episodes"
 
 
@@ -213,7 +213,8 @@ def check_persist_uses_ingest_tables_not_episodes():
         assert archived[1] == hashlib.sha256(raw).hexdigest()
         assert archived[2] == len(raw)
         assert archived[3] == ""
-        # the file bytes themselves are not in sqlite
+        # Original bytes have their own table, separate from canonical text.
+        assert conn.execute("SELECT raw_bytes FROM ingest_archive_bytes").fetchone()[0] == raw
         blobs = " ".join(
             str(r[0]) for r in conn.execute(
                 "SELECT sql FROM sqlite_master WHERE type='table' AND name LIKE 'ingest_%'"
@@ -278,13 +279,10 @@ def check_idempotent_on_source_session_turn():
             byte_length=first.byte_length, source="chatgpt",
         ),
     )
-    assert third.ok, third.error
-    assert third.turns_inserted == 1, third
-    assert third.conversations_inserted == 0
-    assert db.ingest_counts()["ingest_turns"] == 3
-    stored = db.get_ingest_conversation("chatgpt", "conv-linear")
-    assert stored["current_path_turn_ids"][-1] == "n-extra"
-    return "re-persist is a no-op; a new turn_id inserts one row"
+    assert not third.ok, "fabricated canonical rows accepted without supporting bytes"
+    assert "do not match" in third.error
+    assert db.ingest_counts()["ingest_turns"] == 2
+    return "re-persist is a no-op; unsupported grafted turn is refused"
 
 
 def check_transaction_rolls_back():
@@ -387,6 +385,8 @@ def check_down_sql_drops_ingest_keeps_episodes():
             " 'must survive down_sql','success',0.5,0.5,'active',"
             " '2020-01-01T00:00:00Z','2020-01-01T00:00:00Z')"
         )
+        conn.executescript(MIGRATIONS[7]["down"])
+        conn.execute("DELETE FROM schema_migrations WHERE version = 7")
         conn.executescript(MIGRATIONS[6]["down"])
         conn.execute("DELETE FROM schema_migrations WHERE version = 6")
         conn.commit()

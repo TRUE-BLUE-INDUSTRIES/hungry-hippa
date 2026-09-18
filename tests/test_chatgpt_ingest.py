@@ -418,11 +418,12 @@ def check_malformed_node_does_not_kill_conversation():
     assert "not an object; skipped" in joined, convo.warnings
     assert "message is str" in joined, convo.warnings
     assert "children is str" in joined, convo.warnings
-    # a conversation entry that is not even an object still yields a report
-    broken = parse_chatgpt_export(_write(["not a conversation"]))
-    assert len(broken) == 1 and broken[0].turn_count == 0 and broken[0].warnings
-    # and junk that is not a list of conversations parses to nothing, not a crash
-    assert parse_chatgpt_export(_write({"unexpected": True})) == []
+    for invalid in (["not a conversation"], {"unexpected": True}):
+        try:
+            parse_chatgpt_export(_write(invalid))
+            raise AssertionError("invalid export was accepted")
+        except ValueError:
+            pass
     return "malformed nodes warn and are skipped; valid turns still parse"
 
 
@@ -519,8 +520,8 @@ def check_apply_persists_canonical_turns_not_memories():
         assert archive[0] == digest
         assert archive[1] == len(raw)
         assert archive[2] == os.path.abspath(export)
-        assert archive[3] and os.path.isfile(archive[3])
-        copied = open(archive[3], "rb").read()
+        assert archive[3] == ""
+        copied = conn.execute("SELECT raw_bytes FROM ingest_archive_bytes").fetchone()[0]
         assert hashlib.sha256(copied).hexdigest() == digest
         assert conn.execute("SELECT COUNT(*) FROM episodes").fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM beliefs").fetchone()[0] == 0
@@ -544,29 +545,17 @@ def check_apply_persists_canonical_turns_not_memories():
     return "apply writes chatgpt turns + archive hash; second run is a no-op; no memories"
 
 
-def check_apply_survives_malformed_conversation():
+def check_apply_refuses_malformed_conversation():
     workdir = tempfile.mkdtemp(prefix="hh_ingest_malformed_")
     db_path = os.path.join(workdir, "hungry_hippa.db")
     payload = _linear_export() + ["not a conversation", {"unexpected": True}]
     export = _write(payload)
     env = _cli_env(db_path)
     result = _run_cli(["ingest", "chatgpt", export, "--apply"], env=env, cwd=workdir)
-    assert result.returncode == 0, (result.stderr[-400:], result.stdout[-400:])
-    assert "Warnings:" in result.stdout, result.stdout
-    conn = sqlite3.connect(db_path)
-    try:
-        sessions = [r[0] for r in conn.execute(
-            "SELECT session_id FROM ingest_conversations ORDER BY session_id"
-        )]
-        assert "conv-linear" in sessions, sessions
-        turns = conn.execute(
-            "SELECT turn_id FROM ingest_turns WHERE session_id = 'conv-linear'"
-        ).fetchall()
-        assert [t[0] for t in turns] == ["n-a", "n-b"], turns
-        assert conn.execute("SELECT COUNT(*) FROM episodes").fetchone()[0] == 0
-    finally:
-        conn.close()
-    return "malformed conversations warn; valid turns still persist"
+    assert result.returncode == 1, (result.stderr, result.stdout)
+    assert "mapping object" in result.stdout, result.stdout
+    assert not os.path.exists(db_path), "rejected input created a database"
+    return "malformed conversation rejects the whole export before writes"
 
 
 def check_apply_refuses_symlink_and_omits_eval():
@@ -631,8 +620,8 @@ def run_all() -> List[Dict[str, Any]]:
     check("parser_is_offline_and_writes_nothing", check_parser_is_offline_and_writes_nothing)
     check("apply_persists_canonical_turns_not_memories",
           check_apply_persists_canonical_turns_not_memories)
-    check("apply_survives_malformed_conversation",
-          check_apply_survives_malformed_conversation)
+    check("apply_refuses_malformed_conversation",
+          check_apply_refuses_malformed_conversation)
     check("apply_refuses_symlink_and_omits_eval",
           check_apply_refuses_symlink_and_omits_eval)
     return results

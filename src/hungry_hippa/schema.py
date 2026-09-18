@@ -387,6 +387,40 @@ DROP TABLE IF EXISTS ingest_conversations;
 DROP TABLE IF EXISTS ingest_archives;
 """,
     },
+    7: {
+        "description": "Preserve exact imported bytes and immutable per-archive conversation/turn provenance. Existing v6 pointers remain explicitly unverified until reimported.",
+        "up": """
+CREATE TABLE ingest_archive_bytes (
+  archive_id TEXT PRIMARY KEY REFERENCES ingest_archives(archive_id),
+  raw_bytes BLOB NOT NULL
+);
+CREATE TABLE ingest_snapshots (
+  archive_id TEXT NOT NULL REFERENCES ingest_archives(archive_id),
+  source TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  conversation_json TEXT NOT NULL,
+  PRIMARY KEY (archive_id, source, session_id)
+);
+CREATE TABLE ingest_turn_sources (
+  archive_id TEXT NOT NULL REFERENCES ingest_archives(archive_id),
+  source TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  turn_id TEXT NOT NULL,
+  on_current_path INTEGER NOT NULL,
+  source_metadata TEXT NOT NULL,
+  PRIMARY KEY (archive_id, source, session_id, turn_id),
+  FOREIGN KEY (source, session_id, turn_id)
+    REFERENCES ingest_turns(source, session_id, turn_id)
+);
+CREATE INDEX ix_ingest_turn_sources_turn
+  ON ingest_turn_sources(source, session_id, turn_id);
+""",
+        "down": """
+DROP TABLE IF EXISTS ingest_turn_sources;
+DROP TABLE IF EXISTS ingest_snapshots;
+DROP TABLE IF EXISTS ingest_archive_bytes;
+""",
+    },
 }
 
 CURRENT_VERSION = max(MIGRATIONS.keys())

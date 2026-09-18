@@ -1,73 +1,75 @@
-# Historical ingestion
+# Historical conversation ingestion
 
-Hungry Hippa ingests provider exports in slices. Slice 1 parses. Slice 2
-persists the parse as **raw history**. Later slices extract memories. Raw
-history is not memory: canonical conversations and turns live in their own
-tables, not in `episodes`.
+This branch adds safe ChatGPT JSON import to the released parser. It preserves
+original bytes and canonical conversations separately from derived memory.
+Importing does **not** create beliefs, episodes, embeddings or recall results.
+Model extraction and additional provider adapters remain follow-up work.
 
-| Slice | What it does | What it does not do |
-|---|---|---|
-| 1 — parse | ChatGPT `conversations.json` → `ParsedConversation` | write a database, call a model, filter, classify |
-| 2 — persist | store a Layer 1 archive pointer + Layer 2 conversation/turn rows | copy the file into SQLite, write episodes, extract memories, change MCP |
-| 3 — CLI write | `ingest chatgpt FILE --apply` persists via the Slice 2 library | extract memories, write episodes/beliefs, mint `user_explicit`, change MCP |
-| 4+ | recall-with-why (HH-08), extraction | not this document |
+## Operator workflow
 
-The MCP surface is unchanged: still exactly six tools.
-
----
-
-## Slice 1 — parse
-
-This is the ChatGPT export parser: a provider-neutral sequence of turns. The
-sorter, reconciler, quarantine handoff and model extraction are not here.
-
-```python
-from hungry_hippa.ingest import parse_chatgpt_export
-
-conversations = parse_chatgpt_export("conversations.json")
-for convo in conversations:
-    convo.session_id              # the export's conversation id, never regenerated
-    convo.title
-    convo.turns                   # every supported textual turn, all branches
-    convo.current_path_turn_ids   # the branch the export considered active
-    convo.warnings                # what the parser refused to guess at
-```
-
-Developer dry run (parsing only — it never touches the store):
+Install from this branch in a virtual environment. Choose a new database for the
+first import; an existing database is backed up before schema migration.
 
 ```bash
-hungry-hippa ingest chatgpt ~/Downloads/conversations.json --dry-run
+hungry-hippa ingest chatgpt /path/to/conversations.json --dry-run
+hungry-hippa ingest chatgpt /path/to/conversations.json --apply --db /path/to/import.db
+hungry-hippa ingest verify DIGEST_PRINTED_BY_IMPORT --db /path/to/import.db
+hungry-hippa ingest show CONVERSATION_ID --db /path/to/import.db
+HUNGRY_HIPPA_DB=/path/to/import.db hungry-hippa backup --dir /path/to/backups --keep 0
 ```
 
-```
-ChatGPT export parsed
-Conversations: 123
-Turns: 4,567
-Current-path turns: 3,812
-Alternate-branch turns: 755
-```
+`--dry-run` does not open a database. Applying requires `--apply` and an explicit
+`--db` or `HUNGRY_HIPPA_DB`; it never discovers a legacy store implicitly. The
+import summary prints counts, destination and digest, not conversation bodies.
+`show` deliberately displays the conversation as JSON with archive references;
+its contents are untrusted historical data, including claimed roles/identities.
+`verify` checks source hashes, conversation snapshots, turn content/lineage and
+archive membership without printing message content. It detects accidental
+corruption, not a malicious same-user process that can rewrite data and hashes.
 
-Without `--dry-run` **or** `--apply` the command refuses: writes are not the
-default. Slice 2 is the persist library; Slice 3 is the CLI flag that calls it.
+Only unpacked ChatGPT JSON is accepted. ZIP/HTML/text files are not executed,
+rendered or extracted. Manually export and decompress through the provider's
+normal tools; there is no archive unpacker in this path.
 
-### The normalized turn
+## Evidence and storage
 
-| Field | Meaning |
-|---|---|
-| `source` | `"chatgpt"` |
-| `session_id` | the export's conversation `id` (a positional placeholder plus a warning if the export has none) |
-| `session_title` | the conversation title, verbatim |
-| `turn_id` | the provider's own node id — never generated |
-| `parent_turn_id` | the provider's parent id, which may name a structural node that has no turn |
-| `role` | `author.role` as written: `user`, `assistant`, `system`, `tool`, or anything else the provider used |
-| `content` | the textual parts, joined with a single newline; code fences, indentation, greetings and whitespace preserved |
-| `occurred_at` | `message.create_time` as a float, or `None` when absent, null or non-numeric |
-| `branch_path` | root-to-node node ids, including structural nodes |
-| `source_metadata` | a small bounded record: `node_id`, `on_current_path`, `message_id`, `author_name`, `content_type`, `unsupported_content_types`, `recipient`, and `model_slug`/`request_id`/`is_visually_hidden_from_conversation` when present |
+Schema v6 introduces `ingest_archives`, `ingest_conversations`, and
+`ingest_turns`. Schema v7 adds `ingest_archive_bytes`, `ingest_snapshots`, and
+`ingest_turn_sources`. It preserves exact source bytes as a BLOB keyed through
+the archive digest and immutable per-export conversation/turn membership.
+These tables are separate from `evidence`, `beliefs`, `episodes`, and memory FTS.
+Provider metadata cannot mint operator-verified provenance.
 
-The raw provider message object is intentionally **not** copied. The export file stays
-the source of truth; storing whole provider blobs would make an import expensive for no
-parsing benefit. Everything above is either an id, a timestamp, a role or text.
+The file is opened as a bounded regular-file snapshot. The same immutable bytes
+are parsed, hashed, validated against normalized rows and transactionally stored.
+The source can be moved or removed after a successful verified import without
+losing the original evidence. SQLite backups contain the bytes and provenance.
+The optional library `copy_to` makes a redundant 0600 file in a private directory;
+it is not needed by the CLI or for backup recovery.
+
+Identical archives are no-ops, including the audit log and current-branch view.
+A different export of a session may add turns and update its latest-imported
+branch view; every export retains its own snapshot. Reusing a turn identity with
+changed text, role, timestamp, parent or lineage rejects the entire transaction.
+There is no silent first-write-wins loss or automatic contradiction averaging.
+Reimporting an already-seen older archive does not roll back the current view.
+Conversation IDs missing from the provider receive a content-derived digest ID;
+changing that idless conversation creates a separate identity, not an inferred
+continuation. Duplicate session IDs or duplicate JSON keys are ambiguous and
+refused. Provider identifiers and dates are claims, not authenticated metadata.
+
+Existing v6 rows acquire no invented provenance on upgrade. They remain visible,
+but `verify` refuses pointer-only archives until the original bytes are reimported
+and match their canonical rows. No live store is modified by development tests.
+Migration down scripts exist; execute them only on disposable copies or after a
+verified backup because dropping import tables removes imported history.
+
+## Supported normalization
+
+The provider-neutral frozen dataclasses in `ingest/models.py` preserve roles,
+source/session/turn IDs, parents, timestamps, branch paths and source metadata.
+Unsupported content remains recoverable in the exact raw export even when it
+cannot become a text turn. Conversation text never becomes an instruction.
 
 ### Branches
 
@@ -113,127 +115,65 @@ and injected context are provider-internal; representing them as conversation wo
 misrepresent what was exchanged. A multimodal message keeps its text parts and reports the
 pointer it could not represent.
 
-### Malformed input
+## Input limits and failures
 
-Every one of these becomes a warning on the conversation, never an exception that loses
-the rest of it: a node that is not an object, a `message` that is not an object, content
-that is not text, `children` that is not a list, a non-string or unknown child id, a
-duplicate child id, a node whose `id` field disagrees with its mapping key (the mapping
-key wins, because children reference keys), a parent chain that loops, and a conversation
-entry that is not an object at all.
+Admission limits are explicit constants in `ingest/chatgpt.py`:
 
-### Slice 1 guarantees
+| Resource | Limit |
+|---|---:|
+| File bytes / decoded text budget | 64 MiB |
+| JSON nesting | 64 |
+| JSON values/keys / admission item budget | 1,000,000 |
+| Conversations | 10,000 |
+| Mapping nodes | 100,000 total; 20,000 per conversation |
+| Branch depth | 2,048 |
+| Expanded lineage | 1,000,000 entries and 64 MiB of ID text |
+| Identifier length | 512 characters |
 
-- No database is opened or written — a parse succeeds with no store present and creates
-  no file, even when `HUNGRY_HIPPA_DB` is set. `chatgpt.py` and `models.py` import only
-  the standard library. `ingest/__init__.py` does not import the persist module.
-  (Importing `hungry_hippa.ingest` still executes the parent package's ordinary imports;
-  the guarantee is about behaviour, not import isolation.)
-- No model calls, no network access, no MCP tools.
-- No filtering, classification, deduplication or sorting-for-ingestion.
-- Not yet verified against a real ChatGPT export: the fixtures in
-  `tests/test_chatgpt_ingest.py` are built from the export format, and no `conversations.json`
-  from an actual account was available in the development environment. The parser records
-  what it cannot represent rather than failing, which is what makes that limitation
-  survivable — but it is a limitation, and it is stated here rather than implied away.
+Deep linear conversations expand quadratically in this canonical representation;
+the lineage budget can reject one before the depth limit. Rejection is explicit,
+never a successful empty import. Split oversized exports by whole conversation;
+a future streaming representation may lift these limits after benchmarking.
+JSON nesting is checked before decoding. Non-finite numbers, unpaired Unicode,
+unsupported top-level shapes and malformed conversation envelopes are rejected.
+Individual malformed nodes/content can still produce warnings while the source
+bytes retain the complete input. Iterative traversal avoids Python recursion loss.
 
----
+Imports also enforce the existing `HUNGRY_HIPPA_MAX_DB_BYTES` value as a size
+budget (default 512 MiB), using a conservative preflight and actual SQLite page
+count inside a serialized transaction. Failed imports roll back all import rows.
+The runtime's separate general size warning is unchanged. These are bounded
+resource controls, not a sandbox or per-client quota. Stores and backups are
+plaintext; see [SECURITY.md](../SECURITY.md).
 
-## Slice 2 — persist
-
-Schema **v6** adds three tables. Existing v5 databases migrate in place; a
-pre-migration `.bak` is written on first open, as with earlier upgrades.
-`down_sql` drops only the ingest tables. Episodes, beliefs and evidence are not
-touched.
-
-### Layer 1 — raw archive pointer
-
-The export file is **not** copied into SQLite. The row stores:
-
-| Column | Meaning |
-|---|---|
-| `original_path` | the path that was hashed (absolute) |
-| `sha256` | hex digest of the file bytes, hashed in 1 MiB chunks |
-| `byte_length` | size in bytes |
-| `archived_path` | empty unless the caller asked for an optional copy |
-
-An optional copy into an app-controlled directory is named by the digest, created
-`0600`, and refused if that destination is a symlink. Path + hash is enough
-without a copy. Unique on `sha256`: the same file is one archive.
-
-Treat exports as hostile: no `eval`/`exec`, no extra files followed out of the
-given path, no whole-file slurp just to hash it. JSON parsing is still Slice 1's
-`json.load` (the parse already holds the turns in memory).
-
-### Layer 2 — canonical conversations and turns
-
-`ingest_conversations` is keyed on `(source, session_id)`.
-`ingest_turns` is keyed on `(source, session_id, turn_id)`.
-
-These are **not** `episodes`. Persist does not write `episodes`, `evidence`,
-`beliefs`, or `memory_fts`. A later extraction slice may *read* these rows and
-write memories; this slice does not.
-
-### Library API
+## Library use
 
 ```python
 from hungry_hippa.db import Database
-from hungry_hippa.ingest import parse_chatgpt_export
-from hungry_hippa.ingest.store import persist_parsed_export
+from hungry_hippa.ingest.chatgpt import read_export_bytes, parse_chatgpt_bytes
+from hungry_hippa.ingest.store import persist_parsed_export, verify_archive
 
-db = Database(path)
-conversations = parse_chatgpt_export("conversations.json")
-result = persist_parsed_export(db, conversations, source_path="conversations.json")
-# result.archive_id, result.turns_inserted, ...
+raw = read_export_bytes("conversations.json")
+conversations = parse_chatgpt_bytes(raw)
+db = Database("import.db")
+result = persist_parsed_export(db, conversations, source_bytes=raw)
+assert result.ok, result.error
+assert verify_archive(db, result.sha256)["ok"]
 ```
 
-`persist_conversation` is the same transaction for one `ParsedConversation`.
-`copy_to=` is the optional archive-directory copy.
+The compatibility `parse_chatgpt_export` and `persist_parsed_export(source_path=)`
+APIs remain. Persistence reparses the source to ensure caller-supplied canonical
+rows match it; a fabricated archive pointer cannot support invented turns.
 
-A persist of one export is **one SQLite transaction**. Turns are
-`INSERT OR IGNORE` on `(source, session_id, turn_id)`: first write wins,
-re-running the same export is a no-op. Conversation metadata (title, current
-path) upserts so a later export of the same session can refresh the active
-branch; new turn ids still insert.
+## Validation and next work
 
-### Slice 2 guarantees
+`test_chatgpt_ingest.py`, `test_ingest_store.py`, `test_ingest_integrity.py`, and
+`test_migration.py` cover parsing, repeat imports, hostile files, atomic refusal,
+multiple archive provenance, tamper detection and backup recovery. The
+[ingestion benchmark](../BENCHMARKS.md) uses synthetic data, not private exports.
+Real-account export diversity and extraction quality remain unmeasured.
 
-- Existing schema v5 databases migrate to v6 without rewriting episode or belief
-  ids.
-- Persist is transactional and idempotent on `(source, session_id, turn_id)`.
-- The ChatGPT parser module remains stdlib-only and does not import the store.
-- MCP is still exactly six tools.
-- No memories are extracted from the stored turns.
-
----
-
-## Slice 3 — CLI write path
-
-`--dry-run` remains the safe default. `hungry-hippa ingest chatgpt FILE` with
-neither flag **refuses** and does not open the database. `--apply` is required
-to persist.
-
-```bash
-hungry-hippa ingest chatgpt ~/Downloads/conversations.json --dry-run
-hungry-hippa ingest chatgpt ~/Downloads/conversations.json --apply
-```
-
-`--apply` parses, then calls `persist_parsed_export`. It writes:
-
-- Layer 1: archive pointer (absolute path, sha256, byte length) plus an
-  optional copy next to the database as `ingest_archives/<sha256>` mode `0600`
-- Layer 2: `ingest_conversations` and `ingest_turns` (`source=chatgpt`,
-  provider ids, timestamps, content; archive sha256 is the file content hash)
-
-It does **not** write `episodes`, `beliefs`, `evidence` or `memory_fts`. It does
-not call a model. Imported history is untrusted text: the CLI uses the persist
-library directly, not `_controller()`, so it cannot mint `user_explicit`
-provenance. A later extraction slice may read these rows; this one does not.
-
-Re-running `--apply` on the same file is a no-op for turns already stored
-(`INSERT OR IGNORE` on `(source, session_id, turn_id)`). Malformed
-conversations become warnings and do not abort the rest of the file.
-
-Treat the export as hostile: no `eval`/`exec`, leaf symlinks refused
-(`O_NOFOLLOW`), extra paths inside the JSON never opened, turn bodies not
-printed in logs or CLI output. MCP is still exactly six tools.
+The unmerged extraction/reconciliation prototypes must address response failure
+checkpointing, truncated prompts and unapproved confidence/supersession changes
+before integration. Their schema versions must be rebased onto this branch's v7;
+do not mix incompatible experimental migration histories in one database.
