@@ -41,6 +41,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import stat
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from .models import NormalizedTurn, ParsedConversation
@@ -69,10 +70,50 @@ PART_SEPARATOR = "\n"
 
 # --------------------------------------------------------------------- loading
 
+def resolve_export_path(path: "os.PathLike[str] | str") -> str:
+    """Return a regular-file path, refusing a leaf symlink or a non-file.
+
+    Export files are hostile. The operator names one file; we do not follow a
+    symlink leaf (escape to another path) and we do not open directories,
+    devices or FIFOs. ``..`` is resolved by ``abspath`` so the name we open is
+    the canonical file, not a traversal string. Extra paths inside the JSON are
+    never opened.
+    """
+    given = os.fspath(path)
+    if not given or "\x00" in given:
+        raise ValueError("invalid export path")
+    absolute = os.path.abspath(os.path.expanduser(given))
+    try:
+        st = os.lstat(absolute)
+    except OSError:
+        raise FileNotFoundError(absolute) from None
+    if stat.S_ISLNK(st.st_mode):
+        raise OSError("refusing to follow a symlink export path")
+    if stat.S_ISDIR(st.st_mode):
+        raise IsADirectoryError(absolute)
+    if not stat.S_ISREG(st.st_mode):
+        raise OSError("export path is not a regular file")
+    return absolute
+
+
 def load_export(path: "os.PathLike[str] | str") -> Any:
-    """Load an export file as JSON. Raises on unreadable or invalid JSON."""
-    with open(path, "r", encoding="utf-8") as fh:
-        return json.load(fh)
+    """Load an export file as JSON. Raises on unreadable or invalid JSON.
+
+    Opens with ``O_NOFOLLOW`` so a leaf symlink swapped in after the path check
+    is still refused. Does not ``eval``/``exec`` the file.
+    """
+    resolved = resolve_export_path(path)
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    fd = os.open(resolved, flags)
+    try:
+        with os.fdopen(fd, "r", encoding="utf-8") as fh:
+            fd = -1
+            return json.load(fh)
+    finally:
+        if fd >= 0:
+            os.close(fd)
 
 
 def parse_chatgpt_export(path: "os.PathLike[str] | str") -> List[ParsedConversation]:
@@ -80,16 +121,34 @@ def parse_chatgpt_export(path: "os.PathLike[str] | str") -> List[ParsedConversat
 
     The file is either a JSON array of conversations (what ChatGPT exports) or an
     object with a ``conversations`` array. Order follows the file, so repeated
-    runs on the same export produce the same result.
+    runs on the same export produce the same result. One malformed conversation
+    becomes warnings, not a failed file.
     """
     return parse_chatgpt_payload(load_export(path))
 
 
 def parse_chatgpt_payload(payload: Any) -> List[ParsedConversation]:
-    """Parse an already-decoded export payload."""
+    """Parse an already-decoded export payload.
+
+    A conversation that raises is recorded as a warning and skipped; the rest
+    of the file still parses. Logs carry the conversation index and exception
+    type, never turn text.
+    """
     entries = _conversation_entries(payload)
-    return [parse_chatgpt_conversation(entry, index=i)
-            for i, entry in enumerate(entries)]
+    conversations: List[ParsedConversation] = []
+    for i, entry in enumerate(entries):
+        try:
+            conversations.append(parse_chatgpt_conversation(entry, index=i))
+        except Exception as e:  # noqa: BLE001 — hostile export; isolate one entry
+            logger.warning("conversation %s skipped (%s)", i, type(e).__name__)
+            conversations.append(ParsedConversation(
+                source=SOURCE,
+                session_id=f"{SOURCE}-conversation-{i}",
+                title=None,
+                warnings=(f"conversation {i} failed to parse "
+                          f"({type(e).__name__}); skipped",),
+            ))
+    return conversations
 
 
 def _conversation_entries(payload: Any) -> List[Any]:

@@ -9,7 +9,8 @@ tables, not in `episodes`.
 |---|---|---|
 | 1 — parse | ChatGPT `conversations.json` → `ParsedConversation` | write a database, call a model, filter, classify |
 | 2 — persist | store a Layer 1 archive pointer + Layer 2 conversation/turn rows | copy the file into SQLite, write episodes, extract memories, change MCP |
-| 3+ | CLI `--apply` (HH-04), recall-with-why (HH-08), extraction | not this document |
+| 3 — CLI write | `ingest chatgpt FILE --apply` persists via the Slice 2 library | extract memories, write episodes/beliefs, mint `user_explicit`, change MCP |
+| 4+ | recall-with-why (HH-08), extraction | not this document |
 
 The MCP surface is unchanged: still exactly six tools.
 
@@ -46,8 +47,8 @@ Current-path turns: 3,812
 Alternate-branch turns: 755
 ```
 
-Without `--dry-run` the command still refuses: the CLI write path is HH-04.
-Slice 2 is a **library** persist, not a CLI flag.
+Without `--dry-run` **or** `--apply` the command refuses: writes are not the
+default. Slice 2 is the persist library; Slice 3 is the CLI flag that calls it.
 
 ### The normalized turn
 
@@ -201,5 +202,38 @@ branch; new turn ids still insert.
   ids.
 - Persist is transactional and idempotent on `(source, session_id, turn_id)`.
 - The ChatGPT parser module remains stdlib-only and does not import the store.
-- MCP is still exactly six tools. There is no CLI `--apply` yet (HH-04).
+- MCP is still exactly six tools.
 - No memories are extracted from the stored turns.
+
+---
+
+## Slice 3 — CLI write path
+
+`--dry-run` remains the safe default. `hungry-hippa ingest chatgpt FILE` with
+neither flag **refuses** and does not open the database. `--apply` is required
+to persist.
+
+```bash
+hungry-hippa ingest chatgpt ~/Downloads/conversations.json --dry-run
+hungry-hippa ingest chatgpt ~/Downloads/conversations.json --apply
+```
+
+`--apply` parses, then calls `persist_parsed_export`. It writes:
+
+- Layer 1: archive pointer (absolute path, sha256, byte length) plus an
+  optional copy next to the database as `ingest_archives/<sha256>` mode `0600`
+- Layer 2: `ingest_conversations` and `ingest_turns` (`source=chatgpt`,
+  provider ids, timestamps, content; archive sha256 is the file content hash)
+
+It does **not** write `episodes`, `beliefs`, `evidence` or `memory_fts`. It does
+not call a model. Imported history is untrusted text: the CLI uses the persist
+library directly, not `_controller()`, so it cannot mint `user_explicit`
+provenance. A later extraction slice may read these rows; this one does not.
+
+Re-running `--apply` on the same file is a no-op for turns already stored
+(`INSERT OR IGNORE` on `(source, session_id, turn_id)`). Malformed
+conversations become warnings and do not abort the rest of the file.
+
+Treat the export as hostile: no `eval`/`exec`, leaf symlinks refused
+(`O_NOFOLLOW`), extra paths inside the JSON never opened, turn bodies not
+printed in logs or CLI output. MCP is still exactly six tools.
