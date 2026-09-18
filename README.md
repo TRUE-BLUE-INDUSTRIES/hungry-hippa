@@ -1,9 +1,13 @@
-<img width="873" height="597" alt="image" src="https://github.com/user-attachments/assets/24e27307-8725-43bf-b230-5fbb41b34fd5" />
-
+<p align="center">
+  <img src="assets/branding/hungry-hippa-logo.png" alt="Hungry Hippa logo: cybernetic hippo with a glowing brain and Hungry Hippa wordmark" width="320" height="320">
+</p>
 
 # Hungry Hippa
 
-**One memory. Any AI. Your machine.**
+**One memory. Every AI. You own it.**
+
+Today: local SQLite memory and six stdio MCP tools. Additional client adapters
+and the complete historical import-to-recall workflow are still in progress.
 
 Hungry Hippa gives AI a memory you own. It keeps useful memory on your machine and
 lets connected AI tools remember it later. The model can change. The provider can
@@ -156,7 +160,7 @@ flowchart TB
         ATTN["attention.py<br/>importance scoring"]
         CONS["consolidation.py<br/>sleep pass"]
         FORG["forgetting.py<br/>decay, archival"]
-        VEC["vectors.py<br/>optional Ollama embeddings"]
+        VEC["vectors.py<br/>optional local embeddings"]
         OBS["observability.py<br/>why / changed / forgotten"]
     end
 
@@ -216,7 +220,10 @@ defaults, so you only list what you are changing.
     "max_items": 6,
     "recency_half_life_days": 45,
     "vectors_enabled": true,
-    "embedding_model": "nomic-embed-text",
+    "embedding_backend": "openai-compat",
+    "embedding_model": "text-embedding-nomic-embed-text-v1.5",
+    "embed_url": "http://127.0.0.1:1234/v1",
+    "embed_api_key": "lm-studio",
     "ollama_url": "http://127.0.0.1:11434"
   },
   "consolidation": {
@@ -241,6 +248,13 @@ defaults, so you only list what you are changing.
 Every key shown above exists in `config.py`'s `DEFAULTS`; the file also carries
 `attention`, `source_confidence`, `contradiction`, `forgetting` and `procedural`
 sections, plus `schema_version`. `db_path: ""` means "use the default location".
+
+Embeddings stay on loopback. `embedding_backend` is `openai-compat` (LM Studio
+and other OpenAI-compatible local servers; default
+`http://127.0.0.1:1234/v1`) or `ollama` (`ollama_url`, default
+`http://127.0.0.1:11434`). A non-loopback URL is refused; recall then uses
+keyword + graph. Ollama users set `"embedding_backend": "ollama"` and keep
+their existing `ollama_url` / `embedding_model`.
 
 Environment:
 
@@ -322,21 +336,20 @@ Caller identity defaults to `mcp-untrusted`: untrusted writers get quarantine, u
 readers get only their own unclassified, non-quarantined rows, and purge is denied. This
 is an actor/policy check, not capability-based security.
 
-### Reading a ChatGPT export (parsing only)
-
-Historical ingestion starts with a parser and nothing else: it turns an OpenAI/ChatGPT
-`conversations.json` export into normalized turns with their branch provenance, and writes
-nothing to the store.
+### Importing a ChatGPT export
 
 ```bash
-hungry-hippa ingest chatgpt ~/Downloads/conversations.json --dry-run
+hungry-hippa ingest chatgpt conversations.json --dry-run
+hungry-hippa ingest chatgpt conversations.json --apply --db /path/to/import.db
+hungry-hippa ingest verify DIGEST_PRINTED_BY_IMPORT --db /path/to/import.db
+hungry-hippa ingest show CONVERSATION_ID --db /path/to/import.db
 ```
 
-Every supported textual turn is kept — including answers that were regenerated away and
-prompts that were edited, which is what makes a later import reconcilable instead of
-rewritten. `current_path_turn_ids` identifies the branch the export considered active. No
-database writes, no model calls, no new MCP tools. See
-[docs/INGESTION.md](docs/INGESTION.md).
+The import preserves exact source bytes, all supported text branches and
+per-export provenance. Repeat imports are safe; conflicting identities are
+refused. Raw history remains separate from memory: importing alone does not
+make its text available to AI recall. See [ingestion](docs/INGESTION.md) for
+limits, backup behavior, and the pending extraction step.
 
 ### Reviewing quarantined memories (operator CLI)
 
@@ -366,10 +379,10 @@ never deleted implicitly, and there is no path from quarantine review to purge.
 | A `DeprecationWarning` about `LIVING_CORTEX_DB` | You are using the old environment key. Switch to `HUNGRY_HIPPA_DB`; the old key still works. |
 | Recall returns nothing for something you know is stored | Common causes: the query has no matching tokens (FTS is keyword-based; enable vectors for paraphrases), a `project` filter excludes it, the item is **quarantined** (untrusted write — review with `hungry-hippa recall "<topic>" --quarantined`), or the row is `archived`/`superseded` and correctly no longer current. |
 | Everything is missing for a second client | That client is using the default `mcp-untrusted` actor. Untrusted actors only read their own unclassified, non-quarantined rows. Give that client its own actor label and accept the isolation, or launch its server with the owner token if it genuinely runs as you — and read the limitation in `docs/SECURITY.md` first. `actor_id` alone never changes this. |
-| Recall quality dropped | Vector search may be off (Ollama not running, or `vectors_enabled: false`). Recall then degrades to keyword + graph, which is the documented failure mode. |
+| Recall quality dropped | Vector search may be off (local embed server not running, or `vectors_enabled: false`). Recall then degrades to keyword + graph, which is the documented failure mode. |
 | An MCP client connects but no tools appear | Tool names are namespaced by the client (e.g. `hungry-hippa__hippa_recall`). Check `grok mcp doctor <name>` or your client's equivalent, and read the server's stderr log — this server writes nothing to stdout except protocol frames. |
 | `purge` is refused | Purge needs `confirmation: true` **and** an owner-authorized instance; it is denied by default over MCP. Use `mode: "archival"` for reversible forgetting. |
-| Retrieval is slow | Retrieval latency grows slowly with store size (≈3–4 ms median at 2 000 episodes in `eval/REPORT.md`). If it is far worse, check for a huge `max_items` or an Ollama timeout on every call. |
+| Retrieval is slow | Retrieval latency grows slowly with store size (≈3–4 ms median at 2 000 episodes in `eval/REPORT.md`). If it is far worse, check for a huge `max_items` or an embed-server timeout on every call. |
 | The FTS index looks inconsistent | The schema layer self-heals: if the FTS table is empty while source rows exist, it is rebuilt from source on open. If that fails, the affected database logs a warning and recall degrades to graph-only. |
 
 More detail: [docs/SECURITY.md](docs/SECURITY.md), [docs/MIGRATION.md](docs/MIGRATION.md),
@@ -379,7 +392,7 @@ More detail: [docs/SECURITY.md](docs/SECURITY.md), [docs/MIGRATION.md](docs/MIGR
 ## Evidence, not adjectives
 
 Every claim in this README points at a suite that proves it. `python scripts/check_all.py`
-runs all of them (16 steps, 14 suites) and also fails if a test file exists that no step
+runs all registered suites and also fails if a test file exists that no step
 runs.
 
 | Claim | Where the evidence is |
@@ -413,7 +426,7 @@ hungry-hippa/
 │   ├── semantic.py       # beliefs, provenance, contradictions
 │   ├── procedural.py     # procedural learning + validation
 │   ├── retrieval.py      # hybrid retrieval + context compiler
-│   ├── vectors.py        # optional local embeddings (Ollama, fail-safe)
+│   ├── vectors.py        # optional local embeddings (LM Studio / Ollama, fail-safe)
 │   ├── consolidation.py  # "sleep" pass
 │   ├── forgetting.py     # decay / compression / archival
 │   ├── attention.py      # importance scoring
@@ -457,3 +470,11 @@ MIT — see [LICENSE](LICENSE). Dependency and content notes:
 
 Report issues via GitHub (no security email address exists or should be assumed):
 [SECURITY.md](SECURITY.md).
+
+## Project status and support
+
+See [project state](PROJECT_STATE.md), [architecture](ARCHITECTURE.md),
+[roadmap](ROADMAP.md), [decisions](DECISIONS.md) and [benchmarks](BENCHMARKS.md)
+for current evidence and limitations. [Supporting Hungry Hippa](SUPPORT.md)
+describes open-source priorities and Sponsors preparation; no active funding
+link has been verified yet.

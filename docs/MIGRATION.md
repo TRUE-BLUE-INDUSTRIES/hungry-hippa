@@ -77,8 +77,11 @@ written, so memories are not stranded by the move.
    private memories to a ticket or log).
 
 Schema v3 `down_sql` drops `product_meta` only. It does not delete episodes or
-beliefs. There is no automatic down-migrator in the CLI; restoring the `.bak`
-file is the supported rollback.
+beliefs. Schema v7 `down_sql` drops `ingest_extract_jobs` and
+`ingest_extract_progress` only. Schema v8 `down_sql` drops
+`ingest_reconcile_jobs` and `ingest_reconcile_decisions` only. There is no
+automatic down-migrator in the CLI; restoring the `.bak` file is the supported
+rollback.
 
 ## Using the migrated database
 
@@ -89,3 +92,11 @@ the server with the token in its environment, or keep using an in-process adapte
 hungry-hippa status                      # counts only
 HUNGRY_HIPPA_DB=/path/to/copy.db hungry-hippa recall "<query>"
 ```
+
+## Unreleased historical-import migrations
+
+Schema v6 adds canonical import tables; v7 stores exact source bytes and per-export
+provenance. Existing episode/belief rows are preserved. Pointer-only v6 imports
+remain unverified until reimported from their original exports. Upgrades create a
+pre-migration backup. Database backups then include all newly retained export bytes.
+See [INGESTION.md](INGESTION.md) for prototype-branch compatibility and limits.

@@ -142,6 +142,140 @@ def test_migrate_backs_up_and_preserves_memories():
         conn.close()
 
 
+def test_v6_ingest_tables_and_down_sql():
+    """Schema v6 adds ingest tables; down_sql removes them and leaves episodes."""
+    from hungry_hippa.schema import CURRENT_VERSION, MIGRATIONS
+    from hungry_hippa.db import Database
+
+    assert CURRENT_VERSION >= 6, CURRENT_VERSION
+    assert 6 in MIGRATIONS and MIGRATIONS[6]["down"].strip(), MIGRATIONS.keys()
+    assert "ingest_turns" in MIGRATIONS[6]["up"]
+    assert "episodes" not in MIGRATIONS[6]["up"] or "CREATE TABLE episodes" not in MIGRATIONS[6]["up"]
+
+    path = os.path.join(tempfile.mkdtemp(prefix="hh_mig_v6_"), "hungry_hippa.db")
+    Database(path)
+    conn = sqlite3.connect(path)
+    try:
+        versions = {r[0] for r in conn.execute("SELECT version FROM schema_migrations")}
+        assert 6 in versions, versions
+        tables = {r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        assert "ingest_archives" in tables and "ingest_conversations" in tables
+        assert "ingest_turns" in tables and "episodes" in tables
+        conn.execute(
+            "INSERT INTO episodes(episode_id, ts_start, ts_end, context, outcome,"
+            " importance, confidence, status, created_at, updated_at)"
+            " VALUES ('E-mig6','2020-01-01T00:00:00Z','2020-01-01T00:00:00Z',"
+            " 'v6 down must not drop me','success',0.5,0.5,'active',"
+            " '2020-01-01T00:00:00Z','2020-01-01T00:00:00Z')"
+        )
+        conn.executescript(MIGRATIONS[7]["down"])
+        conn.executescript(MIGRATIONS[6]["down"])
+        tables_after = {r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        assert "ingest_turns" not in tables_after
+        assert "episodes" in tables_after
+        kept = conn.execute(
+            "SELECT context FROM episodes WHERE episode_id = 'E-mig6'"
+        ).fetchone()
+        assert kept and "v6 down must not drop me" in kept[0]
+    finally:
+        conn.close()
+    return "v6 up creates ingest tables; down_sql drops them; episodes remain"
+
+
+def test_v8_extract_checkpoints_and_down_sql():
+    """Schema v8 adds extract checkpoints; down_sql drops them and leaves ingest + episodes."""
+    from hungry_hippa.schema import CURRENT_VERSION, MIGRATIONS
+    from hungry_hippa.db import Database
+
+    assert CURRENT_VERSION >= 8, CURRENT_VERSION
+    assert 8 in MIGRATIONS and MIGRATIONS[8]["down"].strip()
+    assert "ingest_extract_jobs" in MIGRATIONS[8]["up"]
+    assert "ingest_extract_progress" in MIGRATIONS[8]["up"]
+    assert "CREATE TABLE episodes" not in MIGRATIONS[8]["up"]
+    assert "CREATE TABLE beliefs" not in MIGRATIONS[8]["up"]
+
+    path = os.path.join(tempfile.mkdtemp(prefix="hh_mig_v7_"), "hungry_hippa.db")
+    Database(path)
+    conn = sqlite3.connect(path)
+    try:
+        versions = {r[0] for r in conn.execute("SELECT version FROM schema_migrations")}
+        assert 8 in versions, versions
+        tables = {r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        assert "ingest_extract_jobs" in tables and "ingest_extract_progress" in tables
+        assert "ingest_turns" in tables and "episodes" in tables
+        conn.execute(
+            "INSERT INTO episodes(episode_id, ts_start, ts_end, context, outcome,"
+            " importance, confidence, status, created_at, updated_at)"
+            " VALUES ('E-mig7','2020-01-01T00:00:00Z','2020-01-01T00:00:00Z',"
+            " 'v7 down must not drop me','success',0.5,0.5,'active',"
+            " '2020-01-01T00:00:00Z','2020-01-01T00:00:00Z')"
+        )
+        conn.executescript(MIGRATIONS[8]["down"])
+        tables_after = {r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        assert "ingest_extract_jobs" not in tables_after
+        assert "ingest_extract_progress" not in tables_after
+        assert "ingest_turns" in tables_after
+        assert "episodes" in tables_after
+        kept = conn.execute(
+            "SELECT context FROM episodes WHERE episode_id = 'E-mig7'"
+        ).fetchone()
+        assert kept and "v7 down must not drop me" in kept[0]
+    finally:
+        conn.close()
+    return "v7 up creates extract checkpoints; down_sql drops them; ingest and episodes remain"
+
+
+def test_v9_reconcile_tables_and_down_sql():
+    """Schema v9 adds reconcile decisions; down_sql drops them and leaves ingest + beliefs."""
+    from hungry_hippa.schema import CURRENT_VERSION, MIGRATIONS
+    from hungry_hippa.db import Database
+
+    assert CURRENT_VERSION >= 9, CURRENT_VERSION
+    assert 9 in MIGRATIONS and MIGRATIONS[9]["down"].strip()
+    assert "ingest_reconcile_jobs" in MIGRATIONS[9]["up"]
+    assert "ingest_reconcile_decisions" in MIGRATIONS[9]["up"]
+    assert "CREATE TABLE episodes" not in MIGRATIONS[9]["up"]
+    assert "CREATE TABLE beliefs" not in MIGRATIONS[9]["up"]
+    assert "CREATE TABLE ingest_turns" not in MIGRATIONS[9]["up"]
+
+    path = os.path.join(tempfile.mkdtemp(prefix="hh_mig_v8_"), "hungry_hippa.db")
+    Database(path)
+    conn = sqlite3.connect(path)
+    try:
+        versions = {r[0] for r in conn.execute("SELECT version FROM schema_migrations")}
+        assert 9 in versions, versions
+        tables = {r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        assert "ingest_reconcile_jobs" in tables and "ingest_reconcile_decisions" in tables
+        assert "ingest_turns" in tables and "beliefs" in tables and "episodes" in tables
+        conn.execute(
+            "INSERT INTO episodes(episode_id, ts_start, ts_end, context, outcome,"
+            " importance, confidence, status, created_at, updated_at)"
+            " VALUES ('E-mig8','2020-01-01T00:00:00Z','2020-01-01T00:00:00Z',"
+            " 'v8 down must not drop me','success',0.5,0.5,'active',"
+            " '2020-01-01T00:00:00Z','2020-01-01T00:00:00Z')"
+        )
+        conn.executescript(MIGRATIONS[9]["down"])
+        tables_after = {r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        assert "ingest_reconcile_jobs" not in tables_after
+        assert "ingest_reconcile_decisions" not in tables_after
+        assert "ingest_turns" in tables_after
+        assert "ingest_extract_jobs" in tables_after
+        assert "episodes" in tables_after
+        kept = conn.execute(
+            "SELECT context FROM episodes WHERE episode_id = 'E-mig8'"
+        ).fetchone()
+        assert kept and "v8 down must not drop me" in kept[0]
+    finally:
+        conn.close()
+    return "v8 up creates reconcile tables; down_sql drops them; ingest, extract, episodes remain"
+
+
 def test_rollback_instructions_exist():
     doc = (REPO_DIR / "docs" / "MIGRATION.md").read_text(encoding="utf-8")
     assert "Rollback" in doc
@@ -260,6 +394,9 @@ def run_all() -> list:
     check("implicit_open_backs_up_before_upgrading",
           test_implicit_open_backs_up_before_upgrading)
     check("rollback_instructions_exist", test_rollback_instructions_exist)
+    check("v6_ingest_tables_and_down_sql", test_v6_ingest_tables_and_down_sql)
+    check("v8_extract_checkpoints_and_down_sql", test_v8_extract_checkpoints_and_down_sql)
+    check("v9_reconcile_tables_and_down_sql", test_v9_reconcile_tables_and_down_sql)
     return results
 
 

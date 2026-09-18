@@ -44,8 +44,9 @@ Please give a reasonable window for a fix before disclosing publicly.
 The following are documented, intentional limitations, not unknown issues. Read
 them first — reports about them will be answered by pointing at the docs:
 
-- `actor_id` is caller-supplied. A process that can start the MCP server can claim
-  to be the owner actor. The MCP transport is stdio-only for this reason.
+- MCP identity is bound to the server launch channel. An actor label alone cannot
+  grant owner identity; the owner token must verify. A process running as the same
+  OS user can read that token and the store. MCP remains stdio-only.
 - Actor + policy checks are **not** capability-based security.
 - There is no encryption at rest; disk encryption is the operator's
   responsibility.
@@ -58,6 +59,20 @@ them first — reports about them will be answered by pointing at the docs:
 
 ## Supported versions
 
-The `feat/hungry-hippa` line (Hungry Hippa, schema v4) is the only supported line.
+The released baseline is v1.0.0 (schema v5). This unreleased ingestion branch
+adds schema v6/v7 and is validated on isolated test stores.
 The pre-rename Living Cortex code is supported only through the migration path
 described in `docs/MIGRATION.md`.
+
+## Historical imports
+
+Imports are untrusted data. ChatGPT JSON passes bounded regular-file reading,
+JSON/depth/node/lineage validation and exact-byte provenance checks before a
+transaction can persist history. Symlink leaves and special files are refused;
+paths embedded in content are never followed. Importing grants no model or
+operator authority, does not execute HTML/code, and creates no derived memory.
+See [input limits](docs/INGESTION.md) and `tests/test_ingest_integrity.py`.
+
+Original bytes live in the same plaintext database and its backups. Hashes detect
+inconsistency, not authenticated provider identity or tampering by a process that
+can rewrite hashes. There is no encrypted backup implementation yet.

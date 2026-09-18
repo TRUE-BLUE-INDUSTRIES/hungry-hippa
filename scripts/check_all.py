@@ -18,7 +18,6 @@ import argparse
 import os
 import subprocess
 import sys
-import sys
 from pathlib import Path
 from typing import List, Sequence, Tuple
 
@@ -40,12 +39,21 @@ STEPS: Sequence[Tuple[str, List[str]]] = (
     ("resource limits", ["python", "tests/test_resource_limits.py"]),
     ("quarantine review CLI", ["python", "tests/test_quarantine_cli.py"]),
     ("chatgpt export parser", ["python", "tests/test_chatgpt_ingest.py"]),
+    ("hostile import + evidence integrity", ["python", "tests/test_ingest_integrity.py"]),
+    ("hermes session ingest", ["python", "tests/test_hermes_ingest.py"]),
+    ("ingest canonical store", ["python", "tests/test_ingest_store.py"]),
+    ("ingest extract (local LM)", ["python", "tests/test_ingest_extract.py"]),
+    ("ingest reconcile (Layer 4)", ["python", "tests/test_ingest_reconcile.py"]),
+    ("ingest chatgpt e2e (offline + optional live)", ["python", "tests/test_ingest_e2e.py"]),
+    ("local embeddings (fail-open + request shape)", ["python", "tests/test_vectors.py"]),
     ("import + packaging hygiene", ["python", "tests/test_import_hygiene.py"]),
     ("backup + rotation", ["python", "tests/test_backup_rotation.py"]),
     ("security", ["python", "tests/test_security.py"]),
     ("Hippo-Pot deployment", ["python", "tests/test_hippo_pot.py"]),
     ("demo transcript", ["python", "demo/demo.py", "--tmp", "--check"]),
     ("eval result drift", ["python", "eval/check_results.py"]),
+    ("synthetic import benchmark smoke", ["python", "eval/ingest_benchmark.py", "--smoke"]),
+    ("clean wheel installation", ["python", "scripts/check_install.py"]),
 )
 
 
