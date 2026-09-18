@@ -227,7 +227,7 @@ def check_v8_tables_on_fresh_db():
     from hungry_hippa.schema import CURRENT_VERSION
 
     path = _fresh_db()
-    assert CURRENT_VERSION == 8, CURRENT_VERSION
+    assert CURRENT_VERSION >= 9, CURRENT_VERSION
     conn = sqlite3.connect(path)
     try:
         tables = {r[0] for r in conn.execute(

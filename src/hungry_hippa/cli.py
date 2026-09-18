@@ -481,8 +481,10 @@ def _cmd_ingest_chatgpt(args) -> None:
     from .ingest.store import persist_parsed_export
 
     db_path = _ingest_db_path(args)
+    archive_dir = os.path.join(os.path.dirname(os.path.abspath(db_path)), "ingest_archives")
     result = persist_parsed_export(
         Database(db_path), conversations, source_path=path, source_bytes=raw,
+        copy_to=archive_dir,
     )
     if not result.ok:
         _print_json({"error": result.error or "persist failed"})

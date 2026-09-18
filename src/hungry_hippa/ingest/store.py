@@ -110,7 +110,13 @@ def persist_parsed_export(
                 raise ValueError("source bytes are required to verify an archive pointer")
         else:
             raise ValueError("source_path or source_bytes is required")
-        if list(conversations) != parse_chatgpt_bytes(raw):
+        source_kind = conversations[0].source if conversations else "chatgpt"
+        if source_kind == "hermes":
+            from .hermes import parse_hermes_export
+            reparsed = parse_hermes_export(source_path) if source_path else []
+        else:
+            reparsed = parse_chatgpt_bytes(raw)
+        if list(conversations) != reparsed:
             raise ValueError("parsed conversations do not match the source snapshot")
         digest = hashlib.sha256(raw).hexdigest()
         if archive and (archive.sha256 != digest or archive.byte_length != len(raw)):

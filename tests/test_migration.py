@@ -184,24 +184,24 @@ def test_v6_ingest_tables_and_down_sql():
     return "v6 up creates ingest tables; down_sql drops them; episodes remain"
 
 
-def test_v7_extract_checkpoints_and_down_sql():
-    """Schema v7 adds extract checkpoints; down_sql drops them and leaves ingest + episodes."""
+def test_v8_extract_checkpoints_and_down_sql():
+    """Schema v8 adds extract checkpoints; down_sql drops them and leaves ingest + episodes."""
     from hungry_hippa.schema import CURRENT_VERSION, MIGRATIONS
     from hungry_hippa.db import Database
 
-    assert CURRENT_VERSION >= 7, CURRENT_VERSION
-    assert 7 in MIGRATIONS and MIGRATIONS[7]["down"].strip()
-    assert "ingest_extract_jobs" in MIGRATIONS[7]["up"]
-    assert "ingest_extract_progress" in MIGRATIONS[7]["up"]
-    assert "CREATE TABLE episodes" not in MIGRATIONS[7]["up"]
-    assert "CREATE TABLE beliefs" not in MIGRATIONS[7]["up"]
+    assert CURRENT_VERSION >= 8, CURRENT_VERSION
+    assert 8 in MIGRATIONS and MIGRATIONS[8]["down"].strip()
+    assert "ingest_extract_jobs" in MIGRATIONS[8]["up"]
+    assert "ingest_extract_progress" in MIGRATIONS[8]["up"]
+    assert "CREATE TABLE episodes" not in MIGRATIONS[8]["up"]
+    assert "CREATE TABLE beliefs" not in MIGRATIONS[8]["up"]
 
     path = os.path.join(tempfile.mkdtemp(prefix="hh_mig_v7_"), "hungry_hippa.db")
     Database(path)
     conn = sqlite3.connect(path)
     try:
         versions = {r[0] for r in conn.execute("SELECT version FROM schema_migrations")}
-        assert 7 in versions, versions
+        assert 8 in versions, versions
         tables = {r[0] for r in conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table'")}
         assert "ingest_extract_jobs" in tables and "ingest_extract_progress" in tables
@@ -213,7 +213,7 @@ def test_v7_extract_checkpoints_and_down_sql():
             " 'v7 down must not drop me','success',0.5,0.5,'active',"
             " '2020-01-01T00:00:00Z','2020-01-01T00:00:00Z')"
         )
-        conn.executescript(MIGRATIONS[7]["down"])
+        conn.executescript(MIGRATIONS[8]["down"])
         tables_after = {r[0] for r in conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table'")}
         assert "ingest_extract_jobs" not in tables_after
@@ -229,25 +229,25 @@ def test_v7_extract_checkpoints_and_down_sql():
     return "v7 up creates extract checkpoints; down_sql drops them; ingest and episodes remain"
 
 
-def test_v8_reconcile_tables_and_down_sql():
-    """Schema v8 adds reconcile decisions; down_sql drops them and leaves ingest + beliefs."""
+def test_v9_reconcile_tables_and_down_sql():
+    """Schema v9 adds reconcile decisions; down_sql drops them and leaves ingest + beliefs."""
     from hungry_hippa.schema import CURRENT_VERSION, MIGRATIONS
     from hungry_hippa.db import Database
 
-    assert CURRENT_VERSION == 8, CURRENT_VERSION
-    assert 8 in MIGRATIONS and MIGRATIONS[8]["down"].strip()
-    assert "ingest_reconcile_jobs" in MIGRATIONS[8]["up"]
-    assert "ingest_reconcile_decisions" in MIGRATIONS[8]["up"]
-    assert "CREATE TABLE episodes" not in MIGRATIONS[8]["up"]
-    assert "CREATE TABLE beliefs" not in MIGRATIONS[8]["up"]
-    assert "CREATE TABLE ingest_turns" not in MIGRATIONS[8]["up"]
+    assert CURRENT_VERSION >= 9, CURRENT_VERSION
+    assert 9 in MIGRATIONS and MIGRATIONS[9]["down"].strip()
+    assert "ingest_reconcile_jobs" in MIGRATIONS[9]["up"]
+    assert "ingest_reconcile_decisions" in MIGRATIONS[9]["up"]
+    assert "CREATE TABLE episodes" not in MIGRATIONS[9]["up"]
+    assert "CREATE TABLE beliefs" not in MIGRATIONS[9]["up"]
+    assert "CREATE TABLE ingest_turns" not in MIGRATIONS[9]["up"]
 
     path = os.path.join(tempfile.mkdtemp(prefix="hh_mig_v8_"), "hungry_hippa.db")
     Database(path)
     conn = sqlite3.connect(path)
     try:
         versions = {r[0] for r in conn.execute("SELECT version FROM schema_migrations")}
-        assert 8 in versions, versions
+        assert 9 in versions, versions
         tables = {r[0] for r in conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table'")}
         assert "ingest_reconcile_jobs" in tables and "ingest_reconcile_decisions" in tables
@@ -259,7 +259,7 @@ def test_v8_reconcile_tables_and_down_sql():
             " 'v8 down must not drop me','success',0.5,0.5,'active',"
             " '2020-01-01T00:00:00Z','2020-01-01T00:00:00Z')"
         )
-        conn.executescript(MIGRATIONS[8]["down"])
+        conn.executescript(MIGRATIONS[9]["down"])
         tables_after = {r[0] for r in conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table'")}
         assert "ingest_reconcile_jobs" not in tables_after
@@ -395,8 +395,8 @@ def run_all() -> list:
           test_implicit_open_backs_up_before_upgrading)
     check("rollback_instructions_exist", test_rollback_instructions_exist)
     check("v6_ingest_tables_and_down_sql", test_v6_ingest_tables_and_down_sql)
-    check("v7_extract_checkpoints_and_down_sql", test_v7_extract_checkpoints_and_down_sql)
-    check("v8_reconcile_tables_and_down_sql", test_v8_reconcile_tables_and_down_sql)
+    check("v8_extract_checkpoints_and_down_sql", test_v8_extract_checkpoints_and_down_sql)
+    check("v9_reconcile_tables_and_down_sql", test_v9_reconcile_tables_and_down_sql)
     return results
 
 
