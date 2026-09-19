@@ -6,3 +6,4 @@ scripts/seed_initial.local.py
 demo/.demo_db/
 .venv/
 *.egg-info/
+.worktrees/
