@@ -463,42 +463,42 @@ DROP TABLE IF EXISTS ingest_extract_jobs;
     9: {
         "description": "Ingest reconcile decisions: Layer 4 classification of extract candidates against existing memories. New tables only; episodes, beliefs, evidence, ingest history, and extract checkpoints are unchanged.",
         "up": """
-CREATE TABLE ingest_reconcile_jobs (
-  job_id TEXT PRIMARY KEY,
-  status TEXT NOT NULL DEFAULT 'running',
-  dry_run INTEGER NOT NULL DEFAULT 0,
-  candidates_seen INTEGER NOT NULL DEFAULT 0,
-  candidates_processed INTEGER NOT NULL DEFAULT 0,
-  duplicate_n INTEGER NOT NULL DEFAULT 0,
-  reinforcement_n INTEGER NOT NULL DEFAULT 0,
-  contradiction_n INTEGER NOT NULL DEFAULT 0,
-  update_n INTEGER NOT NULL DEFAULT 0,
-  supersession_n INTEGER NOT NULL DEFAULT 0,
-  low_confidence_n INTEGER NOT NULL DEFAULT 0,
-  irrelevant_n INTEGER NOT NULL DEFAULT 0,
-  error TEXT NOT NULL DEFAULT '',
-  started_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  finished_at TEXT
-);
-CREATE INDEX ix_ingest_reconcile_jobs_status ON ingest_reconcile_jobs(status);
+        CREATE TABLE IF NOT EXISTS ingest_reconcile_jobs (
+          job_id TEXT PRIMARY KEY,
+          status TEXT NOT NULL DEFAULT 'running',
+          dry_run INTEGER NOT NULL DEFAULT 0,
+          candidates_seen INTEGER NOT NULL DEFAULT 0,
+          candidates_processed INTEGER NOT NULL DEFAULT 0,
+          duplicate_n INTEGER NOT NULL DEFAULT 0,
+          reinforcement_n INTEGER NOT NULL DEFAULT 0,
+          contradiction_n INTEGER NOT NULL DEFAULT 0,
+          update_n INTEGER NOT NULL DEFAULT 0,
+          supersession_n INTEGER NOT NULL DEFAULT 0,
+          low_confidence_n INTEGER NOT NULL DEFAULT 0,
+          irrelevant_n INTEGER NOT NULL DEFAULT 0,
+          error TEXT NOT NULL DEFAULT '',
+          started_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          finished_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS ix_ingest_reconcile_jobs_status ON ingest_reconcile_jobs(status);
 
-CREATE TABLE ingest_reconcile_decisions (
-  decision_id TEXT PRIMARY KEY,
-  job_id TEXT NOT NULL DEFAULT '',
-  candidate_id TEXT NOT NULL,
-  matched_id TEXT NOT NULL DEFAULT '',
-  classification TEXT NOT NULL,
-  similarity REAL NOT NULL DEFAULT 0,
-  reason TEXT NOT NULL DEFAULT '',
-  evidence_ids TEXT NOT NULL DEFAULT '[]',
-  applied INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL,
-  UNIQUE(candidate_id)
-);
-CREATE INDEX ix_ingest_reconcile_decisions_class ON ingest_reconcile_decisions(classification);
-CREATE INDEX ix_ingest_reconcile_decisions_job ON ingest_reconcile_decisions(job_id);
-""",
+        CREATE TABLE IF NOT EXISTS ingest_reconcile_decisions (
+          decision_id TEXT PRIMARY KEY,
+          job_id TEXT NOT NULL DEFAULT '',
+          candidate_id TEXT NOT NULL,
+          matched_id TEXT NOT NULL DEFAULT '',
+          classification TEXT NOT NULL,
+          similarity REAL NOT NULL DEFAULT 0,
+          reason TEXT NOT NULL DEFAULT '',
+          evidence_ids TEXT NOT NULL DEFAULT '[]',
+          applied INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL,
+          UNIQUE(candidate_id)
+        );
+        CREATE INDEX IF NOT EXISTS ix_ingest_reconcile_decisions_class ON ingest_reconcile_decisions(classification);
+        CREATE INDEX IF NOT EXISTS ix_ingest_reconcile_decisions_job ON ingest_reconcile_decisions(job_id);
+        """,
         "down": """
 DROP TABLE IF EXISTS ingest_reconcile_decisions;
 DROP TABLE IF EXISTS ingest_reconcile_jobs;

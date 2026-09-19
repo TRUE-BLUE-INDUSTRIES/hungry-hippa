@@ -520,9 +520,12 @@ def check_apply_persists_canonical_turns_not_memories():
         assert archive[0] == digest
         assert archive[1] == len(raw)
         assert archive[2] == os.path.abspath(export)
-        assert archive[3] == ""
+        # The CLI publishes a redundant 0600 on-disk copy (see docs/INGESTION.md)
+        # in addition to the raw bytes in the database. Both must match the digest.
+        assert archive[3] and os.path.isfile(archive[3]), archive
         copied = conn.execute("SELECT raw_bytes FROM ingest_archive_bytes").fetchone()[0]
         assert hashlib.sha256(copied).hexdigest() == digest
+        assert hashlib.sha256(open(archive[3], "rb").read()).hexdigest() == digest
         assert conn.execute("SELECT COUNT(*) FROM episodes").fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM beliefs").fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM evidence").fetchone()[0] == 0
