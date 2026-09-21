@@ -185,9 +185,9 @@ class RetrievalRouter:
                                      or it.get("valid_from"))
             vector_score = float(it.get("vector_score", 0.0) or 0.0)
             fts_score = float(it.get("fts_score", 0.0) or 0.0)
-            # SQLite FTS5 bm25() is negative-is-better; the /10 term is kept
-            # for backward compatibility with the original ranking.
-            relevance = max(vector_score, fts_score / 10.0, term_hits * 0.12)
+            # SQLite FTS5 bm25() is negative-is-better. Convert its magnitude
+            # to a positive contribution before combining with vector/term hits.
+            relevance = max(vector_score, -fts_score / 10.0, term_hits * 0.12)
             confidence = float(it.get("confidence", 0.5) or 0.5)
             reinforce = 1.0 + 0.05 * min(10, int(it.get("reinforcement_count", 0) or 0))
             total = (

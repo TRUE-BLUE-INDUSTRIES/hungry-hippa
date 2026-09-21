@@ -1,7 +1,30 @@
 # Project state
 
-Updated 2026-09-18. Git is authoritative for code; no live store or deployed MCP
+Updated 2026-09-20. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
+
+## Autonomous maintenance — 2026-09-20
+
+Current worktree/branch: `hungry-hippa-maintenance` / `automation/hh-maintenance`,
+starting at `3cddd2adcd85362fba6627dedb87ac431aa7e518` (also fetched `origin/main`).
+The sections below describe the historical September 18 ingestion cycle, not the
+current checkout. Extraction/reconciliation, Hermes import, vectors and Hippo-Pot
+are now present in the integrated baseline; their earlier ledger entries need an
+acceptance-level audit rather than blindly reimplementing the old plan.
+
+Fixed the demonstrated growth-recall defect: negative SQLite BM25 scores were
+ignored by the positive relevance maximum. Preserve the existing weights and
+scale, but invert the BM25 sign. Synthetic growth recall changed from **0/3 to
+3/3** at 100/500/2,000 episodes. This is not a general retrieval-quality claim.
+A new failing-then-passing regression verifies durable second-process recall,
+source provenance and the context budget. All 30 shared gate steps passed;
+four optional live-model checks skipped for unavailable configured services.
+See [measurement and limitations](docs/maintenance-retrieval-2026-09-20.md).
+No schema, trust policy, production store or installed plugin changed.
+
+Next: audit integrated extraction/reconciliation against the pending trust and
+checkpoint acceptance criteria; reproduce any remaining P1 defect before fixing.
+
 
 ## Compact handoff for the next cycle
 

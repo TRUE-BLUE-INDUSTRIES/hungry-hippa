@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "updated": "2026-09-18",
-  "branch": "codex/first-usable-ingestion",
+  "updated": "2026-09-20",
+  "branch": "automation/hh-maintenance",
   "released": {
     "version": "1.0.0",
     "sha": "9b9593f62b76c044470f9bc5684656aadb3f07d9"
@@ -63,13 +63,14 @@
     },
     {
       "id": "RETRIEVAL-REGRESSION",
-      "status": "open",
-      "evidence": "eval/results.json scenario 10",
+      "status": "done",
+      "evidence": "docs/maintenance-retrieval-2026-09-20.md",
       "acceptance": [
         "Reproduce scale-recall failures",
         "Measure BM25 contribution and fix only with regression evidence",
         "Publish all failures and comparative denominators"
-      ]
+      ],
+      "result": "BM25 sign corrected; synthetic growth recall 0/3 before, 3/3 after; cross-process regression and 30-step gate pass; no general-quality claim"
     },
     {
       "id": "RESTORE-UX",
@@ -132,5 +133,13 @@
       "3.14"
     ],
     "local_steps": 25
+  },
+  "maintenance_verification": {
+    "base_sha": "3cddd2adcd85362fba6627dedb87ac431aa7e518",
+    "python": "3.14.7",
+    "local_steps": 30,
+    "optional_live_checks_skipped": 4,
+    "evidence": "docs/maintenance-retrieval-2026-09-20.md",
+    "next": "Audit integrated extraction/reconciliation acceptance before changing old task statuses"
   }
 }

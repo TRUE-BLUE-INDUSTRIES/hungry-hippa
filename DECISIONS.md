@@ -1,5 +1,16 @@
 # Engineering decisions
 
+## ADR-004 — Correct BM25 polarity without retuning retrieval (2026-09-20)
+
+The growth fixture reproduced 0/3 despite FTS returning the precise belief first.
+SQLite BM25 is negative-is-better, so the relevance maximum discarded its score.
+Invert the sign, retaining the existing /10 scale, weights, policy partition and
+context budgets. Do not introduce corpus-dependent normalization or broaden the
+candidate window without separate regression evidence. The growth regression
+now passes through a second interpreter with durable provenance. Synthetic
+results and limits are in `docs/maintenance-retrieval-2026-09-20.md`.
+
+
 ## ADR-001 — Reuse reviewed ingestion slices; defer model extraction (2026-09-18)
 
 Evidence: main v1.0.0 only parses exports. Existing commits `1221b16` and `b25d715`
