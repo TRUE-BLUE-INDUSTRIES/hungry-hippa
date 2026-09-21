@@ -1,5 +1,29 @@
 # Engineering decisions
 
+## ADR-006 — Commit extraction persistence per batch (2026-09-21)
+
+Injected candidate-insert failure and a real write-quota refusal both reproduced
+successful checkpoint advancement without the requested memory. Separate `_run`
+connections committed evidence and candidates independently and swallowed SQL errors.
+
+Add an opt-in, thread-local transaction scope on Database: one BEGIN IMMEDIATE
+connection for existing read/write helpers, exceptions propagate, and a caught SQL
+error still poisons the transaction. Other callers keep legacy standalone semantics.
+Wrap each extraction batch's evidence, candidates, links, indexes, audit, progress
+and job-count writes together; do not hold the writer lock over model requests.
+Explicit candidate refusals abort instead of becoming successful skips. Job creation
+runs in its own checked transaction. Verify persisted candidates and evidence links,
+and require checkpoint/job updates to affect a row: a silent SQLite RAISE(IGNORE)
+was independently shown to defeat exception-only checks.
+
+No migration, dependency, trust promotion, production-store repair or deletion.
+Earlier successful batches survive failure. Failed-job status is best-effort when
+the database refuses all updates. Concurrent extraction-job coordination and malformed
+candidate-member validation remain separate work; this is not a claim of exactly-once
+processing across simultaneous extractors. Regression coverage includes both candidate
+kinds, abort/no-op faults, quota refusal, retry, thread isolation, caught exceptions,
+interrupt rollback and fresh-process pending counts.
+
 ## ADR-005 — Refuse oversized extraction turns without checkpointing (2026-09-20)
 
 A synthetic 801-character turn reproduced successful extraction of only an

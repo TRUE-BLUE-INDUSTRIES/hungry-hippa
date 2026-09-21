@@ -18,8 +18,24 @@ pending-count preview, not a prompt-size validation.
 Lossless chunking is not implemented: retrying the same oversized turn still
 fails. Do not shorten canonical history or clear checkpoints as a workaround.
 Previously checkpointed truncated turns are not automatically repaired. Malformed
-response envelopes also fail without advancing progress; per-candidate validation
-and atomic candidate/evidence/checkpoint persistence remain separate open work.
+response envelopes also fail without advancing progress; malformed candidate-member
+validation remains separate open work.
+
+### Atomic extraction persistence (2026-09-21)
+
+Each completed model batch persists its evidence, quarantined candidates, evidence
+links, FTS/audit writes, checkpoint and job counts in one SQLite transaction. SQL
+failures or candidate write/quota refusals roll back that batch, leaving its turns
+pending. Earlier committed batches survive and can be resumed without repeating
+them. Job creation must succeed before batch persistence; missing candidate/evidence
+rows or links and zero-row checkpoint/job updates are refused rather than counted.
+Model calls run outside the SQLite writer transaction. Standalone database callers
+retain their existing error-handling behavior; no schema or trust promotion changed.
+
+Fault-injection coverage uses invented stores and checks both SQL aborts and silent
+insert suppression. This does not repair historical partial writes, serialize
+multiple extraction jobs, or provide lossless oversized-turn chunking. Failed-job
+status reporting remains best-effort if the database itself cannot accept writes.
 
 
 ## Operator workflow

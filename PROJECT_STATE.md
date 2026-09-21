@@ -1,7 +1,34 @@
 # Project state
 
-Updated 2026-09-20. Git is authoritative for code; no live store or deployed MCP
+Updated 2026-09-21. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
+
+## Autonomous maintenance — 2026-09-21
+
+Started clean at `22066f77d76bd1169290a8d50cce22d9c77994f8` on
+`automation/hh-maintenance`; fetched main was already an ancestor. Reproduced P1
+silent checkpoint advancement after candidate SQL failure and write-quota refusal.
+Added opt-in strict Database transactions and atomic per-batch extraction writes.
+Evidence, candidates, links, indexes/audit, progress and job counts now commit or
+roll back together; model calls stay outside the writer lock. Job creation is checked.
+QA exposed silent insert suppression and Security exposed failed job creation;
+regressions reproduce both and now pass with persisted-row/link and rowcount checks.
+No schema, trust promotion, main, installed plugin or live-store changes.
+
+Validation: extraction suite 19 actual PASS plus one live-model SKIP; E2E suite four
+PASS plus one live-model SKIP. Full `.venv/bin/python scripts/check_all.py`: all 30
+steps passed, with four optional live checks SKIP/ENVIRONMENTAL (not passes),
+including cross-process recall/provenance, MCP, security and clean wheel install.
+The extraction suite includes 16 SQL-abort/silent-no-op fault cases, quota rollback,
+earlier-batch preservation, fresh-process CLI pending/retry and thread isolation.
+Python 3.14.7; Linux 7.2.5-3-omarchy x86_64; AMD Ryzen 9 9950X3D, 32 logical CPUs.
+Measured on this shift's diff over the clean starting SHA with invented temporary
+stores and loopback fixtures. No performance or general extraction-quality claim.
+
+Remaining: malformed candidate members, concurrent extraction-job coordination,
+lossless oversized-turn chunking, and historical partial-write repair. Failed-job
+status reporting remains best-effort if the store refuses updates. Next: reproduce
+malformed candidate-member output advancing progress and fail closed. See ADR-006.
 
 ## Autonomous maintenance — 2026-09-20
 

@@ -160,6 +160,173 @@ class FakeExtractor:
         )]
 
 
+def check_batch_write_failure_is_atomic() -> str:
+    from hungry_hippa.db import Database
+
+    path = _fresh_db()
+    _persist(path, _key_export())
+    with sqlite3.connect(path) as conn:
+        conn.execute("CREATE TRIGGER refuse_belief BEFORE INSERT ON beliefs "
+                     "BEGIN SELECT RAISE(ABORT, 'injected write failure'); END")
+    try:
+        extract_from_store(Database(path), extractor=FakeExtractor())
+    except (ExtractorError, sqlite3.DatabaseError):
+        pass
+    else:
+        raise AssertionError("candidate insert failed but extraction reported success")
+    with sqlite3.connect(path) as conn:
+        for table in ("beliefs", "evidence", "belief_evidence", "ingest_extract_progress"):
+            assert conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0, table
+        assert conn.execute("SELECT status FROM ingest_extract_jobs").fetchone()[0] == "failed"
+        conn.execute("DROP TRIGGER refuse_belief")
+    retried = extract_from_store(Database(path), extractor=FakeExtractor())
+    assert retried.turns_processed == 2 and retried.beliefs_written == 1, retried
+    return "failed candidate rolls back evidence and checkpoint; retry persists once"
+
+
+def check_quota_refusal_keeps_batch_pending() -> str:
+    from unittest.mock import patch
+    from hungry_hippa.db import Database
+
+    path = _fresh_db()
+    _persist(path, _key_export())
+    candidates = [
+        ExtractedCandidate(item_type="belief", claim="The brass key is in the drawer.",
+                           turn_ids=("n-a",), source_class="document"),
+        ExtractedCandidate(item_type="belief", claim="The telescope needs a replacement lens.",
+                           turn_ids=("n-b",), source_class="document"),
+    ]
+    with patch.dict(os.environ, {"HUNGRY_HIPPA_MAX_WRITES_PER_HOUR": "1"}):
+        try:
+            extract_from_store(Database(path), extractor=FakeExtractor(candidates))
+        except ExtractorError:
+            pass
+        else:
+            raise AssertionError("quota refusal silently checkpointed the batch")
+    with sqlite3.connect(path) as conn:
+        for table in ("beliefs", "evidence", "belief_evidence", "ingest_extract_progress"):
+            assert conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0, table
+    assert preview_pending(Database(path)).turns_pending == 2
+    retried = extract_from_store(Database(path), extractor=FakeExtractor(candidates))
+    assert retried.beliefs_written == 2 and retried.turns_processed == 2, retried
+    return "quota refusal rolls back the whole batch instead of skipping a candidate"
+
+
+def check_persistence_fault_matrix() -> str:
+    from hungry_hippa.db import Database
+
+    for action in ("ABORT, 'injected write failure'", "IGNORE"):
+        for table, event in (("evidence", "INSERT"), ("beliefs", "INSERT"),
+                             ("episodes", "INSERT"), ("belief_evidence", "INSERT"),
+                             ("episode_evidence", "INSERT"),
+                             ("ingest_extract_progress", "INSERT"),
+                             ("ingest_extract_jobs", "INSERT"),
+                             ("ingest_extract_jobs", "UPDATE")):
+            path = _fresh_db()
+            _persist(path, _key_export())
+            kind = "episode" if table in ("episodes", "episode_evidence") else "belief"
+            candidate = ExtractedCandidate(item_type=kind, claim="The key is in the drawer.",
+                                           turn_ids=("n-a",), source_class="document")
+            with sqlite3.connect(path) as conn:
+                conn.execute(f"CREATE TRIGGER refuse_write BEFORE {event} ON {table} "
+                             f"BEGIN SELECT RAISE({action}); END")
+            try:
+                extract_from_store(Database(path), extractor=FakeExtractor([candidate]))
+            except (ExtractorError, sqlite3.DatabaseError):
+                pass
+            else:
+                raise AssertionError(f"{table}/{event}/{action}: falsely reported success")
+            with sqlite3.connect(path) as conn:
+                for target in ("beliefs", "episodes", "evidence", "belief_evidence",
+                               "episode_evidence", "memory_fts", "ingest_extract_progress"):
+                    assert conn.execute(f"SELECT count(*) FROM {target}").fetchone()[0] == 0, (
+                        table, event, action, target)
+                conn.execute("DROP TRIGGER refuse_write")
+            assert preview_pending(Database(path)).turns_pending == 2
+            retried = extract_from_store(Database(path), extractor=FakeExtractor([candidate]))
+            assert retried.turns_processed == 2
+            assert retried.beliefs_written + retried.episodes_written == 1
+    return "16 abort/silent-no-op fault cases roll back and remain retryable"
+
+
+def check_partial_batch_progress_survives_failure() -> str:
+    from hungry_hippa.db import Database
+
+    path = _fresh_db()
+    _persist(path, _key_export())
+    claims = {"n-a": "The brass key is in the drawer.",
+              "n-b": "The telescope needs a replacement lens."}
+
+    def extract(turns):
+        return [ExtractedCandidate(item_type="belief", claim=claims[turns[0].turn_id],
+                                   turn_ids=(turns[0].turn_id,), source_class="document")]
+
+    with sqlite3.connect(path) as conn:
+        conn.execute("CREATE TRIGGER refuse_second BEFORE INSERT ON beliefs "
+                     "WHEN NEW.claim LIKE 'The telescope%' "
+                     "BEGIN SELECT RAISE(ABORT, 'second batch failure'); END")
+    try:
+        extract_from_store(Database(path), extractor=extract, batch_turns=1)
+    except sqlite3.DatabaseError:
+        pass
+    else:
+        raise AssertionError("second batch failure swallowed")
+    with sqlite3.connect(path) as conn:
+        assert conn.execute("SELECT claim FROM beliefs").fetchall() == [(claims["n-a"],)]
+        assert conn.execute("SELECT count(*) FROM evidence").fetchone()[0] == 1
+        assert conn.execute("SELECT last_turn_id FROM ingest_extract_progress").fetchone()[0] == "n-a"
+        assert conn.execute("SELECT status, turns_processed, candidates_written "
+                            "FROM ingest_extract_jobs").fetchone() == ("failed", 1, 1)
+        conn.execute("DROP TRIGGER refuse_second")
+    pending = _run_cli(["ingest", "extract", "--dry-run"], env=_cli_env(path),
+                       cwd=str(Path(path).parent))
+    assert pending.returncode == 0 and "Turns pending: 1" in pending.stdout, pending.stderr
+    retried = extract_from_store(Database(path), extractor=extract, batch_turns=1)
+    assert retried.turns_processed == 1 and retried.beliefs_written == 1
+    with sqlite3.connect(path) as conn:
+        assert conn.execute("SELECT count(*) FROM beliefs").fetchone()[0] == 2
+        assert conn.execute("SELECT count(*) FROM evidence").fetchone()[0] == 2
+    return "earlier batch survives; fresh CLI sees pending remainder; retry does not duplicate"
+
+
+def check_transaction_scope_isolation() -> str:
+    from hungry_hippa.db import Database
+
+    database = Database(_fresh_db())
+    with database.transaction():
+        eid = database.add_evidence("Invented transaction fixture")
+        assert database.get_evidence([eid])
+        observed = []
+        reader = threading.Thread(target=lambda: observed.append(database.get_evidence([eid])))
+        reader.start()
+        reader.join(timeout=5)
+        assert not reader.is_alive() and observed == [[]], observed
+    assert database.get_evidence([eid])
+    rolled_back = interrupted = ""
+    try:
+        with database.transaction():
+            rolled_back = database.add_evidence("Must roll back")
+            try:
+                database._run(lambda conn: conn.execute("SELECT * FROM nonexistent_fixture"))
+            except sqlite3.DatabaseError:
+                pass
+    except RuntimeError as exc:
+        assert "failed operation" in str(exc)
+    else:
+        raise AssertionError("caught SQL error allowed commit")
+    assert not database.get_evidence([rolled_back])
+    try:
+        with database.transaction():
+            interrupted = database.add_evidence("Interrupted fixture")
+            raise KeyboardInterrupt
+    except KeyboardInterrupt:
+        pass
+    assert not database.get_evidence([interrupted])
+    with database.transaction():
+        assert database.add_evidence("Recovered transaction")
+    return "uncommitted reads thread-isolated; caught SQL errors and interrupts roll back"
+
+
 class _ChatServer(ThreadingHTTPServer):
     hits: List[Dict[str, Any]]
     model_id: str
@@ -689,6 +856,11 @@ def run_all() -> List[Dict[str, Any]]:
             results.append({"name": name, "passed": False,
                             "detail": f"{type(e).__name__}: {e}"})
 
+    check("persistence_fault_matrix", check_persistence_fault_matrix)
+    check("partial_batch_progress_survives_failure", check_partial_batch_progress_survives_failure)
+    check("transaction_scope_isolation", check_transaction_scope_isolation)
+    check("batch_write_failure_is_atomic", check_batch_write_failure_is_atomic)
+    check("quota_refusal_keeps_batch_pending", check_quota_refusal_keeps_batch_pending)
     check("v7_tables_on_fresh_db", check_v7_tables_on_fresh_db)
     check("prompt_is_in_extract_module", check_prompt_is_in_extract_module)
     check("refuses_live_and_unset_db", check_refuses_live_and_unset_db)

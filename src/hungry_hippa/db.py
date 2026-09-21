@@ -19,6 +19,7 @@ import sqlite3
 import stat
 import threading
 import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -68,6 +69,7 @@ class Database:
         self.permissions_lax = False
         self.permissions_warning = ""
         self._lock = threading.Lock()
+        self._transaction_state = threading.local()
         self._secure_new_file()
         self._ensure_schema()
 
@@ -229,7 +231,45 @@ class Database:
         except Exception as e:
             logger.warning("fts reindex failed: %s", e)
 
+    @contextmanager
+    def transaction(self):
+        """Opt-in atomic writes; all _run calls on this thread share one connection.
+
+        Unlike legacy standalone operations, errors propagate and poison the
+        transaction even if a caller catches them. Nested transactions are refused.
+        Keep slow model/network work outside this scope.
+        """
+        state = self._transaction_state
+        if getattr(state, "connection", None) is not None:
+            raise RuntimeError("nested database transaction is not supported")
+        with self._lock:
+            conn = self._connect()
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                state.connection = conn
+                state.failed = False
+                yield
+                if state.failed:
+                    raise RuntimeError("database transaction contains a failed operation")
+                conn.commit()
+            except BaseException:
+                conn.rollback()
+                raise
+            finally:
+                state.connection = None
+                state.failed = False
+                conn.close()
+
     def _run(self, fn, *args, write: bool = False) -> Any:
+        conn = getattr(self._transaction_state, "connection", None)
+        if conn is not None:
+            try:
+                result = fn(conn, *args)
+                return True if write and result is None else result
+            except BaseException:
+                self._transaction_state.failed = True
+                self.failures += 1
+                raise
         try:
             if write:
                 with self._lock:
@@ -663,7 +703,7 @@ class Database:
         now = now_iso()
 
         def _u(conn: sqlite3.Connection) -> None:
-            conn.execute(
+            changed = conn.execute(
                 "INSERT INTO ingest_extract_progress("
                 "source, session_id, last_turn_rowid, last_turn_id, status, job_id, updated_at)"
                 " VALUES (?,?,?,?,?,?,?)"
@@ -675,7 +715,9 @@ class Database:
                 " updated_at=excluded.updated_at",
                 (source, session_id, int(last_turn_rowid), last_turn_id or "",
                  status, job_id, now),
-            )
+            ).rowcount
+            if changed != 1:
+                raise sqlite3.IntegrityError("extraction checkpoint write affected no row")
 
         self._run(_u, write=True)
 
@@ -723,7 +765,8 @@ class Database:
         sql = f"UPDATE ingest_extract_jobs SET {', '.join(sets)} WHERE job_id = ?"
 
         def _u(conn: sqlite3.Connection) -> None:
-            conn.execute(sql, params)
+            if conn.execute(sql, params).rowcount != 1:
+                raise sqlite3.IntegrityError("extraction job update affected no row")
 
         self._run(_u, write=True)
 

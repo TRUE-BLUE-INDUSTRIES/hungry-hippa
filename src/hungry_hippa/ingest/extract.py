@@ -557,8 +557,9 @@ def _ensure_turn_evidence(
             continue
         content = turn.content or ""
         eid = database.add_evidence(content, "document", ref, "")
-        if eid:
-            evidence_ids.append(eid)
+        if not eid or not database.get_evidence([eid]):
+            raise ExtractorError("evidence write failed; batch remains pending")
+        evidence_ids.append(eid)
     return evidence_ids
 
 
@@ -604,9 +605,12 @@ def _write_candidate(
             session_id=first.session_id,
         )
         if written.get("error") or not written.get("episode_id"):
-            return "skip"
-        if written.get("verified_source_class") in FORBIDDEN_VERIFIED:
-            return "skip"
+            raise ExtractorError("episode write refused; batch remains pending")
+        stored = episodic.get_episode(written["episode_id"])
+        if not stored or set(stored["evidence_ids"]) != set(evidence_ids):
+            raise ExtractorError("episode or evidence links missing; batch remains pending")
+        if stored.get("verified_source_class") in FORBIDDEN_VERIFIED:
+            raise ExtractorError("episode provenance refused; batch remains pending")
         existing_claims.append(candidate.claim)
         return "episode"
     written = semantic.add_belief(
@@ -624,10 +628,12 @@ def _write_candidate(
         session_id=first.session_id,
     )
     if written.get("error") or not written.get("belief_id"):
-        return "skip"
-    if (written.get("verified_source_class") or written.get("source_class")) in FORBIDDEN_VERIFIED:
-        semantic.remove_belief(written["belief_id"])
-        return "skip"
+        raise ExtractorError("belief write refused; batch remains pending")
+    stored = semantic.get_belief(written["belief_id"])
+    if not stored or set(stored["evidence_ids"]) != set(evidence_ids):
+        raise ExtractorError("belief or evidence links missing; batch remains pending")
+    if (stored.get("verified_source_class") or stored.get("source_class")) in FORBIDDEN_VERIFIED:
+        raise ExtractorError("belief provenance refused; batch remains pending")
     existing_claims.append(candidate.claim)
     return "belief"
 
@@ -682,7 +688,10 @@ def extract_from_store(
     semantic = SemanticMemory(database, cfg)
     episodic = EpisodicMemory(database, cfg)
     existing = list(database.list_active_belief_claims() or [])
-    job_id = database.create_ingest_extract_job(model=model, source_filter=source_filter)
+    with database.transaction():
+        job_id = database.create_ingest_extract_job(model=model, source_filter=source_filter)
+        if not job_id or not database.get_ingest_extract_job(job_id):
+            raise ExtractorError("extraction job write failed")
     result = ExtractResult(
         ok=True, job_id=job_id, conversations_pending=len(sessions),
         turns_pending=len(pending), model=model,
@@ -706,40 +715,43 @@ def extract_from_store(
                     break
                 batch = batch[:room]
             candidates = extract_batch(batch)
-            for candidate in candidates:
-                kind = _write_candidate(
-                    database=database, semantic=semantic, episodic=episodic,
-                    candidate=candidate, batch=batch, existing_claims=existing,
+            # Commit evidence, candidates, indexes, audit and progress together.
+            # The completion call above must not hold SQLite's writer lock.
+            with database.transaction():
+                for candidate in candidates:
+                    kind = _write_candidate(
+                        database=database, semantic=semantic, episodic=episodic,
+                        candidate=candidate, batch=batch, existing_claims=existing,
+                    )
+                    if kind == "belief":
+                        result.beliefs_written += 1
+                    elif kind == "episode":
+                        result.episodes_written += 1
+                    else:
+                        result.candidates_skipped += 1
+                last = batch[-1]
+                conv_turns = [t for t in pending
+                              if t.source == last.source and t.session_id == last.session_id]
+                done = last.rowid >= max(t.rowid for t in conv_turns)
+                database.upsert_ingest_extract_progress(
+                    source=last.source,
+                    session_id=last.session_id,
+                    last_turn_rowid=last.rowid,
+                    last_turn_id=last.turn_id,
+                    status="done" if done else "in_progress",
+                    job_id=job_id,
                 )
-                if kind == "belief":
-                    result.beliefs_written += 1
-                elif kind == "episode":
-                    result.episodes_written += 1
-                else:
-                    result.candidates_skipped += 1
-            last = batch[-1]
-            conv_turns = [t for t in pending
-                          if t.source == last.source and t.session_id == last.session_id]
-            done = last.rowid >= max(t.rowid for t in conv_turns)
-            database.upsert_ingest_extract_progress(
-                source=last.source,
-                session_id=last.session_id,
-                last_turn_rowid=last.rowid,
-                last_turn_id=last.turn_id,
-                status="done" if done else "in_progress",
-                job_id=job_id,
-            )
-            result.turns_processed += len(batch)
-            database.update_ingest_extract_job(
-                job_id,
-                last_source=last.source,
-                last_session_id=last.session_id,
-                last_turn_rowid=last.rowid,
-                turns_seen=result.turns_pending,
-                turns_processed=result.turns_processed,
-                candidates_written=result.beliefs_written + result.episodes_written,
-                candidates_skipped=result.candidates_skipped,
-            )
+                result.turns_processed += len(batch)
+                database.update_ingest_extract_job(
+                    job_id,
+                    last_source=last.source,
+                    last_session_id=last.session_id,
+                    last_turn_rowid=last.rowid,
+                    turns_seen=result.turns_pending,
+                    turns_processed=result.turns_processed,
+                    candidates_written=result.beliefs_written + result.episodes_written,
+                    candidates_skipped=result.candidates_skipped,
+                )
         database.update_ingest_extract_job(
             job_id, status="completed", finished_at=_db.now_iso(),
             turns_processed=result.turns_processed,
