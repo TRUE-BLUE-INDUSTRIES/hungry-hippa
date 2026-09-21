@@ -5,6 +5,27 @@ configuration was changed during this implementation cycle.
 
 ## Autonomous maintenance — 2026-09-20
 
+Latest shift began at `47c94b43d18c5e5897c968fb7de761130b6fa8e7`, clean on
+`automation/hh-maintenance`; fetched main was already an ancestor. The previous
+commit fixed malformed response envelopes. This shift reproduced silent loss of
+the end of an 801-character extraction turn and replaced prefix truncation with
+explicit refusal before POST/checkpointing. Boundary and fresh-process CLI tests
+verify intact 800-character Unicode bodies and durable pending oversized turns.
+QA independently verified earlier-batch progress survives refusal and retry.
+Chunking remains unsupported; existing NUL normalization remains unchanged.
+Malformed candidate members and nontransactional candidate/evidence/checkpoint
+writes remain open. Next: reproduce candidate-write failure advancing progress
+and make batch persistence atomic. No live store/plugin or main branch changed.
+Validation: `.venv/bin/python scripts/check_all.py` passed all 30 steps (including
+cross-process growth recall/provenance, MCP and clean-wheel installation); four
+optional live-model checks were environmental skips. Targeted extraction and E2E
+suites also passed, with their live checks skipped. Measured on Python 3.14.7,
+Linux 7.2.5-3-omarchy, AMD Ryzen 9 9950X3D (32 logical CPUs), with this shift's
+six-file diff over the clean starting SHA. Tests used synthetic temporary stores
+and loopback fixture servers; no performance comparison is claimed.
+
+### Earlier retrieval shift
+
 Current worktree/branch: `hungry-hippa-maintenance` / `automation/hh-maintenance`,
 starting at `3cddd2adcd85362fba6627dedb87ac431aa7e518` (also fetched `origin/main`).
 The sections below describe the historical September 18 ingestion cycle, not the

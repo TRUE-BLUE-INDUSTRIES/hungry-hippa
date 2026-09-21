@@ -1,5 +1,19 @@
 # Engineering decisions
 
+## ADR-005 — Refuse oversized extraction turns without checkpointing (2026-09-20)
+
+A synthetic 801-character turn reproduced successful extraction of only an
+800-character prefix while checkpointing the entire turn. Replace truncation
+with an explicit batch failure before the completion request. Preserve the
+existing 800-character prompt-body limit (after existing NUL removal), canonical
+content and turn-level evidence; do not introduce chunk IDs or schema changes.
+Earlier successful batches remain checkpointed; the refused batch and later
+turns remain pending across processes. Automatic lossless chunking is deferred,
+so retries remain blocked at the same oversized turn. Do not edit original
+history or clear checkpoints to work around this limitation. This does not
+recover turns already checkpointed by older versions.
+
+
 ## ADR-004 — Correct BM25 polarity without retuning retrieval (2026-09-20)
 
 The growth fixture reproduced 0/3 despite FTS returning the precise belief first.

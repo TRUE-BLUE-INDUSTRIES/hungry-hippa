@@ -5,6 +5,23 @@ original bytes and canonical conversations separately from derived memory.
 Importing does **not** create beliefs, episodes, embeddings or recall results.
 Model extraction and additional provider adapters remain follow-up work.
 
+### Maintenance-branch extraction safety
+
+The integrated `automation/hh-maintenance` extractor refuses any batch containing
+an LM Studio prompt body over 800 characters (after existing NUL removal), rather
+than sending only a prefix and marking the whole turn processed. Exactly 800
+characters are accepted. Failure occurs before the completion POST; the job is
+failed and the entire refused batch remains pending. Earlier successful batches
+stay checkpointed. Canonical source text is not modified. Dry-run remains a
+pending-count preview, not a prompt-size validation.
+
+Lossless chunking is not implemented: retrying the same oversized turn still
+fails. Do not shorten canonical history or clear checkpoints as a workaround.
+Previously checkpointed truncated turns are not automatically repaired. Malformed
+response envelopes also fail without advancing progress; per-candidate validation
+and atomic candidate/evidence/checkpoint persistence remain separate open work.
+
+
 ## Operator workflow
 
 Install from this branch in a virtual environment. Choose a new database for the

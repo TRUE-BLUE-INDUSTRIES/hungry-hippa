@@ -50,7 +50,10 @@
         "Atomic candidates/checkpoints",
         "Evidence-linked quarantine then explicit review"
       ],
-      "dependency": "Rebase experimental migration IDs onto schema v7"
+      "dependency": "Experimental migration IDs integrated into baseline; historical branch databases must not be combined",
+      "result": "Malformed response envelopes now fail closed (47c94b4); oversized prompt bodies now refuse without checkpointing (ADR-005). Candidate member validation and atomic persistence remain open.",
+      "next": "Reproduce candidate-write failure advancing progress; make batch persistence atomic",
+      "evidence": ["tests/test_ingest_extract.py", "DECISIONS.md"]
     },
     {
       "id": "RECONCILE-TRUST",

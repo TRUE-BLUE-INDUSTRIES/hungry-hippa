@@ -341,6 +341,50 @@ def check_malformed_response_does_not_checkpoint():
     return "malformed envelopes fail without checkpoint; valid empty retries advance"
 
 
+def check_oversized_prompt_does_not_checkpoint():
+    from hungry_hippa.db import Database
+    from hungry_hippa.ingest.extract import TURN_PROMPT_CHARS
+
+    server = _serve_chat('{"candidates":[]}', finish_reason="stop")
+    try:
+        for size in (TURN_PROMPT_CHARS, TURN_PROMPT_CHARS + 1):
+            path = _fresh_db()
+            payload = _key_export()
+            text = "é" * (size - 4) + "TAIL"
+            payload[0]["mapping"]["n-b"]["message"] = _message("user", text)
+            _persist(path, payload)
+            env = _cli_env(path)
+            env["HUNGRY_HIPPA_EXTRACT_URL"] = f"http://127.0.0.1:{server.server_port}/v1"
+            server.hits.clear()
+            run = _run_cli(["ingest", "extract", "--apply"], env=env,
+                           cwd=os.path.dirname(path))
+            if size == TURN_PROMPT_CHARS:
+                assert run.returncode == 0, run.stdout + run.stderr
+                posts = [h for h in server.hits if h["method"] == "POST"]
+                assert len(posts) == 1, posts
+                prompt = json.loads(posts[0]["body"])["messages"][1]["content"]
+                assert text in prompt, "boundary turn was truncated"
+                assert preview_pending(Database(path)).turns_pending == 0
+                continue
+            assert run.returncode != 0, "oversized turn silently checkpointed: " + run.stdout
+            assert "800" in run.stdout + run.stderr
+            assert not [h for h in server.hits if h["method"] == "POST"]
+            with sqlite3.connect(path) as conn:
+                for table in ("ingest_extract_progress", "beliefs", "episodes", "evidence"):
+                    assert conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
+                assert conn.execute("SELECT status FROM ingest_extract_jobs").fetchone()[0] == "failed"
+                assert conn.execute("SELECT content FROM ingest_turns WHERE turn_id='n-b'").fetchone()[0] == text
+            # A second CLI process must still see both turns pending.
+            retry = _run_cli(["ingest", "extract", "--dry-run"], env=env,
+                             cwd=os.path.dirname(path))
+            assert retry.returncode == 0, retry.stdout + retry.stderr
+            assert "Turns pending: 2" in retry.stdout.splitlines(), retry.stdout
+    finally:
+        server.shutdown()
+        server.server_close()
+    return "800-character turns sent intact; oversized batch refused with durable pending turns"
+
+
 # ---------------------------------------------------------------- fake extractor
 
 def check_fake_extract_writes_quarantined_hypothesis():
@@ -651,6 +695,7 @@ def run_all() -> List[Dict[str, Any]]:
     check("parse_response_is_data_only", check_parse_response_is_data_only)
     check("malformed_response_does_not_checkpoint",
           check_malformed_response_does_not_checkpoint)
+    check("oversized_prompt_does_not_checkpoint", check_oversized_prompt_does_not_checkpoint)
     check("fake_extract_writes_quarantined_hypothesis",
           check_fake_extract_writes_quarantined_hypothesis)
     check("duplicate_and_resume_do_not_overwrite",

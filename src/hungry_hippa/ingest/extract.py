@@ -331,7 +331,12 @@ def _format_batch_prompt(turns: Sequence[IngestTurn]) -> str:
     for turn in turns:
         body = (turn.content or "").replace("\x00", "")
         if len(body) > TURN_PROMPT_CHARS:
-            body = body[:TURN_PROMPT_CHARS] + "…"
+            # A checkpoint covers the entire turn, never only its prompt prefix.
+            raise ExtractorError(
+                f"turn exceeds extraction prompt limit ({TURN_PROMPT_CHARS} characters); "
+                "batch refused without checkpointing; oversized turns require "
+                "lossless chunking support"
+            )
         current = "true" if turn.on_current_path else "false"
         lines.append(f"[turn_id={turn.turn_id} role={turn.role} current={current}]")
         lines.append(body)
