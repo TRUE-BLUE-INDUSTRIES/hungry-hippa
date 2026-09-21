@@ -34,6 +34,7 @@ from hungry_hippa.ingest import parse_chatgpt_export  # noqa: E402
 from hungry_hippa.ingest.extract import (  # noqa: E402
     EXTRACT_SYSTEM_PROMPT,
     ExtractedCandidate,
+    ExtractorError,
     ExtractorUnavailable,
     ExtractRefused,
     IngestTurn,
@@ -163,9 +164,11 @@ class _ChatServer(ThreadingHTTPServer):
     hits: List[Dict[str, Any]]
     model_id: str
     completion: str
+    finish_reason: str
 
 
-def _serve_chat(completion: str, model_id: str = "qwen/qwen3.8-27b") -> _ChatServer:
+def _serve_chat(completion: str, model_id: str = "qwen/qwen3.8-27b",
+                finish_reason: str = "") -> _ChatServer:
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, fmt: str, *args: Any) -> None:
             return
@@ -188,7 +191,9 @@ def _serve_chat(completion: str, model_id: str = "qwen/qwen3.8-27b") -> _ChatSer
             })
             payload = json.dumps({
                 "choices": [{"message": {"role": "assistant",
-                                         "content": self.server.completion}}],
+                                         "content": self.server.completion},
+                             **({"finish_reason": self.server.finish_reason}
+                                if self.server.finish_reason else {})}],
             }).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -200,6 +205,7 @@ def _serve_chat(completion: str, model_id: str = "qwen/qwen3.8-27b") -> _ChatSer
     srv.hits = []
     srv.model_id = model_id
     srv.completion = completion
+    srv.finish_reason = finish_reason
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return srv
 
@@ -271,7 +277,11 @@ def check_parse_response_is_data_only():
     assert rows[0].source_class == "document", rows[0].source_class
     assert rows[0].turn_ids == ("n-a",)
     toolish = json.dumps({"tool_calls": [{"name": "hippa_forget"}], "candidates": []})
-    assert parse_extractor_response(toolish, allowed) == []
+    try:
+        parse_extractor_response(toolish, allowed)
+        raise AssertionError("tool-call envelope should fail extraction")
+    except ExtractorError:
+        pass
     unknown = json.dumps({"candidates": [{"type": "belief", "claim": "x",
                                           "turn_ids": ["nope"]}]})
     assert parse_extractor_response(unknown, allowed) == []
@@ -282,6 +292,53 @@ def check_parse_response_is_data_only():
     }]})
     assert parse_extractor_response(control, allowed) == []
     return "model JSON is parsed as data; user_explicit remapped; tool calls dropped"
+
+
+def check_malformed_response_does_not_checkpoint():
+    malformed = [
+        ('{"candidates":[', ""),
+        ('[{"candidates":}', ""),
+        ('{"candidates":[]}\n{"candidates":[', ""),
+        ('{"candidates":[]}', "length"),
+        ('{"candidates":[]}', "content_filter"),
+    ]
+    for completion, finish_reason in malformed:
+        path = _fresh_db()
+        _persist(path, _key_export())
+        from hungry_hippa.db import Database
+
+        server = _serve_chat(completion, finish_reason=finish_reason)
+        extractor = LMStudioExtractor(base_url=f"http://127.0.0.1:{server.server_port}/v1")
+        try:
+            try:
+                extract_from_store(Database(path), extractor=extractor)
+                raise AssertionError("malformed model output should fail extraction")
+            except ExtractorError:
+                pass
+
+            conn = sqlite3.connect(path)
+            try:
+                assert conn.execute("SELECT COUNT(*) FROM ingest_extract_progress").fetchone()[0] == 0
+                assert conn.execute("SELECT COUNT(*) FROM beliefs").fetchone()[0] == 0
+                assert conn.execute("SELECT COUNT(*) FROM evidence").fetchone()[0] == 0
+                status = conn.execute(
+                    "SELECT status FROM ingest_extract_jobs ORDER BY started_at DESC LIMIT 1"
+                ).fetchone()[0]
+                assert status == "failed", status
+            finally:
+                conn.close()
+            assert preview_pending(Database(path)).turns_pending == 2
+
+            # An explicit valid empty result is successful and may advance the checkpoint.
+            server.completion = '{"candidates":[]}'
+            server.finish_reason = ""
+            retry = extract_from_store(Database(path), extractor=extractor)
+            assert retry.ok and retry.turns_processed == 2, retry
+            assert preview_pending(Database(path)).turns_pending == 0
+        finally:
+            server.shutdown()
+            server.server_close()
+    return "malformed envelopes fail without checkpoint; valid empty retries advance"
 
 
 # ---------------------------------------------------------------- fake extractor
@@ -592,6 +649,8 @@ def run_all() -> List[Dict[str, Any]]:
     check("prompt_is_in_extract_module", check_prompt_is_in_extract_module)
     check("refuses_live_and_unset_db", check_refuses_live_and_unset_db)
     check("parse_response_is_data_only", check_parse_response_is_data_only)
+    check("malformed_response_does_not_checkpoint",
+          check_malformed_response_does_not_checkpoint)
     check("fake_extract_writes_quarantined_hypothesis",
           check_fake_extract_writes_quarantined_hypothesis)
     check("duplicate_and_resume_do_not_overwrite",

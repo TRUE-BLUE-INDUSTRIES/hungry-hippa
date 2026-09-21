@@ -276,26 +276,20 @@ def parse_extractor_response(text: str, allowed_turn_ids: Sequence[str]) -> List
     allowed = {str(t) for t in allowed_turn_ids}
     raw = (text or "").strip()
     if not raw:
-        return []
+        raise ExtractorError("empty extractor response")
     raw = _FENCE_RE.sub("", raw).strip()
     try:
         payload = json.loads(raw)
-    except json.JSONDecodeError:
-        start, end = raw.find("{"), raw.rfind("}")
-        if start < 0 or end <= start:
-            return []
-        try:
-            payload = json.loads(raw[start:end + 1])
-        except json.JSONDecodeError:
-            return []
+    except json.JSONDecodeError as e:
+        raise ExtractorError(f"malformed extractor JSON: {e}") from e
     if not isinstance(payload, dict):
-        return []
-    # Tool-calling shapes are data we refuse to interpret as actions.
+        raise ExtractorError("extractor response must be a JSON object")
+    # A tool-call envelope is a failed extraction, not a successful empty batch.
     if payload.get("tool_calls") or payload.get("function_call"):
-        return []
+        raise ExtractorError("extractor returned a tool-call envelope")
     rows = payload.get("candidates")
     if not isinstance(rows, list):
-        return []
+        raise ExtractorError("extractor response must contain a candidates list")
     out: List[ExtractedCandidate] = []
     for row in rows:
         if not isinstance(row, dict):
@@ -438,18 +432,21 @@ class LMStudioExtractor:
 def _completion_text(data: Dict[str, Any]) -> str:
     choices = data.get("choices")
     if not isinstance(choices, list) or not choices:
-        return ""
+        raise ExtractorError("extractor response has no completion choice")
     choice = choices[0] if isinstance(choices[0], dict) else {}
-    # Ignore tool_calls even if the server attached them.
+    finish_reason = str(choice.get("finish_reason") or "").strip().lower()
+    if finish_reason and finish_reason != "stop":
+        raise ExtractorError(f"extractor completion did not finish: {finish_reason}")
+    # Tool calls are refused and must not advance the batch checkpoint.
     if choice.get("tool_calls"):
-        return ""
+        raise ExtractorError("extractor completion returned tool calls")
     message = choice.get("message") if isinstance(choice.get("message"), dict) else {}
     if message.get("tool_calls") or message.get("function_call"):
-        return ""
+        raise ExtractorError("extractor completion returned a tool call")
     content = message.get("content")
     if isinstance(content, str) and content.strip():
         return content
-    return ""
+    raise ExtractorError("extractor completion has no content")
 
 
 def extractor_from_config(cfg: Optional[Dict[str, Any]] = None) -> LMStudioExtractor:
