@@ -293,7 +293,7 @@ def parse_extractor_response(text: str, allowed_turn_ids: Sequence[str]) -> List
     out: List[ExtractedCandidate] = []
     for row in rows:
         if not isinstance(row, dict):
-            continue
+            raise ExtractorError("extractor candidate must be a JSON object")
         item_type = str(row.get("type") or "belief").strip().lower()
         if item_type not in ("belief", "episode"):
             continue

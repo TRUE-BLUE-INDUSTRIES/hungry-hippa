@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-09-21",
+  "updated": "2026-09-24",
   "branch": "automation/hh-maintenance",
   "released": {
     "version": "1.0.0",
@@ -51,8 +51,8 @@
         "Evidence-linked quarantine then explicit review"
       ],
       "dependency": "Experimental migration IDs integrated into baseline; historical branch databases must not be combined",
-      "result": "Malformed response envelopes fail closed (47c94b4); oversized prompt bodies refuse without checkpointing (22066f7). Per-batch evidence/candidates/checkpoints are now atomic with SQL/no-op/quota fault regressions (ADR-006); malformed candidate-member validation remains open.",
-      "next": "Reproduce malformed candidate-member output advancing progress, then fail closed without losing pending turns",
+      "result": "Malformed response envelopes fail closed (47c94b4); oversized prompt bodies refuse without checkpointing (22066f7). Per-batch evidence/candidates/checkpoints are atomic with SQL/no-op/quota fault regressions (ADR-006). Non-object candidate members now fail the entire batch with durable pending/retry regression coverage; malformed fields within candidate objects remain open.",
+      "next": "Reproduce malformed object fields advancing progress; define fail-closed validation preserving deliberate source remapping and control filters",
       "evidence": ["tests/test_ingest_extract.py", "DECISIONS.md"]
     },
     {

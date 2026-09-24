@@ -469,6 +469,12 @@ def check_malformed_response_does_not_checkpoint():
         ('{"candidates":[]}', "length"),
         ('{"candidates":[]}', "content_filter"),
     ]
+    # A malformed member must not turn into a successful empty/partial batch.
+    valid = {"type": "belief", "claim": "The fixture key is in the drawer",
+             "source_class": "document", "turn_ids": ["n-a"]}
+    for member in (None, False, 7, "candidate", [], [valid]):
+        for rows in ([member], [valid, member]):
+            malformed.append((json.dumps({"candidates": rows}), "stop"))
     for completion, finish_reason in malformed:
         path = _fresh_db()
         _persist(path, _key_export())
@@ -495,6 +501,10 @@ def check_malformed_response_does_not_checkpoint():
             finally:
                 conn.close()
             assert preview_pending(Database(path)).turns_pending == 2
+            pending = _run_cli(["ingest", "extract", "--dry-run"],
+                               env=_cli_env(path), cwd=os.path.dirname(path))
+            assert pending.returncode == 0, pending.stdout + pending.stderr
+            assert "Turns pending: 2" in pending.stdout, pending.stdout
 
             # An explicit valid empty result is successful and may advance the checkpoint.
             server.completion = '{"candidates":[]}'

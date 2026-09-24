@@ -1,7 +1,31 @@
 # Project state
 
-Updated 2026-09-21. Git is authoritative for code; no live store or deployed MCP
+Updated 2026-09-24. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
+
+## Autonomous maintenance — 2026-09-24
+
+Started clean at `7f27eb7eea5e31dfc9cb8c2c3c611cc4d6aadb9c` on
+`automation/hh-maintenance`; fetched main remained an ancestor. Reproduced P1
+silent successful extraction/checkpointing for non-object candidate members.
+The parser now rejects the entire batch instead of skipping such members.
+Regression coverage includes null, boolean, number, string and array members,
+alone and after a valid candidate, with real HTTP extraction, unchanged persistence,
+fresh-process CLI pending counts and successful explicit-empty retries.
+
+Validation: targeted extraction suite passed 19 actual checks with one live-model
+SKIP. Full `.venv/bin/python scripts/check_all.py` passed all 30 steps, with four
+optional live-model checks SKIP/ENVIRONMENTAL, including cross-process recall and
+provenance, ingestion E2E, MCP/security, backup and clean wheel install. Read-only QA
+independently verified CLI refusal/retry and fresh-process recall/evidence; security
+review found no blocking regression. Python 3.14.7; Linux 7.2.5-3-omarchy x86_64;
+AMD Ryzen 9 9950X3D, 32 logical CPUs. Synthetic temporary stores/loopback fixtures,
+measured on this shift's diff over the starting SHA; no quality/performance claim.
+
+Remaining: malformed fields inside candidate objects still undergo coercion or
+filtering. Next: reproduce malformed object fields advancing progress and define
+fail-closed validation without changing deliberate source remapping/control filters.
+No schema, trust promotion, installed plugin, live-store or main changes.
 
 ## Autonomous maintenance — 2026-09-21
 

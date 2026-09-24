@@ -18,8 +18,11 @@ pending-count preview, not a prompt-size validation.
 Lossless chunking is not implemented: retrying the same oversized turn still
 fails. Do not shorten canonical history or clear checkpoints as a workaround.
 Previously checkpointed truncated turns are not automatically repaired. Malformed
-response envelopes also fail without advancing progress; malformed candidate-member
-validation remains separate open work.
+response envelopes also fail without advancing progress. Non-object candidate
+members (including null, strings, numbers and arrays) now reject the entire batch,
+even when mixed with valid candidates, leaving its turns pending for retry.
+Validation of fields inside candidate objects remains separate open work; existing
+source-class remapping and control-text/unknown-citation filtering are unchanged.
 
 ### Atomic extraction persistence (2026-09-21)
 
