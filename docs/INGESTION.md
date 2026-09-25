@@ -21,8 +21,11 @@ Previously checkpointed truncated turns are not automatically repaired. Malforme
 response envelopes also fail without advancing progress. Non-object candidate
 members (including null, strings, numbers and arrays) now reject the entire batch,
 even when mixed with valid candidates, leaving its turns pending for retry.
-Validation of fields inside candidate objects remains separate open work; existing
-source-class remapping and control-text/unknown-citation filtering are unchanged.
+Supplied `turn_ids` must be a list of strings: null, scalar/object containers and
+non-string members reject the entire batch before content filtering. Missing/empty
+citations still yield no candidate; unknown IDs are filtered and duplicates removed.
+Other candidate-field validation remains open; existing source-class remapping and
+control-text filtering are unchanged.
 
 ### Atomic extraction persistence (2026-09-21)
 

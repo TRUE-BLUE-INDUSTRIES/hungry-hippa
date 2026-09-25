@@ -3,6 +3,34 @@
 Updated 2026-09-24. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
 
+## Autonomous maintenance — citation validation, 2026-09-24
+
+Started clean at `ce233d6c4c97266370a2c51304df18a4a5637f01` on
+`automation/hh-maintenance`; fetched main remained an ancestor. Reproduced P1
+malformed citation fields advancing extraction progress. Supplied `turn_ids` now
+must be a list of strings before content filtering: no dictionary-key iteration,
+string iteration or non-string coercion. Missing/empty/unknown citations retain
+existing filtering; source remapping and ordered deduplication are unchanged.
+
+Added 22 malformed-citation HTTP/checkpoint cases, fresh-process pending/retry
+assertions and parser compatibility/filter-order coverage. Read-only QA and security
+found no blocking regression. Other candidate-field coercion remains open.
+
+Verification: the regression failed before the fix and passed afterward. Default
+`.venv/bin/python scripts/check_all.py` exited 1: 29 steps succeeded, extraction's
+optional live chat completion failed because LM Studio could not load its configured
+model (HTTP 400); E2E live chat skipped for the same reason. This is environmental,
+not a passing check. Re-ran the unchanged 30-step gate with a temporary XDG sidecar
+pointing chat at a reserved non-listening loopback port: exit 0, all 30 steps, two
+live-chat SKIPs. Both live embedding checks passed. Includes second-process recall
+with provenance, offline ingestion E2E, MCP/security, backup and clean wheel install.
+No live config/server, production store, plugin or main changes. Python 3.14.7;
+Linux 7.2.5-3-omarchy x86_64; AMD Ryzen 9 9950X3D, 32 logical CPUs; invented stores
+and this shift's diff over the starting SHA. No comparative performance claim.
+
+Next: reproduce malformed claim/context/type fields becoming persisted text or
+successful empty batches, then narrowly validate without weakening control filters.
+
 ## Autonomous maintenance — 2026-09-24
 
 Started clean at `7f27eb7eea5e31dfc9cb8c2c3c611cc4d6aadb9c` on

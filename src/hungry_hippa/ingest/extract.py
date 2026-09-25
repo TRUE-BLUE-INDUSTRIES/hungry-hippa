@@ -294,6 +294,13 @@ def parse_extractor_response(text: str, allowed_turn_ids: Sequence[str]) -> List
     for row in rows:
         if not isinstance(row, dict):
             raise ExtractorError("extractor candidate must be a JSON object")
+        # Validate before any content filter: malformed citations are not a
+        # successful empty extraction, and dict keys/strings are not ID lists.
+        turn_ids = row.get("turn_ids", [])
+        if not isinstance(turn_ids, list) or any(
+            not isinstance(tid, str) for tid in turn_ids
+        ):
+            raise ExtractorError("extractor candidate turn_ids must be a list of strings")
         item_type = str(row.get("type") or "belief").strip().lower()
         if item_type not in ("belief", "episode"):
             continue
@@ -303,8 +310,7 @@ def parse_extractor_response(text: str, allowed_turn_ids: Sequence[str]) -> List
         if not claim or _looks_like_control(claim):
             continue
         cited: List[str] = []
-        for tid in row.get("turn_ids") or []:
-            token = str(tid)
+        for token in turn_ids:
             if token in allowed and token not in cited:
                 cited.append(token)
         if not cited:
