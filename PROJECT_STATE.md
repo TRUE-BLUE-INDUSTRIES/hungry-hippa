@@ -3,6 +3,38 @@
 Updated 2026-09-25. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
 
+## Autonomous maintenance — reconciliation writer transaction, 2026-09-25
+
+Started clean at `935ab8e05609b54dc84b74b35983e9acc3566bd5` on
+`automation/hh-maintenance`; fetched main remained an ancestor. Reproduced the
+remaining approval race: a newly approved target was still superseded, and the new
+reinforcement interleaving regression failed with added evidence/counts. Reconciliation
+now acquires BEGIN IMMEDIATE before pending/comparison reads through effects and
+decisions. Direct application likewise locks fresh trust checks and requires one
+shared Database instance. Whole-job locking is deliberate; see ADR-009 for contention
+and failure-status tradeoffs. No model/network calls occur within the transaction.
+
+QA and Security independently found silent decision INSERT suppression committing
+effects without decisions. Lead reproduced RAISE(IGNORE), added an in-transaction
+persistence check, and verified ABORT/IGNORE rollback including earlier candidates.
+Tests include separate-process approval attempts, precommitted CLI approval against
+stale decisions, helper binding, fresh CLI retry, and existing import/extract -> CLI
+-> second-process recall/provenance. No live store, plugin, main, schema or MCP changes.
+
+A separate synthetic job INSERT IGNORE probe still returns success with one decision
+but zero job rows. That pre-existing reporting/integrity gap is not the approval race;
+next action is checked reconciliation job creation/update with fault regressions.
+Other helper no-op suppression, historical contamination, contradiction/update
+metadata and forged trusted-Python classifications remain outside this shift.
+Python 3.14.7, Linux 7.2.5-3-omarchy x86_64, AMD Ryzen 9 9950X3D, 32 logical CPUs.
+Measured this shift's diff over starting SHA using invented temporary stores only;
+no comparative performance claim. Targeted reconciliation: 23/23 PASS. Final
+unchanged `scripts/check_all.py` through the external temporary-XDG chat-offline
+wrapper: all 30 steps succeeded, including clean wheel install, MCP/trust/security,
+ingestion/E2E/provenance, vectors, Hippo-Pot and backup/integrity. Two live-chat
+checks SKIP/ENVIRONMENTAL; both synthetic live-embedding checks PASS. Configured
+live chat was not retested. No assertions weakened or suites omitted.
+
 ## Autonomous maintenance — reconciliation review boundary, 2026-09-25
 
 Started clean at `54bf517a4f43aa5a474bc73bb149cc6182f8ddde` on

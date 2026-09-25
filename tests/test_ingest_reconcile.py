@@ -835,6 +835,148 @@ def check_unapproved_import_cannot_change_durable_memory():
     return "both unapproved effects denied across import/extract/CLI/second-process recall"
 
 
+def check_approval_cannot_interleave_with_effects() -> str:
+    """A second SQLite writer cannot approve between the check and effect."""
+    from unittest.mock import patch
+    from hungry_hippa.db import Database
+    from hungry_hippa.config import load_config
+    from hungry_hippa.semantic import SemanticMemory
+    from hungry_hippa.ingest.reconcile import apply_decision
+
+    for classification in ("reinforcement", "supersession"):
+        for direct in (False, True):
+            path = _fresh_db()
+            target = _add_candidate(path, "project x uses method a")
+            # Make the target existing, not pending, without promoting it.
+            db = Database(path)
+            db.record_ingest_reconcile_decision(
+                job_id="seed", candidate_id=target["belief_id"], classification="irrelevant")
+            claim = ("project x uses method a" if classification == "reinforcement"
+                     else "project x now uses method b")
+            candidate = _add_candidate(path, claim)
+            original = SemanticMemory.get_belief
+            attempts = []
+
+            def interleave(self, belief_id):
+                snapshot = original(self, belief_id)
+                if belief_id == target["belief_id"] and not attempts:
+                    probe = subprocess.run(
+                        [sys.executable, "-c", """
+import sqlite3, sys
+with sqlite3.connect(sys.argv[1], timeout=0) as other:
+    try:
+        other.execute('UPDATE beliefs SET quarantined=0 WHERE belief_id=?', (sys.argv[2],))
+        print('approved')
+    except sqlite3.OperationalError as exc:
+        if 'locked' not in str(exc):
+            raise
+        print('blocked')
+""", path, belief_id], env=_cli_env(path), capture_output=True,
+                        text=True, timeout=15,
+                    )
+                    assert probe.returncode == 0, probe.stderr
+                    attempts.append(probe.stdout.strip())
+                return snapshot
+
+            with patch.object(SemanticMemory, "get_belief", interleave):
+                if direct:
+                    decision = classify(MemoryView.from_row(_belief(path, candidate["belief_id"])),
+                                        [MemoryView.from_row(_belief(path, target["belief_id"]))])
+                    result = apply_decision(decision, database=db,
+                                            semantic=SemanticMemory(db, load_config()))
+                else:
+                    result = reconcile_store(db).decisions[0]
+            assert result.classification == classification, result
+            assert attempts == ["blocked"], (classification, direct, attempts,
+                                             _belief(path, target["belief_id"]))
+            assert result.applied, result  # quarantine-only effects remain allowed
+            # Once effects commit, the independent operator can write normally.
+            sem = SemanticMemory(Database(path), load_config())
+            assert sem.set_verified_class(target["belief_id"], "user_explicit",
+                                          source_actor="primary", clear_quarantine=True) == 1
+    return "both effect types serialize approval on direct and store paths"
+
+
+def check_precommitted_approval_and_database_binding() -> str:
+    from hungry_hippa.db import Database
+    from hungry_hippa.config import load_config
+    from hungry_hippa.semantic import SemanticMemory
+    from hungry_hippa.graph import KnowledgeGraph
+    from hungry_hippa.ingest.reconcile import apply_decision
+
+    for claim in ("project x uses method a", "project x now uses method b"):
+        path = _fresh_db()
+        target = _add_candidate(path, "project x uses method a")
+        candidate = _add_candidate(path, claim)
+        decision = classify(MemoryView.from_row(_belief(path, candidate["belief_id"])),
+                            [MemoryView.from_row(_belief(path, target["belief_id"]))])
+        approved = _run_cli(["quarantine", "approve", target["belief_id"],
+                             "--source-class", "user_explicit"],
+                            env=_cli_env(path), cwd=os.path.dirname(path))
+        assert approved.returncode == 0, approved.stderr
+        before = _belief(path, target["belief_id"])
+        db = Database(path)
+        cfg = load_config()
+        result = apply_decision(decision, database=db, semantic=SemanticMemory(db, cfg))
+        assert not result.applied, result
+        assert _belief(path, target["belief_id"]) == before
+        for mismatched_semantic in (True, False):
+            other = Database(path)
+            try:
+                apply_decision(decision, database=db,
+                               semantic=SemanticMemory(other if mismatched_semantic else db, cfg),
+                               graph=KnowledgeGraph(db if mismatched_semantic else other, cfg))
+            except ValueError as exc:
+                assert "share one Database" in str(exc)
+            else:
+                raise AssertionError("separate Database instances bypassed transaction binding")
+        assert _belief(path, target["belief_id"]) == before
+    return "CLI approval wins before lock; stale decisions recheck trust; split connections refused"
+
+
+def check_decision_failure_rolls_back_effects() -> str:
+    from hungry_hippa.db import Database
+
+    for fault in ("ABORT, 'fixture refusal'", "IGNORE"):
+        path = _fresh_db()
+        target = _add_candidate(path, "project x uses method a")
+        db = Database(path)
+        db.record_ingest_reconcile_decision(
+            job_id="seed", candidate_id=target["belief_id"], classification="irrelevant")
+        first = _add_candidate(path, "project x uses method a")
+        second = _add_candidate(path, "project x now uses method b")
+        tables = ("beliefs", "belief_evidence", "evidence", "entities", "relationships",
+                  "mutation_log", "counters", "ingest_reconcile_jobs", "ingest_reconcile_decisions")
+
+        def snapshot():
+            with sqlite3.connect(path) as conn:
+                return {table: conn.execute(f"SELECT * FROM {table}").fetchall() for table in tables}
+
+        before = snapshot()
+        with sqlite3.connect(path) as conn:
+            conn.execute(f"""CREATE TRIGGER refuse_decision BEFORE INSERT ON ingest_reconcile_decisions
+                WHEN NEW.candidate_id = '{second['belief_id']}'
+                BEGIN SELECT RAISE({fault}); END""")
+        try:
+            reconcile_store(db)
+        except (sqlite3.IntegrityError, RuntimeError):
+            pass
+        else:
+            raise AssertionError(f"decision failure reported success: {fault}")
+        assert snapshot() == before, f"partial effects escaped rollback: {fault}"
+        assert not db.get_ingest_reconcile_decision(first["belief_id"])
+        # Remove only the synthetic fault; retry in a fresh CLI process.
+        with sqlite3.connect(path) as conn:
+            conn.execute("DROP TRIGGER refuse_decision")
+        retry = _run_cli(["ingest", "reconcile", "--apply"], env=_cli_env(path),
+                         cwd=os.path.dirname(path))
+        assert retry.returncode == 0, retry.stderr
+        assert db.get_ingest_reconcile_decision(first["belief_id"])
+        assert db.get_ingest_reconcile_decision(second["belief_id"])
+        assert reconcile_store(Database(path)).candidates_processed == 0
+    return "ABORT/IGNORE roll back whole job; fresh CLI retry persists both decisions once"
+
+
 # --------------------------------------------------------------------------- runner
 
 def run_all() -> List[Dict[str, Any]]:
@@ -850,6 +992,9 @@ def run_all() -> List[Dict[str, Any]]:
             results.append({"name": name, "passed": False,
                             "detail": f"{type(e).__name__}: {e}"})
 
+    check("precommitted_approval_and_database_binding", check_precommitted_approval_and_database_binding)
+    check("decision_failure_rolls_back_effects", check_decision_failure_rolls_back_effects)
+    check("approval_cannot_interleave_with_effects", check_approval_cannot_interleave_with_effects)
     check("quarantined_chain_does_not_launder_into_established_memory",
           check_quarantined_chain_does_not_launder_into_established_memory)
     check("unapproved_import_cannot_change_durable_memory",

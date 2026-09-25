@@ -1,5 +1,31 @@
 # Engineering decisions
 
+## ADR-009 — Serialize reconciliation checks, effects and decisions (2026-09-25)
+
+The ADR-008 residual race reproduced at 935ab8e: approving a target after its
+snapshot read still allowed unreviewed reinforcement/supersession. Reuse the
+existing strict Database transaction, starting BEGIN IMMEDIATE before pending and
+comparison reads and holding it through the whole job. Public apply_decision locks
+its own fresh reads/effects and requires semantic/graph helpers to share that exact
+Database instance. The internal locked helper avoids nested transactions.
+
+A whole-job transaction is intentionally smaller than adding per-candidate refresh,
+reservation or retry machinery. It contains no model/network calls. Concurrent
+writers wait or receive SQLite busy errors; no throughput improvement is claimed.
+Dry-run is advisory. SQL exceptions roll back all effects and the job row, so failure
+status is not durable. Decision IDs are read back before commit: reviewers and the
+lead reproduced silent RAISE(IGNORE) insertion committing effects without a decision;
+missing persistence now raises and rolls back, including earlier candidates.
+
+Tests cover four cross-process approval interleavings, approval committed first via
+CLI, split-Database helper rejection, ABORT/IGNORE on the second decision, complete
+row rollback and fresh-process CLI retry. Existing import/extract/CLI/recall tests
+retain visible evidence. No schema, dependency, MCP, live-store or plugin changes.
+This closes the demonstrated approval race, not every reconciliation trust issue:
+contradiction/update metadata, historical contamination, arbitrary trusted-Python
+classification construction, silent suppression of other writes and large-job lock
+contention remain separate work.
+
 ## ADR-008 — Refuse unapproved reconciliation effects on established beliefs (2026-09-25)
 
 The integrated baseline's tests encoded two unsafe effects: a quarantined candidate

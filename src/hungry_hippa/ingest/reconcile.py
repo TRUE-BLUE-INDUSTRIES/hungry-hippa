@@ -441,7 +441,25 @@ def apply_decision(
     graph: Optional[KnowledgeGraph] = None,
     session_id: str = "",
 ) -> ReconcileDecision:
-    """Apply one classification. Never deletes Layer 1/2 or evidence rows."""
+    """Apply one classification with checks and effects under one writer lock."""
+    if semantic.db is not database or (graph is not None and graph.db is not database):
+        raise ValueError("reconciliation stores must share one Database instance")
+    with database.transaction():
+        return _apply_decision_locked(
+            decision, database=database, semantic=semantic, graph=graph,
+            session_id=session_id,
+        )
+
+
+def _apply_decision_locked(
+    decision: ReconcileDecision,
+    *,
+    database: _db.Database,
+    semantic: SemanticMemory,
+    graph: Optional[KnowledgeGraph] = None,
+    session_id: str = "",
+) -> ReconcileDecision:
+    """Caller owns the writer transaction; never deletes history or evidence."""
     candidate = semantic.get_belief(decision.candidate_id)
     matched = semantic.get_belief(decision.matched_id) if decision.matched_id else None
     if not candidate:
@@ -599,6 +617,15 @@ def reconcile_store(
     if dry_run:
         return preview_pending(database)
 
+    # No model/network work occurs here. Lock before snapshots, so approval or
+    # another reconciler cannot invalidate checks or separate effects from decisions.
+    with database.transaction():
+        return _reconcile_store_locked(database, cfg=cfg)
+
+
+def _reconcile_store_locked(
+    database: _db.Database, *, cfg: Optional[Dict[str, Any]] = None,
+) -> ReconcileResult:
     cfg = cfg or load_config()
     semantic = SemanticMemory(database, cfg)
     graph = KnowledgeGraph(database, cfg)
@@ -625,11 +652,11 @@ def reconcile_store(
                 seen.append(cand)
                 continue
             decision = classify(cand, seen)
-            decision = apply_decision(
+            decision = _apply_decision_locked(
                 decision, database=database, semantic=semantic, graph=graph,
                 session_id=job_id,
             )
-            database.record_ingest_reconcile_decision(
+            decision_id = database.record_ingest_reconcile_decision(
                 job_id=job_id,
                 candidate_id=decision.candidate_id,
                 matched_id=decision.matched_id,
@@ -639,6 +666,9 @@ def reconcile_store(
                 evidence_ids=list(decision.evidence_ids),
                 applied=decision.applied,
             )
+            stored = database.get_ingest_reconcile_decision(decision.candidate_id)
+            if not stored or stored["decision_id"] != decision_id or stored["job_id"] != job_id:
+                raise RuntimeError("reconciliation decision was not persisted")
             counts[decision.classification] = counts.get(decision.classification, 0) + 1
             result.decisions.append(decision)
             result.candidates_processed += 1
