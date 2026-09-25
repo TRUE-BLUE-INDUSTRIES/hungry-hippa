@@ -1,5 +1,27 @@
 # Engineering decisions
 
+## ADR-007 — Refuse stale overlapping extraction batches (2026-09-25)
+
+Two independent extractors paused after reading the same pending turns both wrote
+candidates and reported success when resumed in order. Per-batch atomicity did
+not invalidate a pending snapshot read before a slow model call; the job-local
+claim cache also missed the other process's writes. A stale smaller batch could
+replace a later checkpoint with its own earlier endpoint.
+
+Re-read source/session progress inside the existing BEGIN IMMEDIATE transaction,
+before evidence/candidate writes. If progress covers the batch's first turn, reject
+the whole stale batch with an explicit retry error. Do not silently trim the batch:
+a candidate may cite both already-processed and remaining turns. The failed job
+keeps earlier committed batches; retry recomputes pending work. Independent sessions
+remain independent. No schema, lock file, dependency, trust or MCP changes.
+
+This deliberately permits duplicate model calls, not duplicate persistence of the
+same pending batch. It does not guarantee global claim deduplication across different
+conversations or repair historical duplicates. Six regression cases use separate
+processes and deterministic model barriers for both candidate kinds and equal,
+shorter/longer batch overlaps; fresh CLI pending counts and retry verify durability.
+Read-only QA additionally exercised earlier committed batches and disjoint sessions.
+
 ## ADR-006 — Commit extraction persistence per batch (2026-09-21)
 
 Injected candidate-insert failure and a real write-quota refusal both reproduced

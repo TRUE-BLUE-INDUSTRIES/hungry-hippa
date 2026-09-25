@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-09-24",
+  "updated": "2026-09-25",
   "branch": "automation/hh-maintenance",
   "released": {
     "version": "1.0.0",
@@ -52,7 +52,8 @@
       ],
       "dependency": "Experimental migration IDs integrated into baseline; historical branch databases must not be combined",
       "result": "Malformed response envelopes fail closed (47c94b4); oversized prompt bodies refuse without checkpointing (22066f7). Per-batch evidence/candidates/checkpoints are atomic with SQL/no-op/quota fault regressions (ADR-006). Non-object candidate members now fail the entire batch with durable pending/retry regression coverage. Supplied citation fields now require list[str] before filtering, preserving missing/empty/unknown-ID behavior. Supplied candidate text/type/source fields now require strings before filters, with 60 durable malformed-field cases and preserved defaults/fallbacks.",
-      "next": "Reproduce concurrent extraction jobs duplicating candidates or misadvancing progress on one invented shared database before changing locking",
+      "next": "Audit integrated reconciliation against unapproved strengthening/supersession acceptance; reproduce before changing",
+      "concurrency_result": "Overlapping stale extraction batches now refuse under the existing SQLite writer transaction before candidate/evidence/progress writes (ADR-007); six independent-process regression cases plus read-only QA preserve earlier commits, source/session isolation and fresh-process retry. Full 30-step gate succeeded with chat intentionally offline: two environmental live-chat skips and both live-embedding checks passed.",
       "evidence": ["tests/test_ingest_extract.py", "DECISIONS.md"]
     },
     {

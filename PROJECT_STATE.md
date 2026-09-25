@@ -1,7 +1,41 @@
 # Project state
 
-Updated 2026-09-24. Git is authoritative for code; no live store or deployed MCP
+Updated 2026-09-25. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
+
+## Autonomous maintenance — concurrent extraction, 2026-09-25
+
+Started clean at `a4783b1b554475109bcc4894ed6386c16bb3d99b` on
+`automation/hh-maintenance`; fetched main remained an ancestor, no merge needed.
+Reproduced P1 duplicate candidate persistence: two processes read the same pending
+turns before their model calls and both committed successfully. Per-batch atomicity
+alone did not detect stale work. Extraction now rechecks source/session progress
+under its existing SQLite writer lock and explicitly refuses overlapping stale
+batches before writing candidates/evidence or replacing newer checkpoints.
+Retry reloads pending work. Earlier commits survive; model calls remain outside
+the transaction. See ADR-007 for scope and limitations.
+
+The regression failed before the fix (two beliefs from the same pending batch)
+and passed afterward. Six deterministic cross-process cases cover belief/episode
+and equal/shorter/longer batches, fresh CLI pending counts and retry. Read-only QA
+also checked earlier-success/later-overlap, disjoint sessions and sources, unchanged
+non-job tables after refusal, and SQLite integrity; no blocking finding.
+
+Targeted extraction: 20 actual checks PASS, one intentionally offline live-chat
+SKIP. Full unchanged `scripts/check_all.py`: all 30 steps succeeded through an
+external wrapper using a temporary XDG sidecar with chat intentionally offline;
+two live-chat checks SKIP/ENVIRONMENTAL, both synthetic live-embedding checks PASS.
+Includes second-process recall/provenance, MCP/auth/security, ingestion/reconcile/
+E2E, backup and clean wheel install. The configured live chat service was not
+retested this shift. Python 3.14.7, Linux 7.2.5-3-omarchy x86_64, AMD Ryzen 9 9950X3D,
+32 logical CPUs; tested shift diff over the starting SHA with invented temporary
+stores. No performance comparison or deployment claim.
+
+No schema, dependency, trust promotion, main, production store, installed plugin,
+server or live configuration changes. Historical duplicate repair, lossless
+oversized-turn chunking and cross-conversation claim deduplication remain outside
+this fix. Next: audit integrated reconciliation for unapproved candidates
+strengthening or superseding approved memories, reproducing before changing it.
 
 ## Autonomous maintenance — text-field validation, 2026-09-24
 

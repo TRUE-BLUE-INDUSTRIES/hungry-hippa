@@ -160,6 +160,84 @@ class FakeExtractor:
         )]
 
 
+def check_concurrent_extract_refuses_stale_batch() -> str:
+    """Pause both processes after reading pending work, then commit one first."""
+    from hungry_hippa.db import Database
+
+    worker = '''
+import json, sys
+from hungry_hippa.db import Database
+from hungry_hippa.ingest.extract import ExtractedCandidate, ExtractorError, extract_from_store
+class PausedExtractor:
+    model = "concurrent-fixture"
+    def extract_batch(self, turns):
+        print("READY", flush=True)
+        assert sys.stdin.readline().strip() == "commit"
+        return [ExtractedCandidate(item_type=sys.argv[3],
+            claim="The spare brass key is in the left workshop drawer.",
+            turn_ids=(turns[0].turn_id,), source_class="document")]
+try:
+    result = extract_from_store(Database(sys.argv[1]), extractor=PausedExtractor(),
+                                limit=int(sys.argv[2]))
+    print(json.dumps({"processed": result.turns_processed}))
+except ExtractorError as exc:
+    print(json.dumps({"error": str(exc)}))
+'''
+    import selectors
+
+    for kind in ("belief", "episode"):
+        for winner_limit, loser_limit in ((0, 0), (0, 1), (1, 0)):
+            path = _fresh_db()
+            _persist(path, _key_export())
+            env = _cli_env(path)
+            processes = []
+            try:
+                for limit in (winner_limit, loser_limit):
+                    proc = subprocess.Popen(
+                        [sys.executable, "-u", "-c", worker, path, str(limit), kind],
+                        env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE, text=True,
+                    )
+                    processes.append(proc)
+                    assert proc.stdout is not None
+                    with selectors.DefaultSelector() as selector:
+                        selector.register(proc.stdout, selectors.EVENT_READ)
+                        assert selector.select(30), "worker never reached model barrier"
+                    assert proc.stdout.readline().strip() == "READY"
+                outputs = []
+                for proc in processes:
+                    stdout, stderr = proc.communicate(input="commit\n", timeout=30)
+                    assert proc.returncode == 0, (stdout, stderr)
+                    outputs.append(json.loads(stdout))
+                assert outputs[0] == {"processed": winner_limit or 2}, outputs
+                with sqlite3.connect(path) as conn:
+                    count = conn.execute(f"SELECT count(*) FROM {kind}s").fetchone()[0]
+                    progress = conn.execute(
+                        "SELECT last_turn_rowid FROM ingest_extract_progress"
+                    ).fetchone()[0]
+                    expected = conn.execute(
+                        "SELECT rowid FROM ingest_turns ORDER BY rowid LIMIT 1 OFFSET ?",
+                        ((winner_limit or 2) - 1,),
+                    ).fetchone()[0]
+                    assert count == 1 and progress == expected, (outputs, count, progress, expected)
+                    assert sorted(r[0] for r in conn.execute(
+                        "SELECT status FROM ingest_extract_jobs")) == ["completed", "failed"]
+                    assert conn.execute("SELECT count(*) FROM evidence").fetchone()[0] == 1
+                assert "progress changed" in outputs[1].get("error", ""), outputs
+                pending = 2 - (winner_limit or 2)
+                cli = _run_cli(["ingest", "extract", "--dry-run"], env=env,
+                               cwd=str(REPO_DIR))
+                assert cli.returncode == 0 and f"Turns pending: {pending}" in cli.stdout, cli.stdout
+                retry = extract_from_store(Database(path), extractor=FakeExtractor([]))
+                assert retry.turns_processed == pending, retry
+            finally:
+                for proc in processes:
+                    if proc.poll() is None:
+                        proc.kill()
+                    proc.communicate(timeout=10)
+    return "six cross-process overlaps refuse stale belief/episode batches without duplicate or regressed progress"
+
+
 def check_batch_write_failure_is_atomic() -> str:
     from hungry_hippa.db import Database
 
@@ -918,6 +996,7 @@ def run_all() -> List[Dict[str, Any]]:
             results.append({"name": name, "passed": False,
                             "detail": f"{type(e).__name__}: {e}"})
 
+    check("concurrent_extract_refuses_stale_batch", check_concurrent_extract_refuses_stale_batch)
     check("persistence_fault_matrix", check_persistence_fault_matrix)
     check("partial_batch_progress_survives_failure", check_partial_batch_progress_survives_failure)
     check("transaction_scope_isolation", check_transaction_scope_isolation)

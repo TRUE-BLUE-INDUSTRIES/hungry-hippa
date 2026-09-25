@@ -729,6 +729,17 @@ def extract_from_store(
             # Commit evidence, candidates, indexes, audit and progress together.
             # The completion call above must not hold SQLite's writer lock.
             with database.transaction():
+                # Pending work was read before the model call. Another process
+                # may have committed overlapping turns meanwhile. Check under
+                # the SQLite writer lock, before any candidate/evidence writes;
+                # never overwrite newer progress or accept a partially stale batch.
+                first = batch[0]
+                progress = database.get_ingest_extract_progress(first.source, first.session_id)
+                if int((progress or {}).get("last_turn_rowid") or 0) >= first.rowid:
+                    raise ExtractorError(
+                        "extraction progress changed during model call; "
+                        "batch refused; retry to reload pending turns"
+                    )
                 for candidate in candidates:
                     kind = _write_candidate(
                         database=database, semantic=semantic, episodic=episodic,

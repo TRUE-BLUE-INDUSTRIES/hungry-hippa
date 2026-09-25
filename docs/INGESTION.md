@@ -43,9 +43,24 @@ Model calls run outside the SQLite writer transaction. Standalone database calle
 retain their existing error-handling behavior; no schema or trust promotion changed.
 
 Fault-injection coverage uses invented stores and checks both SQL aborts and silent
-insert suppression. This does not repair historical partial writes, serialize
-multiple extraction jobs, or provide lossless oversized-turn chunking. Failed-job
-status reporting remains best-effort if the database itself cannot accept writes.
+insert suppression. This does not repair historical partial writes or provide
+lossless oversized-turn chunking. Failed-job status reporting remains best-effort
+if the database itself cannot accept writes.
+
+### Overlapping extraction jobs (2026-09-25)
+
+Before writing a batch, extraction rechecks that source/session's progress under
+SQLite's writer lock. If another job already processed any turn in the batch, the
+stale batch is refused and its job fails with `extraction progress changed`.
+No stale candidates/evidence are written and newer progress cannot be overwritten.
+Earlier successful batches from either job remain committed. Retry the extraction
+command to reload the remaining pending turns; do not clear checkpoints.
+
+Model requests still run outside the writer lock and may run redundantly. This is
+not a job scheduler, a global cross-conversation claim-deduplication guarantee, or
+a repair for duplicates created by older versions. Independent sessions can still
+progress. Six controlled cross-process cases cover beliefs/episodes and equal,
+shorter and longer overlapping batches, with fresh CLI pending counts and retries.
 
 
 ## Operator workflow
