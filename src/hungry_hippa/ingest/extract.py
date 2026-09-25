@@ -301,6 +301,11 @@ def parse_extractor_response(text: str, allowed_turn_ids: Sequence[str]) -> List
             not isinstance(tid, str) for tid in turn_ids
         ):
             raise ExtractorError("extractor candidate turn_ids must be a list of strings")
+        # Supplied text must really be text, even when a later filter would
+        # discard the candidate. Missing fields retain their existing defaults.
+        for field in ("type", "claim", "context", "user_request", "result", "source_class"):
+            if field in row and not isinstance(row[field], str):
+                raise ExtractorError(f"extractor candidate {field} must be a string")
         item_type = str(row.get("type") or "belief").strip().lower()
         if item_type not in ("belief", "episode"):
             continue

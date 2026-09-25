@@ -24,8 +24,12 @@ even when mixed with valid candidates, leaving its turns pending for retry.
 Supplied `turn_ids` must be a list of strings: null, scalar/object containers and
 non-string members reject the entire batch before content filtering. Missing/empty
 citations still yield no candidate; unknown IDs are filtered and duplicates removed.
-Other candidate-field validation remains open; existing source-class remapping and
-control-text filtering are unchanged.
+Supplied `type`, `claim`, `context`, `user_request`, `result` and `source_class`
+fields must be strings, including on candidates that content filters would discard.
+Nulls, booleans, numbers, arrays and objects reject the batch instead of becoming
+coerced text or a successful empty extraction. Missing fields and empty strings
+retain their existing defaults/fallbacks; source-class remapping and control-text
+filtering are unchanged.
 
 ### Atomic extraction persistence (2026-09-21)
 

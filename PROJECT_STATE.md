@@ -3,6 +3,33 @@
 Updated 2026-09-24. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
 
+## Autonomous maintenance — text-field validation, 2026-09-24
+
+Started clean at `f938d5a45a4689179977632f20edaae86c3f63b8` on
+`automation/hh-maintenance`; fetched main remained an ancestor. Reproduced P1
+malformed candidate text fields being coerced or silently filtered while extraction
+advanced its checkpoint. Supplied type/claim/context/user_request/result/source_class
+must now be strings before content filtering. Missing fields, empty-string defaults,
+episode fallbacks, source remapping and control filtering retain their behavior.
+
+Regression failed before the fix and passed afterward. Added 60 malformed-field
+HTTP/persistence/retry cases plus parser filter-order/default/fallback assertions.
+Read-only QA and Security found no blockers; QA independently exercised fresh CLI
+refusal, valid nonempty retry, evidence links and duplicate prevention.
+
+Baseline extraction suite: 19 PASS, optional live chat FAIL/ENVIRONMENTAL (HTTP 400,
+configured model failed to load). Full unchanged 30-step gate then passed using a
+temporary XDG sidecar with chat explicitly offline: two live-chat SKIPs, both live
+embedding checks PASS. Includes MCP/security, ingestion/reconciliation/E2E,
+second-process recall with provenance, backup and clean wheel install. No live
+config/server, production store, plugin, schema or main changes. Python 3.14.7;
+Linux 7.2.5-3-omarchy x86_64; AMD Ryzen 9 9950X3D, 32 logical CPUs. Measured on this
+shift's diff over the starting SHA with invented stores; no performance claim.
+
+Next: reproduce whether concurrent extraction jobs can duplicate candidates or
+misadvance progress against one invented shared database before changing locking.
+Oversized-turn chunking and historical partial-write repair remain unsupported.
+
 ## Autonomous maintenance — citation validation, 2026-09-24
 
 Started clean at `ce233d6c4c97266370a2c51304df18a4a5637f01` on
