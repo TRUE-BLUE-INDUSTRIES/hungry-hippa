@@ -3,6 +3,40 @@
 Updated 2026-09-25. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
 
+## Autonomous maintenance — reconciliation review boundary, 2026-09-25
+
+Started clean at `54bf517a4f43aa5a474bc73bb149cc6182f8ddde` on
+`automation/hh-maintenance`; fetched main was already an ancestor. Reproduced two
+P1 trust failures encoded in old test expectations: quarantined reinforcement
+attached evidence/raised counts on an operator-attested belief, and quarantined
+supersession retired a nonquarantined lower-confidence belief. Both corrected
+regressions failed before the minimal guards and passed afterward.
+
+Serial reconciliation now refuses those effects, leaves candidates active and
+quarantined, audits denial and records `applied=false`. It does not replay denied
+decisions after later approval. Classifier counts and candidate-to-candidate
+quarantined behavior stay compatible; see ADR-008 and docs/INGESTION.md.
+
+Targeted reconciliation: 20/20 PASS, including import/extract -> CLI reconciliation
+-> second-process recall with visible original evidence and a quarantine-only chain.
+Read-only QA found no blocker; Security found a residual approval-interleaving race,
+which the lead independently reproduced: a target approved after the snapshot read
+was still superseded using stale quarantine state. This is not concurrent-approval
+safety. Avoid concurrent review/reconciliation. Next: atomic fresh checks, effects
+and decision persistence with interleaving regression coverage. No historical
+contamination repair or change to contradiction/update metadata behavior.
+
+First full gate failed import hygiene because the new subprocess test inserted a
+test-helper path. Replaced that with normal runtime imports; targeted hygiene 9/9
+PASS. Final unchanged `scripts/check_all.py`, through the external temporary-XDG
+chat-offline wrapper: all 30 steps succeeded, two live-chat SKIP/ENVIRONMENTAL,
+both synthetic live-embedding checks PASS. Includes MCP/auth/security/limits,
+quarantine/provenance, migrations, ingestion/E2E, vectors, Hippo-Pot, backup and
+clean wheel install. Configured live chat service was not retested.
+Python 3.14.7, Linux 7.2.5-3-omarchy x86_64, AMD Ryzen 9 9950X3D, 32 logical CPUs;
+measured this shift's diff over starting SHA using invented temporary stores.
+No performance comparison, schema, main, live-store, plugin or server changes.
+
 ## Autonomous maintenance — concurrent extraction, 2026-09-25
 
 Started clean at `a4783b1b554475109bcc4894ed6386c16bb3d99b` on

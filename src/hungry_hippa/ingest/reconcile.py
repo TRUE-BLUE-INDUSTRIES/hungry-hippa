@@ -462,6 +462,15 @@ def apply_decision(
         )
 
     elif classification == "reinforcement":
+        if matched and candidate.get("quarantined") and not matched.get("quarantined"):
+            decision.applied = False
+            decision.protected = "unapproved-candidate"
+            decision.reason += "; unapproved candidate cannot strengthen established memory"
+            database.log_mutation(
+                "reconcile_reinforcement_denied", "belief", matched["belief_id"],
+                f"unapproved candidate={candidate['belief_id']}", session_id,
+            )
+            return decision
         if matched:
             if cand_evidence:
                 database.link_evidence("belief", matched["belief_id"], cand_evidence, session_id)
@@ -506,7 +515,10 @@ def apply_decision(
     elif classification == "supersession":
         if matched:
             protected = protection_reason(matched)
+            if candidate.get("quarantined") and not matched.get("quarantined"):
+                protected = protected or "unapproved-candidate"
             if protected:
+                decision.applied = False
                 decision.protected = protected
                 decision.reason = (
                     f"{decision.reason}; protected:{protected} — existing claim kept, "
@@ -517,6 +529,7 @@ def apply_decision(
                     f"protected:{protected} candidate={candidate['belief_id']}",
                     session_id,
                 )
+                return decision
             else:
                 _set_status(database, matched["belief_id"], "superseded")
                 _append_json_list(database, candidate["belief_id"], "derived_from",

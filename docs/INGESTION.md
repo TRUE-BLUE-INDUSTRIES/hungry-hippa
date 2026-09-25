@@ -231,7 +231,32 @@ multiple archive provenance, tamper detection and backup recovery. The
 [ingestion benchmark](../BENCHMARKS.md) uses synthetic data, not private exports.
 Real-account export diversity and extraction quality remain unmeasured.
 
-The unmerged extraction/reconciliation prototypes must address response failure
-checkpointing, truncated prompts and unapproved confidence/supersession changes
-before integration. Their schema versions must be rebased onto this branch's v7;
-do not mix incompatible experimental migration histories in one database.
+## Reconciliation review boundary (maintenance branch)
+
+Reconciliation classifies quarantined import candidates; `--apply` is not approval.
+During serial reconciliation, a quarantined reinforcement cannot attach evidence to,
+raise confidence/counts on, or create a supporting graph edge for a nonquarantined
+belief. A quarantined
+supersession likewise cannot retire a nonquarantined belief, including one below
+historical protection thresholds. Refusals keep candidates active/quarantined with
+all evidence, record the classification with `applied=false`, and audit the denial.
+Classification counts include these refused effects; they are not promotion counts.
+
+Re-running reconciliation remains a no-op for recorded decisions. Explicit
+`quarantine approve` can promote the candidate itself, but does not replay a denied
+reinforcement/supersession. Operator correction APIs remain separate. Duplicate
+same-evidence archival, contradiction/update metadata and quarantine-to-quarantine
+reconciliation retain their existing behavior; this is not blanket quarantine
+isolation of every graph or metadata effect.
+
+Known limitation: approval concurrent with reconciliation can change the target
+between its read and a later write. A synthetic approval-interleaving probe still
+reproduces supersession of the newly approved target. Do not run approval and
+reconciliation concurrently until target checks and effects are transactional.
+Historical evidence contamination is not repaired by this change. See ADR-008.
+
+Extraction/reconciliation are integrated on this maintenance branch. Earlier
+maintenance fixes refuse malformed output and oversized turns without advancing
+checkpoints and persist extraction batches atomically. Oversized-turn chunking
+remains unsupported. Historical experimental migration versions are incompatible;
+do not combine branch databases or silently reinterpret their migration IDs.

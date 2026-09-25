@@ -52,7 +52,7 @@
       ],
       "dependency": "Experimental migration IDs integrated into baseline; historical branch databases must not be combined",
       "result": "Malformed response envelopes fail closed (47c94b4); oversized prompt bodies refuse without checkpointing (22066f7). Per-batch evidence/candidates/checkpoints are atomic with SQL/no-op/quota fault regressions (ADR-006). Non-object candidate members now fail the entire batch with durable pending/retry regression coverage. Supplied citation fields now require list[str] before filtering, preserving missing/empty/unknown-ID behavior. Supplied candidate text/type/source fields now require strings before filters, with 60 durable malformed-field cases and preserved defaults/fallbacks.",
-      "next": "Audit integrated reconciliation against unapproved strengthening/supersession acceptance; reproduce before changing",
+      "next": "Close reconciliation's demonstrated concurrent operator-approval race (see RECONCILE-TRUST)",
       "concurrency_result": "Overlapping stale extraction batches now refuse under the existing SQLite writer transaction before candidate/evidence/progress writes (ADR-007); six independent-process regression cases plus read-only QA preserve earlier commits, source/session isolation and fresh-process retry. Full 30-step gate succeeded with chat intentionally offline: two environmental live-chat skips and both live-embedding checks passed.",
       "evidence": ["tests/test_ingest_extract.py", "DECISIONS.md"]
     },
@@ -63,7 +63,11 @@
       "acceptance": [
         "Unapproved candidates cannot strengthen or supersede approved memory",
         "Correction updates future recall while retaining provenance"
-      ]
+      ],
+      "result": "Serial reconciliation now refuses quarantined reinforcement/supersession into nonquarantined beliefs, keeping candidate/evidence for review and persisting applied=false. Both unsafe baseline assertions reproduced before fixing. Targeted suite 20/20 includes import/extract/CLI/second-process recall and a quarantine-only chain (ADR-008).",
+      "next": "Close demonstrated concurrent operator-approval race: fresh checks, effects and decision persistence in one writer transaction; add interleaving regressions before changing",
+      "limitations": "Not complete: concurrent approval can invalidate target snapshots; historical contamination and contradiction/update metadata effects remain outside this fix. Approval does not replay stored denied decisions.",
+      "evidence": ["tests/test_ingest_reconcile.py", "DECISIONS.md", "docs/INGESTION.md"]
     },
     {
       "id": "RETRIEVAL-REGRESSION",

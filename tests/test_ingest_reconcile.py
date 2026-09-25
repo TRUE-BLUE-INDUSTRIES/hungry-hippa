@@ -344,11 +344,14 @@ def check_reinforcement_apply():
     after = _belief(path, established["belief_id"])
     after_cand = _belief(path, cand["belief_id"])
     assert after["status"] == "active"
-    assert after["reinforcement_count"] > before["reinforcement_count"]
-    assert set(cand["evidence_ids"]).issubset(set(after["evidence_ids"]))
-    assert after_cand["status"] == "archived"
+    assert after == before, "quarantined evidence modified an established belief"
+    assert after_cand["status"] == "active" and after_cand["quarantined"] == 1
+    assert set(cand["evidence_ids"]).isdisjoint(after["evidence_ids"])
+    assert not result.decisions[0].applied
+    assert result.decisions[0].protected == "unapproved-candidate"
+    assert _count(path, "relationships") == 0
     assert _count(path, "evidence") >= 2
-    return "reinforcement: evidence attached, confidence nudged, candidate archived"
+    return "unapproved reinforcement held for review; established row/evidence unchanged"
 
 
 def check_contradiction_keeps_both_and_evidence():
@@ -439,11 +442,13 @@ def check_supersession_unprotected():
     assert result.counts["supersession"] == 1, result.counts
     old = _belief(path, established["belief_id"])
     new = _belief(path, cand["belief_id"])
-    assert old["status"] == "superseded", old
+    assert old["status"] == "active", "unapproved candidate superseded established memory"
     assert new["status"] == "active"
     assert new["quarantined"] == 1
+    assert not result.decisions[0].applied
+    assert result.decisions[0].protected == "unapproved-candidate"
     derived = json.loads(new["derived_from"] or "[]")
-    assert f"supersedes:{established['belief_id']}" in derived
+    assert f"supersedes:{established['belief_id']}" not in derived
     assert old["evidence_ids"] and new["evidence_ids"]
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
@@ -454,9 +459,8 @@ def check_supersession_unprotected():
         )]
     finally:
         conn.close()
-    assert rels, "expected SUPERSEDES graph edge"
-    assert rels[0]["valid_from"]
-    return "supersession: old superseded, candidate kept, evidence on both, graph SUPERSEDES"
+    assert not rels, "unapproved candidate created a SUPERSEDES graph edge"
+    return "unapproved supersession refused even for lower-confidence established memory"
 
 
 def check_protected_supersession_does_not_rewrite():
@@ -725,6 +729,112 @@ def check_all_seven_classes_apply_on_one_store():
             f"; dry pending={dry.candidates_pending}")
 
 
+def check_quarantined_chain_does_not_launder_into_established_memory():
+    from hungry_hippa.db import Database
+
+    path = _fresh_db()
+    established = _add_established(path, "project x uses method a",
+                                   source_class="agent_inference", confidence=0.5)
+    before = _belief(path, established["belief_id"])
+    first = _add_candidate(path, "project x now uses method b")
+    db = Database(path)
+    denied = reconcile_store(db)
+    assert not denied.decisions[0].applied
+    second = _add_candidate(path, "project x now uses method b", evidence="another invented turn")
+    reinforced = reconcile_store(db)
+    assert reinforced.decisions[0].classification == "reinforcement"
+    assert reinforced.decisions[0].applied
+    assert _belief(path, second["belief_id"])["status"] == "archived"
+    third = _add_candidate(path, "project x now uses method b instead")
+    superseded = reconcile_store(db)
+    assert superseded.decisions[0].classification == "supersession"
+    assert superseded.decisions[0].applied
+    assert _belief(path, first["belief_id"])["status"] == "superseded"
+    for candidate in (first, second, third):
+        assert _belief(path, candidate["belief_id"])["quarantined"] == 1
+    assert _belief(path, established["belief_id"]) == before
+    return "quarantine-only reinforcement/supersession chain cannot modify established memory"
+
+
+def check_unapproved_import_cannot_change_durable_memory():
+    """Import/extract -> CLI reconcile -> separate-process recall and evidence."""
+    from hungry_hippa.db import Database
+
+    claim = "the spare brass key is in the left workshop drawer"
+    for classification, replacement in (
+        ("reinforcement", claim),
+        ("supersession", "the spare brass key is now in the right workshop drawer"),
+    ):
+        path = _fresh_db()
+        _persist(path, _key_export())
+
+        class CandidateExtractor(FakeExtractor):
+            def extract_batch(self, turns):
+                user = next(t for t in turns if t.role == "user")
+                return [ExtractedCandidate(
+                    item_type="belief", claim=replacement,
+                    turn_ids=(user.turn_id,), source_class="document",
+                )]
+
+        db = Database(path)
+        extract_from_store(db, extractor=CandidateExtractor())
+        candidate = db.list_pending_reconcile_candidates()[0]
+        # The owner adds memory after extraction, before reconciling the import.
+        established = _add_established(
+            path, claim, source_class="agent_inference", confidence=0.5,
+            kind="belief", evidence="invented established workshop note",
+        )
+        before = _belief(path, established["belief_id"])
+        canonical_before = _count(path, "ingest_turns")
+        evidence_before = _count(path, "evidence")
+        env = _cli_env(path)
+        cwd = str(Path(path).parent)
+        applied = _run_cli(["ingest", "reconcile", "--apply"], env=env, cwd=cwd)
+        assert applied.returncode == 0, (applied.stdout, applied.stderr)
+        assert f"{classification}: 1" in applied.stdout, applied.stdout
+        assert _belief(path, established["belief_id"]) == before
+        after_candidate = _belief(path, candidate["belief_id"])
+        assert after_candidate["status"] == "active" and after_candidate["quarantined"] == 1
+        decision = db.get_ingest_reconcile_decision(candidate["belief_id"])
+        assert decision and not decision["applied"], decision
+        assert "unapproved" in decision["reason"], decision
+        with sqlite3.connect(path) as conn:
+            denied = conn.execute(
+                "SELECT action FROM mutation_log WHERE action IN "
+                "('reconcile_reinforcement_denied', 'reconcile_supersede_denied')"
+            ).fetchall()
+            assert len(denied) == 1, denied
+        assert _count(path, "relationships") == 0
+        assert _count(path, "ingest_turns") == canonical_before
+        assert _count(path, "evidence") == evidence_before
+        again = _run_cli(["ingest", "reconcile", "--apply"], env=env, cwd=cwd)
+        assert again.returncode == 0 and "Candidates pending: 0" in again.stdout
+
+        reader = subprocess.run(
+            [sys.executable, "-c",
+             "import sys,json; "
+             "from hungry_hippa.config import load_config; "
+             "from hungry_hippa.controller import MemoryController; "
+             "from hungry_hippa import trust; "
+             "from hungry_hippa.observability import Observability; "
+             "cfg=load_config(); cfg['retrieval']['vectors_enabled']=False; "
+             "c=MemoryController(cfg,db_path=sys.argv[1]); "
+             "c.bind_session(session_id='reader',platform='cli',trust=trust.local_binding('primary')); "
+             "print(json.dumps({'recall':c.recall('spare brass key'), "
+             "'why':Observability(c.db,{},c).why(sys.argv[2])}))",
+             path, established["belief_id"]],
+            env=env, cwd=cwd, capture_output=True, text=True, timeout=120,
+        )
+        assert reader.returncode == 0, reader.stderr
+        visible = json.loads(reader.stdout)
+        assert claim in json.dumps(visible["recall"]), visible
+        assert visible["why"]["source_class"] == "agent_inference", visible
+        assert [e["evidence_id"] for e in visible["why"]["evidence"]] == before["evidence_ids"]
+        assert visible["why"]["evidence"][0]["content"] == "invented established workshop note"
+        assert visible["why"]["reinforcement_count"] == before["reinforcement_count"]
+    return "both unapproved effects denied across import/extract/CLI/second-process recall"
+
+
 # --------------------------------------------------------------------------- runner
 
 def run_all() -> List[Dict[str, Any]]:
@@ -740,6 +850,10 @@ def run_all() -> List[Dict[str, Any]]:
             results.append({"name": name, "passed": False,
                             "detail": f"{type(e).__name__}: {e}"})
 
+    check("quarantined_chain_does_not_launder_into_established_memory",
+          check_quarantined_chain_does_not_launder_into_established_memory)
+    check("unapproved_import_cannot_change_durable_memory",
+          check_unapproved_import_cannot_change_durable_memory)
     check("v9_tables_on_fresh_db", check_v9_tables_on_fresh_db)
     check("classify_each_class_on_fixtures", check_classify_each_class_on_fixtures)
     check("property_classify_is_deterministic", check_property_classify_is_deterministic)

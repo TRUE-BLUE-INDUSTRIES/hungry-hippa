@@ -1,5 +1,29 @@
 # Engineering decisions
 
+## ADR-008 — Refuse unapproved reconciliation effects on established beliefs (2026-09-25)
+
+The integrated baseline's tests encoded two unsafe effects: a quarantined candidate
+reinforced an operator-attested belief and attached unreviewed evidence; another
+retired a nonquarantined lower-confidence belief. Corrected those assertions first
+and observed both fail before adding narrow candidate/target quarantine checks.
+
+Refuse reinforcement and supersession into nonquarantined targets while the source
+candidate is quarantined. Keep the candidate active for review, retain evidence,
+audit denial and persist classification with `applied=false`. Preserve classifier
+counts, decision idempotency, operator correction APIs and quarantine-to-quarantine
+aggregation. Approval promotes the candidate, not replay of an old denied effect.
+No schema, migration, dependency, MCP or production-store changes.
+
+Tests cover durable import/extract -> CLI reconciliation -> second-process recall
+and visible evidence, plus a three-candidate quarantine-only chain. QA found no
+blocking serial-path regression. Security identified an existing approval race;
+the lead independently reproduced an operator approval between target read/write
+followed by supersession using stale quarantine state. This shift does not claim
+concurrent-approval safety: next work is atomic fresh checks/effects/decision writes
+with an approval-interleaving regression. Avoid concurrent review and reconciliation
+until then. Historical contamination, contradiction/update metadata effects and
+broad reconciliation crash/concurrency semantics remain separate work.
+
 ## ADR-007 — Refuse stale overlapping extraction batches (2026-09-25)
 
 Two independent extractors paused after reading the same pending turns both wrote
