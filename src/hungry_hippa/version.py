@@ -7,4 +7,4 @@ to MCP clients. There is no plugin manifest and no separate metadata file to dri
 
 from __future__ import annotations
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"

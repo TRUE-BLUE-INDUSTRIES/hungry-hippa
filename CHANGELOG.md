@@ -1,6 +1,15 @@
 # Changelog
 
-## Unreleased
+## v1.1.0 — released 2026-09-25
+
+### Operator quarantine review
+- Fix episode approval: `episodic.set_verified_class` wrote `source_class = ?` to a
+  column the `episodes` table does not have (only `beliefs` carries it), so the
+  UPDATE failed silently and approved episodes stayed quarantined with
+  `rows_changed: 0`. It now targets `verified_source_class`/`source_actor`/
+  `ingestion_channel` only, matching the episodes schema. Added
+  `check_approve_releases_an_episode_too` to cover the previously untested
+  episode-approve path.
 
 ### Retrieval
 - Invert SQLite FTS5 BM25 before hybrid ranking. The score is negative-is-better;
