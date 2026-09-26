@@ -7,6 +7,13 @@
   dividing it left precise facts behind routine episodes. Growth fixture recall
   of `45Nm` was 0/3 at 100/500/2,000 episodes before this change and 3/3 after.
   Weights, candidate limits, and policy boundaries are unchanged.
+- When a ranked episode does not fit the context budget, keep a short neutralized
+  excerpt with its source id instead of dropping the rest of the ranked list.
+  Morgan retrieval probe: 100/200 gold sessions were in the FTS top 20 and absent
+  from the compiled list before this change. After it, the same Morgan run
+  compiled 87/200 gold sessions (was 47) and the median compiled list grew
+  from 1 item to 3. 60 gold sessions remain in FTS top 20 but outside the
+  budget, and 53 never enter FTS top 20.
 
 ### Safe historical-import increment
 - Integrate existing canonical ChatGPT ingestion work without enabling model extraction.

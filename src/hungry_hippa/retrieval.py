@@ -80,6 +80,69 @@ def _neutralize(text: Any) -> str:
     return s
 
 
+_EXCERPT_CHARS = 240
+_EXCERPT_STOP = {
+    "the", "and", "for", "that", "with", "this", "from", "please", "order",
+    "your", "you", "are", "was", "were", "have", "has", "not", "but", "can",
+}
+
+
+def _query_terms(query: str) -> List[str]:
+    """Keep identifying words. Drop instruction boilerplate that matches every row."""
+    out: List[str] = []
+    for raw in str(query or "").lower().split():
+        term = "".join(ch for ch in raw if ch.isalnum() or ch in "-_#")
+        if len(term) < 3 or term in _EXCERPT_STOP or term in out:
+            continue
+        out.append(term)
+    return out
+
+
+def _best_window(text: str, query: str, limit: int = _EXCERPT_CHARS) -> str:
+    """Pick a short readable window around the query terms. Does not mutate text."""
+    source = " ".join(str(text or "").split())
+    if len(source) <= limit:
+        return source
+    spans: List[Tuple[int, int]] = []
+    start = 0
+    i = 0
+    while i < len(source):
+        if source[i] in ".!?" and (i + 1 == len(source) or source[i + 1] == " "):
+            spans.append((start, i + 1))
+            start = i + 2
+            i = start
+            continue
+        i += 1
+    if start < len(source):
+        spans.append((start, len(source)))
+    if not spans:
+        return source[:limit]
+    terms = _query_terms(query)
+    scores = []
+    for a, b in spans:
+        low = source[a:b].lower()
+        scores.append(sum(1 for term in terms if term in low))
+    best = max(range(len(spans)), key=lambda idx: (scores[idx], -idx))
+    if not terms or scores[best] == 0:
+        return source[:limit]
+    left = right = best
+    while True:
+        grew = False
+        if left > 0 and spans[right][1] - spans[left - 1][0] <= limit:
+            left -= 1
+            grew = True
+        if right + 1 < len(spans) and spans[right + 1][1] - spans[left][0] <= limit:
+            right += 1
+            grew = True
+        if not grew:
+            break
+    window = source[spans[left][0]:spans[right][1]].strip()
+    if len(window) > limit:
+        cut = window[:limit]
+        window = cut.rsplit(" ", 1)[0] if " " in cut else cut
+    return window
+
+
 def _display_source(item: Dict[str, Any]) -> str:
     """The source class to *show*: verified first, claimed only as a fallback.
 
@@ -518,7 +581,7 @@ class RetrievalRouter:
 
         # The frame is part of the package, so it comes out of the budget first.
         rendered, dropped, rendering = self._render_split(
-            unique, max(0, budget - MEMORY_FRAME_CHARS))
+            unique, max(0, budget - MEMORY_FRAME_CHARS), query)
         for it in dropped:
             excluded.append({"item": self._item_key(it), "reason": "budget"})
         framing = _frame(rendering)
@@ -597,16 +660,20 @@ class RetrievalRouter:
                     f" ({it.get('status', '?')}, conf {float(it.get('confidence', 0) or 0):.2f}){valid}]")
         return f"[{kind} {it.get('episode_id', it.get('belief_id', '?'))}] {str(it)[:300]}"
 
-    def _render_split(self, items: List[Dict[str, Any]], budget: int
+    def _render_split(self, items: List[Dict[str, Any]], budget: int,
+                      query: str = ""
                       ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], str]:
         """Render items until the character budget is reached.
 
         Returns ``(rendered_items, dropped_items, rendering)``. The budget is
-        strict: an item that does not fit is dropped, and if nothing fits the
-        rendering is empty rather than over budget.
+        strict: if a full item does not fit, a short neutralized excerpt is
+        used when that excerpt fits. Otherwise the item is dropped, and if
+        nothing fits the rendering is empty rather than over budget. Stored
+        rows are not rewritten.
         """
         rendered: List[Dict[str, Any]] = []
         dropped: List[Dict[str, Any]] = []
+        blocks: List[str] = []
         used = 0
         for i, it in enumerate(items):
             if used >= budget:
@@ -614,13 +681,41 @@ class RetrievalRouter:
                 break
             block = self._render_item(it)
             if used + len(block) > budget:
-                dropped.extend(items[i:])
-                break
+                short = self._render_excerpt(it, query)
+                if short and used + len(short) <= budget:
+                    block = short
+                else:
+                    dropped.extend(items[i:])
+                    break
             rendered.append(it)
+            blocks.append(block)
             used += len(block) + 1
-        rendering = "\n".join(self._render_item(i) for i in rendered)
-        return rendered, dropped, rendering
+        return rendered, dropped, "\n".join(blocks)
+
+    def _render_excerpt(self, it: Dict[str, Any], query: str) -> str:
+        """Short cited window. Empty when there is no longer body to shorten."""
+        kind = it.get("_kind") or it.get("kind", "")
+        if kind == "episode":
+            source = str(it.get("context") or "")
+            label = (f"[EPISODE {it.get('episode_id', '?')} "
+                     f"{str(it.get('ts_start', ''))[:10]}]")
+            source_id = it.get("episode_id", "?")
+        elif kind == "belief":
+            source = str(it.get("claim") or "")
+            label = f"[BELIEF {it.get('belief_id', '?')}]"
+            source_id = it.get("belief_id", "?")
+        else:
+            return ""
+        if not source:
+            return ""
+        window = _best_window(source, query)
+        if window == " ".join(source.split()):
+            return ""
+        block = f"{label} {_neutralize(window)} | excerpt | source: {source_id}"
+        if it.get("quarantined"):
+            return f"[QUARANTINED] {block}"
+        return block
 
     def render(self, items: List[Dict[str, Any]], query: str = "") -> str:
         """Render minimal, useful context — capped at max_context_chars."""
-        return self._render_split(items, self.max_chars)[2]
+        return self._render_split(items, self.max_chars, query)[2]
