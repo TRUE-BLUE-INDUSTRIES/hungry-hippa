@@ -305,8 +305,22 @@ or the URL is refused, retrieval uses FTS5 + graph (fail-open).
 
 ## Encryption at rest
 
-Not implemented. Hungry Hippa writes a plain SQLite database (WAL mode). If the
-contents matter, the expectation is that you encrypt the disk:
+Opt-in, via SQLCipher. Hungry Hippa writes a plain SQLite database (WAL mode)
+by default; enable at-rest encryption with `HUNGRY_HIPPA_ENCRYPT=1` (or run
+`hungry-hippa encrypt` to migrate an existing plaintext DB in place). The key
+is derived from the operator's owner token (`scrypt(token, salt=db_path)`), so
+the token and the DB key are distinct secrets. Requires the optional
+`encrypt` extra (`pip install hungry-hippa[encrypt]`, driver `sqlcipher3`).
+
+- The encrypted file is unreadable without the key — a stolen disk or forensic
+  image cannot read the memories even while the box is running.
+- `hungry-hippa encrypt` copies the plaintext DB, verifies integrity, swaps
+  atomically, and keeps the plaintext as a `.bak` (never deleted). `decrypt`
+  is the reverse, for operator recovery. Neither runs automatically on open.
+- **The owner token file is the single secret that unlocks the DB.** Lose it,
+  lose the memories — there is no recovery. Back it up.
+- If you do not enable encryption, the expectation is that you encrypt the
+  disk instead:
 
 - Linux: LUKS (or an encrypted home / filesystem holding the XDG data directory);
 - macOS: FileVault;
@@ -319,13 +333,11 @@ Additional requirements if you enable them:
 - Backups created by `hungry-hippa migrate` (`*.pre-hippa-<UTC>.bak`) are
   plain copies of the database. They inherit its exposure: keep them on encrypted
   storage and delete them when no longer needed.
-- SQLCipher (an encrypted SQLite variant) is **not** supported and is not a
-  dependency. Adding it would mean a new runtime dependency, which this project
-  avoids without a documented benefit.
 
 ## Not provided
 
-- No encryption at rest, no per-field encryption, no key management.
+- No per-field encryption, no key management beyond the owner token. At-rest
+  encryption is opt-in (see above); it is off by default.
 - No tamper-evident audit trail. `mutation_log` is append-only by convention; it
   is not a hash chain, and someone with write access to the file can alter it.
 - No multi-user accounts, quotas, or tenant isolation. One database, one owner.
