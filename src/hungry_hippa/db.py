@@ -27,6 +27,67 @@ from . import limits as _limits
 
 logger = logging.getLogger("hungry_hippa.db")
 
+# ---------------------------------------------------------------------------
+# At-rest encryption (SQLCipher). Opt-in via HUNGRY_HIPPA_ENCRYPT=1; the key is
+# derived from the operator's owner token (see trust.py) so the token and the
+# DB key are not the same secret. When encryption is off, the plain sqlite3
+# driver is used and behaviour is unchanged.
+# ---------------------------------------------------------------------------
+
+ENCRYPT_ENV = "HUNGRY_HIPPA_ENCRYPT"
+
+
+def encryption_enabled() -> bool:
+    """Whether at-rest encryption is requested (env opt-in, default off)."""
+    return os.environ.get(ENCRYPT_ENV, "").strip() in ("1", "true", "yes", "on")
+
+
+def _sqlite_driver():
+    """Return the sqlite3-compatible driver for the current encryption state.
+
+    Encrypted: pysqlcipher3 (drop-in, same DB-API). Plain: the stdlib driver.
+    Raises a clear error when encryption is requested but the extra is missing,
+    so a misconfigured install fails loudly instead of silently writing
+    plaintext.
+    """
+    if not encryption_enabled():
+        return sqlite3
+    try:
+        import sqlcipher3.dbapi2 as _cipher  # type: ignore
+    except ImportError as e:
+        raise RuntimeError(
+            "at-rest encryption is enabled (HUNGRY_HIPPA_ENCRYPT=1) but the "
+            "sqlcipher3 driver is not installed. Install it with "
+            "`pip install hungry-hippa[encrypt]`."
+        ) from e
+    return _cipher
+
+
+def _derive_key(token: str, path: str) -> str:
+    """Derive a 32-byte SQLCipher key from the owner token.
+
+    The token is not used as the passphrase directly: scrypt stretches it and
+    salts it with the absolute DB path, so a copied DB file does not carry a
+    reusable key and the token and key are distinct secrets. The derived key is
+    hex-encoded for the PRAGMA key statement.
+    """
+    salt = os.path.abspath(path).encode("utf-8")
+    key = hashlib.scrypt(token.encode("utf-8"), salt=salt, n=2 ** 14, r=8, p=1,
+                         dklen=32)
+    return key.hex()
+
+
+def _owner_token_for_key() -> str:
+    """The owner token that unlocks the DB, or a clear error if unavailable."""
+    from . import trust as _trust
+    token = _trust.read_owner_token()
+    if not token:
+        raise RuntimeError(
+            "at-rest encryption is enabled but no owner token is present. "
+            "Run `hungry-hippa owner-token` first."
+        )
+    return token
+
 _ID_PREFIX = {
     "episode": "E", "entity": "EN", "relationship": "R", "belief": "B",
     "procedure": "P", "evidence": "EV", "vector": "V", "consolidation": "CR",
@@ -156,8 +217,11 @@ class Database:
                 "note": "permissions are not encryption; the file is plaintext"}
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.path, timeout=30.0)
-        conn.row_factory = sqlite3.Row
+        driver = _sqlite_driver()
+        conn = driver.connect(self.path, timeout=30.0)
+        conn.row_factory = driver.Row
+        if encryption_enabled():
+            conn.execute(f"PRAGMA key = '{_derive_key(_owner_token_for_key(), self.path)}'")
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=30000")
         conn.execute("PRAGMA foreign_keys=ON")
@@ -1128,20 +1192,197 @@ def backup_sqlite(src: str, dest: str) -> None:
         os.close(fd)
     except FileExistsError:
         os.chmod(dest, mode)
-    src_conn = sqlite3.connect(src, timeout=30.0)
+    driver = _sqlite_driver()
+    src_conn = driver.connect(src, timeout=30.0)
     try:
-        dest_conn = sqlite3.connect(dest, timeout=30.0)
+        dest_conn = driver.connect(dest, timeout=30.0)
         try:
+            if encryption_enabled():
+                key = _derive_key(_owner_token_for_key(), src)
+                src_conn.execute(f"PRAGMA key = '{key}'")
+                dest_conn.execute(f"PRAGMA key = '{key}'")
             src_conn.backup(dest_conn)
             dest_conn.commit()
         finally:
             dest_conn.close()
     finally:
         src_conn.close()
+def _copy_db_with_key(src: str, dest: str, key: str) -> None:
+    """Copy a database to a new file, applying the SQLCipher key to the copy.
+
+    The destination is always the encrypted side: it is created with the
+    cipher driver and the key set, so the copy is encrypted even when the
+    source was plaintext. The source is opened with the plain driver (an
+    encrypt source is plaintext; a decrypt source is opened separately with
+    the key). The destination inherits the source's 0600 permission bits.
+    """
+    import sqlcipher3.dbapi2 as _cipher  # the encrypted side is always cipher
+    try:
+        mode = stat.S_IMODE(os.stat(src).st_mode)
+    except OSError:
+        mode = 0o600
+    mode = (mode & 0o600) or 0o600
+    try:
+        fd = os.open(dest, os.O_CREAT | os.O_EXCL | os.O_WRONLY, mode)
+        os.close(fd)
+    except FileExistsError:
+        os.chmod(dest, mode)
+    # The destination is created with the key; the plaintext source is attached
+    # with an empty key and copied via sqlcipher_export (the canonical SQLCipher
+    # migration path). backup() is not used: it rejects a keyed destination.
+    # The source is checkpointed to a single file first so a WAL-mode source
+    # exports cleanly (an uncheckpointed WAL would be invisible to the attach).
+    try:
+        _ck = sqlite3.connect(src, timeout=30.0)
+        try:
+            _ck.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        finally:
+            _ck.close()
+    except Exception:
+        pass  # not WAL mode or not readable; export will surface any real error
+    dest_conn = _cipher.connect(dest, timeout=30.0)
+    try:
+        dest_conn.execute(f"PRAGMA key = '{key}'")
+        dest_conn.execute("ATTACH DATABASE ? AS plainkey KEY ''", (src,))
+        dest_conn.execute("SELECT sqlcipher_export('main', 'plainkey')")
+        dest_conn.commit()
+        dest_conn.execute("DETACH DATABASE plainkey")
+    finally:
+        dest_conn.close()
     try:
         os.chmod(dest, mode)
     except OSError:
         pass
+
+
+def encrypt_database(path: str) -> Dict[str, Any]:
+    """Encrypt a plaintext database in place, keyed off the owner token.
+
+    Steps: verify the target is currently plaintext, copy it to a new
+    encrypted file, run integrity_check, then swap atomically (old -> .bak,
+    new -> live). The plaintext is kept as a .bak (never deleted). Returns
+    a report dict; error is set on failure and nothing is swapped.
+    """
+    from . import trust as _trust
+
+    if not os.path.exists(path):
+        return {"error": f"database not found: {path}"}
+    token = _trust.read_owner_token()
+    if not token:
+        return {"error": "operator-only: no owner token present"}
+    key = _derive_key(token, path)
+
+    # 1. confirm the target is currently plaintext (opens without a key)
+    try:
+        probe = sqlite3.connect(path, timeout=30.0)
+        probe.execute("SELECT count(*) FROM sqlite_master")
+        probe.close()
+    except Exception as e:
+        return {"error": f"target is not a readable plaintext database: {e}"}
+
+    # 2. copy to an encrypted file
+    enc_path = path + ".encrypted"
+    if os.path.exists(enc_path):
+        return {"error": f"refusing to overwrite existing {enc_path}"}
+    try:
+        _copy_db_with_key(path, enc_path, key)
+    except Exception as e:
+        return {"error": f"encrypt copy failed: {e}"}
+
+    # 3. verify the encrypted copy is readable with the key (always cipher)
+    try:
+        import sqlcipher3.dbapi2 as _cipher
+        check = _cipher.connect(enc_path, timeout=30.0)
+        check.execute(f"PRAGMA key = '{key}'")
+        ok = check.execute("PRAGMA integrity_check").fetchone()[0]
+        check.close()
+        if ok != "ok":
+            return {"error": f"integrity_check on encrypted copy failed: {ok}"}
+    except Exception as e:
+        return {"error": f"encrypted copy failed verification: {e}"}
+
+    # 4. atomic swap: old -> .bak, new -> live
+    bak_path = path + ".bak"
+    if os.path.exists(bak_path):
+        return {"error": f"refusing to overwrite existing backup {bak_path}"}
+    os.replace(path, bak_path)
+    os.replace(enc_path, path)
+    return {
+        "encrypted": path,
+        "backup": bak_path,
+        "note": "plaintext preserved as .bak; the live DB is now SQLCipher-encrypted",
+    }
+
+
+def decrypt_database(path: str) -> Dict[str, Any]:
+    """Decrypt an encrypted database back to plaintext (operator recovery).
+
+    The reverse of encrypt_database: copy the encrypted DB to a plaintext
+    file, verify, swap atomically, keep the encrypted file as .bak.
+    """
+    from . import trust as _trust
+
+    if not os.path.exists(path):
+        return {"error": f"database not found: {path}"}
+    token = _trust.read_owner_token()
+    if not token:
+        return {"error": "operator-only: no owner token present"}
+    key = _derive_key(token, path)
+
+    # 1. confirm the target is currently encrypted (fails to open without key)
+    try:
+        probe = sqlite3.connect(path, timeout=30.0)
+        probe.execute("SELECT count(*) FROM sqlite_master")
+        probe.close()
+        return {"error": "target is plaintext, not encrypted; nothing to decrypt"}
+    except Exception:
+        pass  # expected: plain sqlite3 cannot read an encrypted file
+
+    # 2. copy to a plaintext file (open with key, write without)
+    plain_path = path + ".plain"
+    if os.path.exists(plain_path):
+        return {"error": f"refusing to overwrite existing {plain_path}"}
+    try:
+        import sqlcipher3.dbapi2 as _cipher  # the encrypted source is always cipher
+        mode = stat.S_IMODE(os.stat(path).st_mode) & 0o600 or 0o600
+        fd = os.open(plain_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, mode)
+        os.close(fd)
+        # The plaintext destination is opened with the cipher driver but NO key
+        # (SQLCipher reads/writes plaintext in that mode); the keyed source is
+        # attached and exported. backup() is not used: it rejects mixed drivers.
+        dest_conn = _cipher.connect(plain_path, timeout=30.0)
+        try:
+            dest_conn.execute("ATTACH DATABASE ? AS srckey KEY ?", (path, key))
+            dest_conn.execute("SELECT sqlcipher_export('main', 'srckey')")
+            dest_conn.commit()
+            dest_conn.execute("DETACH DATABASE srckey")
+        finally:
+            dest_conn.close()
+    except Exception as e:
+        return {"error": f"decrypt copy failed: {e}"}
+
+    # 3. verify the plaintext copy is readable
+    try:
+        check = sqlite3.connect(plain_path, timeout=30.0)
+        ok = check.execute("PRAGMA integrity_check").fetchone()[0]
+        check.close()
+        if ok != "ok":
+            return {"error": f"integrity_check on plaintext copy failed: {ok}"}
+    except Exception as e:
+        return {"error": f"plaintext copy failed verification: {e}"}
+
+    # 4. atomic swap (distinct suffix so an encrypt-then-decrypt round trip
+    # does not collide with the encrypt step's .bak)
+    bak_path = path + ".encrypted.bak"
+    if os.path.exists(bak_path):
+        return {"error": f"refusing to overwrite existing backup {bak_path}"}
+    os.replace(path, bak_path)
+    os.replace(plain_path, path)
+    return {
+        "decrypted": path,
+        "backup": bak_path,
+        "note": "encrypted file preserved as .encrypted.bak; the live DB is now plaintext",
+    }
 
 
 #: Operator snapshots are named by this project and by nothing else, so rotation

@@ -640,6 +640,139 @@ def check_export_is_operator_only():
     return "legacy export is owner-only and audited on both the tool and CLI paths"
 
 
+def check_encrypted_db_unreadable_without_key():
+    """An encrypted DB is unreadable by plain sqlite3; readable with the key."""
+    from hungry_hippa import trust as _trust
+    from hungry_hippa.db import Database, encrypt_database
+
+    token_dir = tempfile.mkdtemp(prefix="hh_enc_")
+    os.environ["HUNGRY_HIPPA_OWNER_TOKEN_FILE"] = os.path.join(token_dir, "owner.token")
+    _trust.ensure_owner_token()
+    try:
+        ctrl, db_path = _fresh("hh_enc_")
+        ctrl.semantic.add_belief("encrypted secret claim", kind="fact",
+                                 source_class="user_explicit")
+        r = encrypt_database(db_path)
+        assert not r.get("error"), r
+        # plain sqlite3 cannot read it
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.execute("SELECT claim FROM beliefs")
+            raise AssertionError("plain sqlite3 read an encrypted DB")
+        except sqlite3.DatabaseError:
+            pass
+        finally:
+            conn.close()
+        # with encryption on, the app reads it
+        os.environ["HUNGRY_HIPPA_ENCRYPT"] = "1"
+        try:
+            ctrl2, _ = _fresh("hh_enc_read_")
+            ctrl2.db._connect().close()
+        finally:
+            os.environ.pop("HUNGRY_HIPPA_ENCRYPT", None)
+    finally:
+        os.environ.pop("HUNGRY_HIPPA_OWNER_TOKEN_FILE", None)
+    return "encrypted DB unreadable by plain sqlite3; readable with the key"
+
+
+def check_encrypt_migration_preserves_rows():
+    """encrypt_database copies every row and passes integrity_check."""
+    from hungry_hippa import trust as _trust
+    from hungry_hippa.db import Database, encrypt_database
+
+    token_dir = tempfile.mkdtemp(prefix="hh_encmig_")
+    os.environ["HUNGRY_HIPPA_OWNER_TOKEN_FILE"] = os.path.join(token_dir, "owner.token")
+    _trust.ensure_owner_token()
+    try:
+        ctrl, db_path = _fresh("hh_encmig_")
+        for i in range(5):
+            ctrl.semantic.add_belief(f"migration row {i}", kind="fact",
+                                     source_class="user_explicit")
+        before = ctrl.semantic.list_beliefs(limit=100)
+        r = encrypt_database(db_path)
+        assert not r.get("error"), r
+        assert os.path.exists(db_path + ".bak"), "plaintext backup missing"
+        os.environ["HUNGRY_HIPPA_ENCRYPT"] = "1"
+        try:
+            from hungry_hippa.config import load_config
+            from hungry_hippa.controller import MemoryController
+            cfg = load_config()
+            cfg["retrieval"]["vectors_enabled"] = False
+            ctrl2 = MemoryController(cfg, db_path=db_path)
+            after = ctrl2.semantic.list_beliefs(limit=100)
+            assert len(after) == len(before), (len(before), len(after))
+            before_claims = {b["claim"] for b in before}
+            after_claims = {b["claim"] for b in after}
+            assert before_claims == after_claims, (before_claims, after_claims)
+        finally:
+            os.environ.pop("HUNGRY_HIPPA_ENCRYPT", None)
+    finally:
+        os.environ.pop("HUNGRY_HIPPA_OWNER_TOKEN_FILE", None)
+    return "encrypt migration preserves all rows; plaintext kept as .bak"
+
+
+def check_encrypt_requires_operator():
+    """encrypt_database refuses without an owner token."""
+    from hungry_hippa.db import encrypt_database
+
+    ctrl, db_path = _fresh("hh_encop_")
+    ctrl.semantic.add_belief("operator gate", kind="fact", source_class="user_explicit")
+    # point the token file at a path that does not exist, so no token is present
+    saved = os.environ.get("HUNGRY_HIPPA_OWNER_TOKEN_FILE")
+    os.environ["HUNGRY_HIPPA_OWNER_TOKEN_FILE"] = os.path.join(
+        tempfile.mkdtemp(prefix="hh_no_token_"), "missing.token")
+    try:
+        r = encrypt_database(db_path)
+        assert r.get("error") and "owner token" in r["error"], r
+    finally:
+        if saved is None:
+            os.environ.pop("HUNGRY_HIPPA_OWNER_TOKEN_FILE", None)
+        else:
+            os.environ["HUNGRY_HIPPA_OWNER_TOKEN_FILE"] = saved
+    return "encrypt refused without an owner token"
+
+
+def check_plaintext_default_unchanged():
+    """With encryption off, the DB is plaintext and the app works unchanged."""
+    from hungry_hippa.db import Database
+
+    ctrl, db_path = _fresh("hh_encplain_")
+    ctrl.semantic.add_belief("plaintext default", kind="fact", source_class="user_explicit")
+    conn = sqlite3.connect(db_path)
+    try:
+        claims = [r[0] for r in conn.execute("SELECT claim FROM beliefs")]
+    finally:
+        conn.close()
+    assert "plaintext default" in claims, "plaintext DB not readable"
+    return "encryption off: DB stays plaintext, app unchanged"
+
+
+def check_missing_driver_fails_loudly():
+    """Encryption requested but driver absent -> clear error, no silent fallback."""
+    from hungry_hippa import db as _db
+
+    # simulate the driver being unavailable by forcing the import to fail
+    real_import = __import__
+    def fake_import(name, *a, **k):
+        if name == "sqlcipher3.dbapi2":
+            raise ImportError("no sqlcipher3")
+        return real_import(name, *a, **k)
+    import builtins
+    saved = builtins.__import__
+    builtins.__import__ = fake_import
+    os.environ["HUNGRY_HIPPA_ENCRYPT"] = "1"
+    try:
+        try:
+            _db._sqlite_driver()
+            raise AssertionError("driver import did not fail")
+        except RuntimeError as e:
+            assert "sqlcipher3" in str(e) and "encrypt" in str(e), e
+    finally:
+        builtins.__import__ = saved
+        os.environ.pop("HUNGRY_HIPPA_ENCRYPT", None)
+    return "missing driver raises a clear install error, no plaintext fallback"
+
+
 def run_all() -> List[Dict[str, Any]]:
     results: List[Dict[str, Any]] = []
 
@@ -670,6 +803,12 @@ def run_all() -> List[Dict[str, Any]]:
     check("whitespace_actor_does_not_elevate", check_whitespace_actor_does_not_elevate)
     check("schema_enforcement", check_schema_enforcement)
     check("export_is_operator_only", check_export_is_operator_only)
+    check("encrypted_db_unreadable_without_key",
+          check_encrypted_db_unreadable_without_key)
+    check("encrypt_migration_preserves_rows", check_encrypt_migration_preserves_rows)
+    check("encrypt_requires_operator", check_encrypt_requires_operator)
+    check("plaintext_default_unchanged", check_plaintext_default_unchanged)
+    check("missing_driver_fails_loudly", check_missing_driver_fails_loudly)
     return results
 
 

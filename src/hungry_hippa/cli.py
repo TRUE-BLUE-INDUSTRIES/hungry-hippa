@@ -67,6 +67,10 @@ def hungry_hippa_command(args) -> None:
         return _cmd_ingest(args)
     if sub == "backup":
         return _cmd_backup(args)
+    if sub == "encrypt":
+        return _cmd_encrypt(args)
+    if sub == "decrypt":
+        return _cmd_decrypt(args)
     c = _controller()
     obs = Observability(c.db, c.cfg, controller=c)
     if sub == "status":
@@ -355,6 +359,57 @@ def _cmd_backup(args) -> None:
                  if keep > 0 else
                  "rotation disabled (keep=0): nothing was deleted"),
     })
+
+
+def _cmd_encrypt(args) -> None:
+    """Encrypt a plaintext database in place (SQLCipher), keyed off the owner token.
+
+    Operator-only: requires the owner token (the same secret that unlocks the
+    DB). Copies the plaintext DB to a new encrypted file, verifies integrity,
+    then swaps atomically and keeps the plaintext as a ``.bak``. Never
+    auto-migrates on open; this is the explicit operator command.
+    """
+    from .db import encrypt_database, encryption_enabled
+    from . import trust
+
+    path = getattr(args, "db", "") or resolve_db_path(load_config())
+    if encryption_enabled():
+        _print_json({"error": "database is already configured for encryption "
+                              "(HUNGRY_HIPPA_ENCRYPT is set); nothing to do"})
+        sys.exit(1)
+    if not trust.read_owner_token():
+        _print_json({"error": "operator-only: no owner token present. Run "
+                              "`hungry-hippa owner-token` first."})
+        sys.exit(1)
+    report = encrypt_database(path)
+    _print_json(report)
+    if report.get("error"):
+        sys.exit(1)
+
+
+def _cmd_decrypt(args) -> None:
+    """Decrypt an encrypted database back to plaintext (operator recovery).
+
+    The reverse of ``encrypt``: copies the encrypted DB to a plaintext file,
+    verifies integrity, swaps atomically, and keeps the encrypted file as a
+    ``.bak``. Requires the owner token.
+    """
+    from .db import decrypt_database, encryption_enabled
+    from . import trust
+
+    path = getattr(args, "db", "") or resolve_db_path(load_config())
+    if not encryption_enabled():
+        _print_json({"error": "database is not configured for encryption; "
+                              "nothing to decrypt"})
+        sys.exit(1)
+    if not trust.read_owner_token():
+        _print_json({"error": "operator-only: no owner token present. Run "
+                              "`hungry-hippa owner-token` first."})
+        sys.exit(1)
+    report = decrypt_database(path)
+    _print_json(report)
+    if report.get("error"):
+        sys.exit(1)
 
 
 def _cmd_ingest(args) -> None:
@@ -1115,6 +1170,19 @@ def register_cli(subparser) -> None:
     bkp.add_argument("--keep", type=int, default=None,
                      help="Snapshots to retain (default: config backup.keep, 7; 0 keeps all)")
     bkp.add_argument("--label", default="", help="Optional suffix, e.g. nightly")
+
+    enc = subs.add_parser(
+        "encrypt",
+        help="Encrypt the database at rest (SQLCipher), keyed off the owner token",
+    )
+    enc.add_argument("--db", default="",
+                     help="Database path (default: resolved config path)")
+    dec = subs.add_parser(
+        "decrypt",
+        help="Decrypt an encrypted database back to plaintext (operator recovery)",
+    )
+    dec.add_argument("--db", default="",
+                     help="Database path (default: resolved config path)")
 
     ing = subs.add_parser(
         "ingest",

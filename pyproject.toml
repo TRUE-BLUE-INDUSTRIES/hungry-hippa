@@ -24,6 +24,11 @@ dependencies = [
     "mcp>=2.2,<3",
 ]
 
+[project.optional-dependencies]
+encrypt = [
+    "sqlcipher3>=0.6.2",
+]
+
 [project.urls]
 Repository = "https://github.com/TRUE-BLUE-INDUSTRIES/hungry-hippa"
 
