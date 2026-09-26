@@ -69,7 +69,7 @@ that release, before the unreleased write path above.
   tables. Requires `HUNGRY_HIPPA_DB` (refuses live Hermes/Grok stores). MCP still
   exactly six tools.
 - `hungry-hippa ingest extract [--dry-run|--apply]`: Slice 4 historical ingest.
-  A local LM Studio chat model (`qwen/qwen3.8-27b` at `127.0.0.1:1234`) reads
+  A local LM Studio chat model (`qwen/qwen3-8b` at `127.0.0.1:1234`) reads
   stored `ingest_turns` in small batches and writes **quarantined hypotheses**
   with evidence rows pointing at turn ids. Never mints verified `user_explicit`;
   `ingestion_channel=import`. Schema v7 adds reversible extract-job checkpoints.

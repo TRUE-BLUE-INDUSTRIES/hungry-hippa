@@ -165,7 +165,7 @@ class _ChatServer(ThreadingHTTPServer):
     completion: str
 
 
-def _serve_chat(completion: str, model_id: str = "qwen/qwen3.8-27b") -> _ChatServer:
+def _serve_chat(completion: str, model_id: str = "qwen/qwen3-8b") -> _ChatServer:
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, fmt: str, *args: Any) -> None:
             return

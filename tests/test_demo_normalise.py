@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import subprocess
 import sys
-from pathlib import Path
 
+import _package
 
-REPO = Path(__file__).resolve().parent.parent
+REPO = _package.REPO_DIR
 
 
 def check_normaliser_follows_tempdir():

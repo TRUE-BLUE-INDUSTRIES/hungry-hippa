@@ -144,7 +144,7 @@ DEFAULTS: Dict[str, Any] = {
     # --- ingest extraction (local LM Studio only; never Grok/Nous) ---
     "ingest_extract": {
         "chat_url": "http://127.0.0.1:1234/v1",
-        "chat_model": "qwen/qwen3.8-27b",
+        "chat_model": "qwen/qwen3-8b",
         "api_key": "lm-studio",
         "timeout_s": 90,
         "max_tokens": 2048,
