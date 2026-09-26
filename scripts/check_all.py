@@ -51,6 +51,7 @@ STEPS: Sequence[Tuple[str, List[str]]] = (
     ("security", ["python", "tests/test_security.py"]),
     ("Hippo-Pot deployment", ["python", "tests/test_hippo_pot.py"]),
     ("demo transcript", ["python", "demo/demo.py", "--tmp", "--check"]),
+    ("demo path normaliser", ["python", "tests/test_demo_normalise.py"]),
     ("eval result drift", ["python", "eval/check_results.py"]),
     ("synthetic import benchmark smoke", ["python", "eval/ingest_benchmark.py", "--smoke"]),
     ("clean wheel installation", ["python", "scripts/check_install.py"]),
