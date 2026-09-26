@@ -206,6 +206,22 @@ def check_budget_keeps_cited_excerpt():
     return "cited excerpt kept under budget; markup escaped"
 
 
+def check_buried_term_ranks_from_a_passage():
+    """A rare token at the end of a long episode must still enter FTS top results."""
+    c, _db = _fresh("hh_ma_passage_")
+    filler = "please order the usual panel stack and send the written notice. " * 80
+    buried = filler + " The torque token is 45Nm on the blue fitting."
+    saved = c.remember_episode(context=buried, outcome="success", embed=False)
+    for i in range(30):
+        c.remember_episode(
+            context="please order the usual panel stack and send the written notice.",
+            outcome="success", embed=False)
+    hits = c.db.fts_search("torque token 45Nm", kinds=["episode"], limit=5)
+    ids = [h.get("target_id") for h in hits]
+    assert saved["episode_id"] in ids, ids
+    return "buried 45Nm ranks from a short passage"
+
+
 def check_record_outcome_updates_procedure():
     c, _db = _fresh("hh_ma_proc_")
     p = c.create_procedure("torque to spec", description="torque pattern",
@@ -427,6 +443,7 @@ def run_all() -> List[Dict[str, Any]]:
     check("explain_returns_score_parts", check_explain_has_score_parts)
     check("context_respects_max_context_chars", check_context_respects_budget)
     check("budget_keeps_cited_excerpt", check_budget_keeps_cited_excerpt)
+    check("buried_term_ranks_from_a_passage", check_buried_term_ranks_from_a_passage)
     check("record_outcome_updates_procedure", check_record_outcome_updates_procedure)
     check("migration_v4_defaults", check_migration_v4_defaults)
     check("v4_migrates_populated_v3_database", check_v4_migrates_populated_v3_database)

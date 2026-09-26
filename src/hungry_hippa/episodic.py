@@ -96,7 +96,7 @@ class EpisodicMemory:
 
         if evidence_ids:
             self.db.link_evidence("episode", episode_id, evidence_ids, session_id)
-        self.db.fts_insert("episode", episode_id, self._fts_body(
+        self.db.fts_insert_passages("episode", episode_id, self._fts_body(
             context, user_request, actions_taken, decisions, result, project,
             visual_entities, audio_transcript, participants))
         self.db.log_mutation("remember_episode", "episode", episode_id,

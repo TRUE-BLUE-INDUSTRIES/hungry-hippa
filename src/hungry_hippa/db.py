@@ -58,6 +58,39 @@ def jload(text: Any, default: Any = None) -> Any:
         return default
 
 
+def fts_passages(text: str, size: int = 400, stride: int = 200, cap: int = 24) -> List[str]:
+    """Full text plus short windows spread across a long episode.
+
+    BM25 on one long document buries a rare term under boilerplate. A 400-character
+    window that contains the term ranks on its own. The full text stays so a
+    query that spans windows still matches. Windows are sampled across the whole
+    body, not only the head.
+    """
+    source = " ".join(str(text or "").split())
+    if not source:
+        return []
+    if len(source) <= size:
+        return [source]
+    starts = list(range(0, len(source), stride))
+    if len(starts) > cap:
+        picked: List[int] = []
+        last = len(starts) - 1
+        for i in range(cap):
+            idx = int(i * last / max(1, cap - 1))
+            if not picked or picked[-1] != starts[idx]:
+                picked.append(starts[idx])
+        starts = picked
+    out = [source]
+    seen = {source}
+    for start in starts:
+        window = source[start:start + size].strip()
+        if len(window) < 40 or window in seen:
+            continue
+        seen.add(window)
+        out.append(window)
+    return out
+
+
 class Database:
     """Owns the Cortex SQLite store."""
 
@@ -202,9 +235,10 @@ class Database:
                     r["visual_entities"], r["audio_transcript"], r["participants"],
                 ) if x).strip()
                 if body:
-                    conn.execute(
-                        "INSERT INTO memory_fts(body, target_kind, target_id)"
-                        " VALUES (?,?,?)", (body, "episode", r["episode_id"]))
+                    for passage in fts_passages(body):
+                        conn.execute(
+                            "INSERT INTO memory_fts(body, target_kind, target_id)"
+                            " VALUES (?,?,?)", (passage, "episode", r["episode_id"]))
             for r in conn.execute("SELECT belief_id, claim FROM beliefs"):
                 if r["claim"]:
                     conn.execute(
@@ -350,6 +384,20 @@ class Database:
 
         self._run(_ins, write=True)
 
+    def fts_insert_passages(self, target_kind: str, target_id: str, body: str) -> None:
+        """Index the full body plus short windows so a buried term can rank."""
+        passages = fts_passages(body)
+        if not passages:
+            return
+
+        def _ins(conn: sqlite3.Connection) -> None:
+            conn.executemany(
+                "INSERT INTO memory_fts(body, target_kind, target_id) VALUES (?,?,?)",
+                [(passage, target_kind, target_id) for passage in passages],
+            )
+
+        self._run(_ins, write=True)
+
     def fts_delete(self, target_kind: str, target_id: str) -> None:
         def _del(conn: sqlite3.Connection) -> None:
             conn.execute(
@@ -373,13 +421,21 @@ class Database:
             sql += " AND target_kind IN (%s)" % ",".join("?" for _ in kinds)
             params.extend(kinds)
         sql += " ORDER BY score LIMIT ?"
-        params.append(limit)
+        params.append(max(int(limit) * 12, int(limit)))
 
         def _search(conn: sqlite3.Connection) -> List[Dict[str, Any]]:
             try:
-                return [dict(r) for r in conn.execute(sql, params)]
+                rows = [dict(r) for r in conn.execute(sql, params)]
             except sqlite3.OperationalError:
                 return []
+            best: Dict[tuple, Dict[str, Any]] = {}
+            for row in rows:
+                key = (row.get("target_kind"), row.get("target_id"))
+                prev = best.get(key)
+                if prev is None or float(row.get("score") or 0) < float(prev.get("score") or 0):
+                    best[key] = row
+            ordered = sorted(best.values(), key=lambda row: float(row.get("score") or 0))
+            return ordered[:limit]
 
         return self._run(_search) or []
 

@@ -14,6 +14,10 @@
   compiled 87/200 gold sessions (was 47) and the median compiled list grew
   from 1 item to 3. 60 gold sessions remain in FTS top 20 but outside the
   budget, and 53 never enter FTS top 20.
+- Index short passages of a long episode as well as the full text, and keep the
+  best passage score per episode. A rare token at the end of a long note now
+  ranks. Morgan FTS top 20 did not move (146/200 versus 147/200 before), so this
+  does not fix the DolphinBench miss class.
 
 ### Safe historical-import increment
 - Integrate existing canonical ChatGPT ingestion work without enabling model extraction.
@@ -23,6 +27,9 @@
   schema v7. Refuse conflicting turns transactionally; duplicate imports are no-ops.
 - Add explicit import destinations, `ingest verify` and `ingest show`; SQLite backup
   recovery retains raw bytes. No beliefs/episodes are created by importing.
+- `ingest chatgpt` accepts an OpenAI export folder. It reads `conversations.json`
+  and `conversations-NNN.json` only, skips `chat.html` and `.dat` assets, and
+  refuses a symlink folder.
 - Align CI with the shared runner and validate a fresh installed wheel over real MCP.
 - Add reproducible synthetic ingestion measurements and durable project documentation.
 
