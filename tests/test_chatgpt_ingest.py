@@ -589,6 +589,37 @@ def check_apply_refuses_symlink_and_omits_eval():
     return "leaf symlink refused; .. canonicalized; no eval/exec"
 
 
+def check_export_directory_reads_shards_only():
+    """An OpenAI export folder is shards plus assets. Only the shards are parsed."""
+    workdir = tempfile.mkdtemp(prefix="hh_ingest_dir_")
+    first = _linear_export()
+    second = _linear_export()
+    second[0]["id"] = "conv-other"
+    with open(os.path.join(workdir, "conversations-001.json"), "w", encoding="utf-8") as fh:
+        json.dump(second, fh)
+    with open(os.path.join(workdir, "conversations-000.json"), "w", encoding="utf-8") as fh:
+        json.dump(first, fh)
+    with open(os.path.join(workdir, "chat.html"), "w", encoding="utf-8") as fh:
+        fh.write("<html>not a transcript</html>")
+    with open(os.path.join(workdir, "file_asset.dat"), "wb") as fh:
+        fh.write(b"\x00not json")
+    os.symlink(os.path.join(workdir, "conversations-000.json"),
+               os.path.join(workdir, "conversations-002.json"))
+    env = _cli_env(os.path.join(workdir, "hungry_hippa.db"))
+    dry = _run_cli(["ingest", "chatgpt", workdir, "--dry-run"], env=env, cwd=workdir)
+    assert dry.returncode == 0, (dry.returncode, dry.stdout[-500:], dry.stderr[-300:])
+    assert "Shards: 2" in dry.stdout, dry.stdout
+    assert "Conversations: 2" in dry.stdout, dry.stdout
+    assert "No database writes" in dry.stdout
+    assert not os.path.exists(os.path.join(workdir, "hungry_hippa.db"))
+    linkdir = os.path.join(workdir, "linked-export")
+    os.symlink(workdir, linkdir)
+    refused = _run_cli(["ingest", "chatgpt", linkdir, "--dry-run"], env=env, cwd=workdir)
+    assert refused.returncode == 1, refused.stdout
+    assert "symlink" in refused.stdout.lower(), refused.stdout
+    return "export folder reads conversation shards; assets and symlinks skipped"
+
+
 # --------------------------------------------------------------------------- runner
 
 def run_all() -> List[Dict[str, Any]]:
@@ -627,6 +658,8 @@ def run_all() -> List[Dict[str, Any]]:
           check_apply_refuses_malformed_conversation)
     check("apply_refuses_symlink_and_omits_eval",
           check_apply_refuses_symlink_and_omits_eval)
+    check("export_directory_reads_shards_only",
+          check_export_directory_reads_shards_only)
     return results
 
 

@@ -400,7 +400,7 @@ def _cmd_ingest(args) -> None:
         return _cmd_ingest_extract(args)
     if action == "reconcile":
         return _cmd_ingest_reconcile(args)
-    print("Usage: hungry-hippa ingest chatgpt <conversations.json> [--dry-run|--apply]")
+    print("Usage: hungry-hippa ingest chatgpt <conversations.json|export-dir> [--dry-run|--apply]")
     print("       hungry-hippa ingest hermes <dir> [--dry-run|--apply]")
     print("       hungry-hippa ingest extract [--dry-run|--apply]")
     print("       hungry-hippa ingest reconcile [--dry-run|--apply]")
@@ -442,24 +442,24 @@ def _cmd_ingest_chatgpt(args) -> None:
                                "Writes are not the default.")})
         sys.exit(1)
 
-    from .ingest import resolve_export_path, summarize
-    from .ingest.chatgpt import read_export_bytes, parse_chatgpt_bytes
+    from .ingest import summarize
+    from .ingest.chatgpt import list_chatgpt_export_files, read_export_bytes, parse_chatgpt_bytes
 
     try:
-        path = resolve_export_path(given)
-    except FileNotFoundError:
-        _print_json({"error": f"no such file: {given}"})
-        sys.exit(1)
-    except IsADirectoryError:
-        _print_json({"error": f"not a file: {given}"})
+        paths = list_chatgpt_export_files(given)
+    except FileNotFoundError as e:
+        _print_json({"error": str(e) or f"no such file: {given}"})
         sys.exit(1)
     except (OSError, ValueError) as e:
         _print_json({"error": str(e)})
         sys.exit(1)
 
+    shards = []
     try:
-        raw = read_export_bytes(path)
-        conversations = parse_chatgpt_bytes(raw)
+        for path in paths:
+            raw = read_export_bytes(path)
+            conversations = parse_chatgpt_bytes(raw)
+            shards.append((path, raw, conversations))
     except json.JSONDecodeError as e:
         _print_json({"error": f"not valid JSON: {e}"})
         sys.exit(1)
@@ -470,9 +470,10 @@ def _cmd_ingest_chatgpt(args) -> None:
         _print_json({"error": str(e)})
         sys.exit(1)
 
-    counts = summarize(conversations)
+    counts = summarize([c for _, _, convos in shards for c in convos])
     if dry_run:
         print("ChatGPT export parsed")
+        print(f"Shards: {len(shards)}")
         _print_ingest_counts(counts)
         print("No database writes, no model calls, no network access (parsing only).")
         return
@@ -482,19 +483,26 @@ def _cmd_ingest_chatgpt(args) -> None:
 
     db_path = _ingest_db_path(args)
     archive_dir = os.path.join(os.path.dirname(os.path.abspath(db_path)), "ingest_archives")
-    result = persist_parsed_export(
-        Database(db_path), conversations, source_path=path, source_bytes=raw,
-        copy_to=archive_dir,
-    )
-    if not result.ok:
-        _print_json({"error": result.error or "persist failed"})
-        sys.exit(1)
-    already = max(0, result.turns_seen - result.turns_inserted)
+    database = Database(db_path)
+    inserted = already = 0
+    last_sha = ""
+    for path, raw, conversations in shards:
+        result = persist_parsed_export(
+            database, conversations, source_path=path, source_bytes=raw,
+            copy_to=archive_dir,
+        )
+        if not result.ok:
+            _print_json({"error": result.error or "persist failed", "shard": os.path.basename(path)})
+            sys.exit(1)
+        inserted += result.turns_inserted
+        already += max(0, result.turns_seen - result.turns_inserted)
+        last_sha = result.sha256
     print("ChatGPT export ingested")
+    print(f"Shards: {len(shards)}")
     _print_ingest_counts(counts)
-    print(f"Archive sha256: {result.sha256}")
+    print(f"Archive sha256: {last_sha}")
     print(f"Database: {db_path}")
-    print(f"Turns inserted: {result.turns_inserted:,}")
+    print(f"Turns inserted: {inserted:,}")
     print(f"Turns already present: {already:,}")
     print("No episodes, no beliefs, no model calls (canonical history only).")
 
@@ -1115,9 +1123,9 @@ def register_cli(subparser) -> None:
     ing_subs = ing.add_subparsers(dest="ingest_command")
     ing_chat = ing_subs.add_parser(
         "chatgpt",
-        help="Parse a ChatGPT conversations.json export into normalized turns",
+        help="Parse a ChatGPT export file or folder of conversation shards",
     )
-    ing_chat.add_argument("file", help="path to conversations.json")
+    ing_chat.add_argument("file", help="conversations.json, or the export folder that contains conversations-NNN.json")
     ing_chat.add_argument("--db", default="", help="destination database (or HUNGRY_HIPPA_DB)")
     ing_mode = ing_chat.add_mutually_exclusive_group()
     ing_mode.add_argument(

@@ -114,6 +114,69 @@ def resolve_export_path(path: "os.PathLike[str] | str") -> str:
     return absolute
 
 
+def _conversation_shard_order(name: str) -> Optional[int]:
+    """Sort key for an OpenAI conversation shard, or None if it is not one.
+
+    ``conversations.json`` comes first. ``conversations-000.json`` follows in
+    numeric order. ``chat.html``, ``.dat`` assets and symlink names are not
+    shards.
+    """
+    if name == "conversations.json":
+        return -1
+    prefix = "conversations-"
+    suffix = ".json"
+    if not name.startswith(prefix) or not name.endswith(suffix):
+        return None
+    mid = name[len(prefix):-len(suffix)]
+    if not mid.isdigit():
+        return None
+    return int(mid)
+
+
+def list_chatgpt_export_files(path: "os.PathLike[str] | str") -> List[str]:
+    """One conversations file, or the conversation shards in an export folder.
+
+    A directory is the shape OpenAI actually ships: ``conversations-000.json``
+    through ``conversations-NNN.json``, plus ``chat.html`` and ``.dat`` assets
+    that must not be parsed. The directory itself must be a real directory.
+    Shard symlinks are skipped. Nothing outside the directory is opened.
+    """
+    given = os.fspath(path)
+    if not given or "\x00" in given:
+        raise ValueError("invalid export path")
+    absolute = os.path.abspath(os.path.expanduser(given))
+    try:
+        st = os.lstat(absolute)
+    except OSError:
+        raise FileNotFoundError(absolute) from None
+    if stat.S_ISLNK(st.st_mode):
+        raise OSError("refusing to follow a symlink export path")
+    if stat.S_ISREG(st.st_mode):
+        return [resolve_export_path(absolute)]
+    if not stat.S_ISDIR(st.st_mode):
+        raise OSError("export path is not a file or directory")
+    found: List[Tuple[int, str, str]] = []
+    for name in os.listdir(absolute):
+        order = _conversation_shard_order(name)
+        if order is None or name.startswith("."):
+            continue
+        child = os.path.join(absolute, name)
+        try:
+            child_st = os.lstat(child)
+        except OSError:
+            continue
+        if stat.S_ISLNK(child_st.st_mode) or not stat.S_ISREG(child_st.st_mode):
+            continue
+        if os.path.dirname(child) != absolute:
+            continue
+        found.append((order, name, child))
+    if not found:
+        raise FileNotFoundError(
+            "no conversations.json or conversations-NNN.json in export directory")
+    found.sort()
+    return [resolve_export_path(child) for _, _, child in found]
+
+
 def read_export_bytes(path: "os.PathLike[str] | str") -> bytes:
     """Read one bounded, immutable snapshot for parsing, hashing and archiving.
 

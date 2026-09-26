@@ -47,6 +47,7 @@ from .chatgpt import (
     parse_chatgpt_export,
     parse_chatgpt_payload,
     resolve_export_path,
+    list_chatgpt_export_files,
 )
 from .hermes import (
     SOURCE as HERMES_SOURCE,
@@ -69,6 +70,7 @@ __all__ = [
     "parse_chatgpt_payload",
     "parse_chatgpt_conversation",
     "resolve_export_path",
+    "list_chatgpt_export_files",
     "HERMES_SOURCE",
     "load_hermes_export",
     "parse_hermes_export",
