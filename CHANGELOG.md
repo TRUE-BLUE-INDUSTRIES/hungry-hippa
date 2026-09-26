@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Retrieval
+- Invert SQLite FTS5 BM25 before hybrid ranking. The score is negative-is-better;
+  dividing it left precise facts behind routine episodes. Growth fixture recall
+  of `45Nm` was 0/3 at 100/500/2,000 episodes before this change and 3/3 after.
+  Weights, candidate limits, and policy boundaries are unchanged.
+
 ### Safe historical-import increment
 - Integrate existing canonical ChatGPT ingestion work without enabling model extraction.
 - Bound hostile JSON, regular-file reads, graph depth and expanded lineage; reject

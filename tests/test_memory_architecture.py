@@ -16,6 +16,7 @@ import json
 import math
 import os
 import sqlite3
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -339,6 +340,50 @@ def check_v4_migrates_populated_v3_database():
     return f"pre-v4 DB upgraded in place; {os.path.basename(report['backup'])} backup written"
 
 
+def check_growth_recall_across_process():
+    """A precise durable fact must survive competing routine episode hits.
+
+    Addresses the measured growth-fixture miss: FTS5 bm25() is negative, and
+    ranking used to discard that score, so '45Nm' fell out of context at
+    100/500/2000 episodes.
+    """
+    c, db = _fresh("hh_ma_growth_")
+    fixture = json.loads((REPO_DIR / "eval" / "fixtures.json").read_text())["growth"]
+    for i in range(100):
+        c.remember_episode(
+            context=f"{fixture['topics'][i % len(fixture['topics'])]} (record {i})",
+            project=f"Project {chr(65 + i % 2)}", outcome="success", embed=False)
+    belief = c.semantic.add_belief(
+        f"the fixture jig torque value is {fixture['expect'][0]}",
+        kind="fact", confidence=0.9, source_class="document",
+        derived_from=["invented-fixture-manual"])
+    hits = c.db.fts_search(fixture["question"], kinds=["episode", "belief"], limit=12)
+    assert hits[0]["target_id"] == belief["belief_id"], hits
+    assert hits[0]["score"] < 0, hits
+    code = """
+import json, sys
+from hungry_hippa.config import load_config
+from hungry_hippa.controller import MemoryController
+cfg = load_config()
+cfg['retrieval']['vectors_enabled'] = False
+cfg['manager'] = {'enabled': False}
+c = MemoryController(cfg, db_path=sys.argv[1])
+c.bind_session(session_id='second-process', platform='cli')
+print(json.dumps(c.recall(sys.argv[2], explain=True)))
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code, db, fixture["question"]],
+        capture_output=True, text=True, timeout=30, check=False)
+    assert result.returncode == 0, result.stderr
+    recalled = json.loads(result.stdout)
+    assert fixture["expect"][0] in recalled["context"], recalled["context"]
+    assert belief["belief_id"] in _ids(recalled), recalled["items"]
+    assert "invented-fixture-manual" in recalled["sources"], recalled["sources"]
+    assert "document" in recalled["context"], recalled["context"]
+    assert len(recalled["context"]) <= c.cfg["retrieval"]["max_context_chars"]
+    return "best FTS fact survives 100 episodes and second-process recall with provenance"
+
+
 def run_all() -> List[Dict[str, Any]]:
     results: List[Dict[str, Any]] = []
 
@@ -360,6 +405,7 @@ def run_all() -> List[Dict[str, Any]]:
     check("migration_v4_defaults", check_migration_v4_defaults)
     check("v4_migrates_populated_v3_database", check_v4_migrates_populated_v3_database)
     check("untrusted_actor_policy", check_untrusted_actor_policy)
+    check("growth_recall_across_process", check_growth_recall_across_process)
     return results
 
 
