@@ -17,6 +17,13 @@ status is not durable. Decision IDs are read back before commit: reviewers and t
 lead reproduced silent RAISE(IGNORE) insertion committing effects without a decision;
 missing persistence now raises and rolls back, including earlier candidates.
 
+Follow-up job fault tests reproduced success despite suppressed INSERT or completion
+UPDATE. Require creation row existence and exact completion fields inside that same
+transaction. ABORT/IGNORE on both writes must restore the pre-job snapshot, including
+prior running-job status, and fresh CLI retry must produce one completed job with
+matching decisions/counts. Do not change standalone helper error behavior or add a
+separate failure-status transaction; failed jobs still roll back entirely.
+
 Tests cover four cross-process approval interleavings, approval committed first via
 CLI, split-Database helper rejection, ABORT/IGNORE on the second decision, complete
 row rollback and fresh-process CLI retry. Existing import/extract/CLI/recall tests

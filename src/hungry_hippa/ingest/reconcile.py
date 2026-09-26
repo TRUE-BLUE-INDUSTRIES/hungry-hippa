@@ -640,6 +640,8 @@ def _reconcile_store_locked(
         )
 
     job_id = database.create_ingest_reconcile_job(dry_run=False)
+    if not job_id or not database.get_ingest_reconcile_job(job_id):
+        raise RuntimeError("reconciliation job was not persisted")
     result = ReconcileResult(
         ok=True, job_id=job_id, candidates_pending=len(pending), counts=counts,
     )
@@ -682,6 +684,9 @@ def _reconcile_store_locked(
         for cls, col in CLASS_TO_COUNT_FIELD.items():
             fields[col] = counts.get(cls, 0)
         database.update_ingest_reconcile_job(job_id, **fields)
+        stored_job = database.get_ingest_reconcile_job(job_id)
+        if not stored_job or any(stored_job[key] != value for key, value in fields.items()):
+            raise RuntimeError("reconciliation job completion was not persisted")
     except Exception as e:
         database.update_ingest_reconcile_job(
             job_id, status="failed", error=f"{type(e).__name__}: {e}"[:500],

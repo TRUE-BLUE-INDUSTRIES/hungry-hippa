@@ -3,6 +3,37 @@
 Updated 2026-09-25. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
 
+## Autonomous maintenance — reconciliation job persistence, 2026-09-25
+
+Started clean at `96ab1e99e4272a65d9a7a2db95f36d1ac25199eb` on
+`automation/hh-maintenance`; fetched main remains an ancestor. Reproduced P1 false
+success when job INSERT or completion UPDATE is silently suppressed. Creation now
+requires a persisted job row; completion must match status, finished timestamp and
+all candidate/classification counts inside the existing writer transaction. No
+schema, classifier, trust boundary or standalone write-helper behavior changes.
+
+Both IGNORE regressions failed before their respective fixes. Targeted suite now
+25/25 PASS, including ABORT/IGNORE for each write, prior-job status rollback, full
+checked effect/decision snapshots, CLI refusal, fresh-process retry and idempotency.
+Existing import/extract -> CLI -> second-process recall/evidence checks still pass.
+Read-only QA independently ran 25/25 twice and found no blocker; its extra custom
+corruption probe was blocked by cron policy, not a passing check.
+
+Full unchanged `scripts/check_all.py` via external temporary-XDG chat-offline wrapper
+exited 1: only demo transcript failed. The unchanged demo normalizer hardcodes
+`/tmp/hh_demo...` and does not normalize this runtime's scratch TMPDIR path. All
+other steps succeeded, including wheel installation, MCP/security, ingestion/E2E,
+vectors, Hippo-Pot and backup/integrity. Two optional live-chat checks SKIPPED;
+both synthetic live-embedding checks passed. Configured chat was not retested.
+Do not change TMPDIR to the system temp directory or regenerate expected output
+to hide this mismatch. Keep this unrelated demo portability defect for the next
+bounded shift. Maintenance push withheld until the broad gate is green.
+
+Python 3.14.7; Linux 7.2.5-3-omarchy x86_64; AMD Ryzen 9 9950X3D, 32 logical CPUs.
+Measured this shift's diff over the starting SHA with invented temporary stores.
+No performance comparison, live-store/plugin/config/server/main changes. Other
+helper write suppression and broader reconciliation-trust issues remain open.
+
 ## Autonomous maintenance — reconciliation writer transaction, 2026-09-25
 
 Started clean at `935ab8e05609b54dc84b74b35983e9acc3566bd5` on

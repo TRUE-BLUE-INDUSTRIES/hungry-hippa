@@ -977,6 +977,70 @@ def check_decision_failure_rolls_back_effects() -> str:
     return "ABORT/IGNORE roll back whole job; fresh CLI retry persists both decisions once"
 
 
+def _check_job_failure_rolls_back(operation: str) -> str:
+    from hungry_hippa.db import Database
+
+    for fault in ("ABORT, 'fixture refusal'", "IGNORE"):
+        path = _fresh_db()
+        first = _add_candidate(path, "project x uses method a")
+        second = _add_candidate(path, "project x now uses method b")
+        db = Database(path)
+        # A preexisting running job must not be abandoned if the new job fails.
+        old_job = db.create_ingest_reconcile_job()
+        tables = ("beliefs", "belief_evidence", "evidence", "entities", "relationships",
+                  "mutation_log", "counters", "ingest_reconcile_jobs", "ingest_reconcile_decisions")
+
+        def snapshot():
+            with sqlite3.connect(path) as conn:
+                return {table: conn.execute(f"SELECT * FROM {table}").fetchall() for table in tables}
+
+        before = snapshot()
+        with sqlite3.connect(path) as conn:
+            # Completion UPDATE is after all decisions/effects, not abandonment.
+            when = "WHEN NEW.status = 'completed'" if operation == "UPDATE" else ""
+            conn.execute(f"""CREATE TRIGGER refuse_job BEFORE {operation} ON ingest_reconcile_jobs
+                {when} BEGIN SELECT RAISE({fault}); END""")
+        try:
+            reconcile_store(db)
+        except (sqlite3.IntegrityError, RuntimeError):
+            pass
+        else:
+            raise AssertionError(f"job {operation} failure reported success: {fault}")
+        assert snapshot() == before, f"partial job/effects escaped rollback: {fault}"
+        refused = _run_cli(["ingest", "reconcile", "--apply"], env=_cli_env(path),
+                           cwd=os.path.dirname(path))
+        assert refused.returncode != 0, refused.stdout
+        assert snapshot() == before
+        with sqlite3.connect(path) as conn:
+            conn.execute("DROP TRIGGER refuse_job")
+        retry = _run_cli(["ingest", "reconcile", "--apply"], env=_cli_env(path),
+                         cwd=os.path.dirname(path))
+        assert retry.returncode == 0, retry.stderr
+        with sqlite3.connect(path) as conn:
+            conn.row_factory = sqlite3.Row
+            jobs = conn.execute("SELECT * FROM ingest_reconcile_jobs ORDER BY job_id").fetchall()
+            assert len(jobs) == 2
+            assert jobs[0]["job_id"] == old_job and jobs[0]["status"] == "abandoned"
+            job = jobs[1]
+            assert job["status"] == "completed" and job["finished_at"]
+            assert job["candidates_seen"] == job["candidates_processed"] == 2
+            assert job["irrelevant_n"] == job["supersession_n"] == 1
+            assert conn.execute("SELECT COUNT(*) FROM ingest_reconcile_decisions WHERE job_id = ?",
+                                (job["job_id"],)).fetchone()[0] == 2
+        assert db.get_ingest_reconcile_decision(first["belief_id"])
+        assert db.get_ingest_reconcile_decision(second["belief_id"])
+        assert reconcile_store(Database(path)).candidates_processed == 0
+    return f"job {operation} ABORT/IGNORE roll back abandonment and effects; CLI refuses then retries once"
+
+
+def check_job_insert_failure_rolls_back() -> str:
+    return _check_job_failure_rolls_back("INSERT")
+
+
+def check_job_update_failure_rolls_back() -> str:
+    return _check_job_failure_rolls_back("UPDATE")
+
+
 # --------------------------------------------------------------------------- runner
 
 def run_all() -> List[Dict[str, Any]]:
@@ -992,6 +1056,8 @@ def run_all() -> List[Dict[str, Any]]:
             results.append({"name": name, "passed": False,
                             "detail": f"{type(e).__name__}: {e}"})
 
+    check("job_insert_failure_rolls_back", check_job_insert_failure_rolls_back)
+    check("job_update_failure_rolls_back", check_job_update_failure_rolls_back)
     check("precommitted_approval_and_database_binding", check_precommitted_approval_and_database_binding)
     check("decision_failure_rolls_back_effects", check_decision_failure_rolls_back_effects)
     check("approval_cannot_interleave_with_effects", check_approval_cannot_interleave_with_effects)

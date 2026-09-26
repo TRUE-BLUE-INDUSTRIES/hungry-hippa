@@ -868,6 +868,15 @@ class Database:
         self._run(_c, write=True)
         return job_id
 
+    def get_ingest_reconcile_job(self, job_id: str) -> Optional[Dict[str, Any]]:
+        def _g(conn: sqlite3.Connection) -> Optional[Dict[str, Any]]:
+            row = conn.execute(
+                "SELECT * FROM ingest_reconcile_jobs WHERE job_id = ?", (job_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
+        return self._run(_g)
+
     def update_ingest_reconcile_job(self, job_id: str, **fields: Any) -> None:
         if not job_id or not fields:
             return

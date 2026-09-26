@@ -52,7 +52,7 @@
       ],
       "dependency": "Experimental migration IDs integrated into baseline; historical branch databases must not be combined",
       "result": "Malformed response envelopes fail closed (47c94b4); oversized prompt bodies refuse without checkpointing (22066f7). Per-batch evidence/candidates/checkpoints are atomic with SQL/no-op/quota fault regressions (ADR-006). Non-object candidate members now fail the entire batch with durable pending/retry regression coverage. Supplied citation fields now require list[str] before filtering, preserving missing/empty/unknown-ID behavior. Supplied candidate text/type/source fields now require strings before filters, with 60 durable malformed-field cases and preserved defaults/fallbacks.",
-      "next": "Close demonstrated silent reconciliation job-insert suppression (see RECONCILE-TRUST)",
+      "next": "Fix scratch-TMPDIR demo transcript normalization to unblock full gate and maintenance push (see RECONCILE-TRUST)",
       "concurrency_result": "Overlapping stale extraction batches now refuse under the existing SQLite writer transaction before candidate/evidence/progress writes (ADR-007); six independent-process regression cases plus read-only QA preserve earlier commits, source/session isolation and fresh-process retry. Full 30-step gate succeeded with chat intentionally offline: two environmental live-chat skips and both live-embedding checks passed.",
       "evidence": ["tests/test_ingest_extract.py", "DECISIONS.md"]
     },
@@ -66,8 +66,9 @@
       ],
       "result": "Serial reconciliation now refuses quarantined reinforcement/supersession into nonquarantined beliefs, keeping candidate/evidence for review and persisting applied=false. Both unsafe baseline assertions reproduced before fixing. Targeted suite 20/20 includes import/extract/CLI/second-process recall and a quarantine-only chain (ADR-008).",
       "concurrency_result": "ADR-009 serializes snapshots, fresh trust checks, effects and decisions with BEGIN IMMEDIATE. Public direct application requires one shared Database instance. Separate-process approval barriers and precommitted CLI approval cover both effect types. ABORT/IGNORE decision faults roll back earlier effects and job rows; fresh CLI retry works.",
-      "next": "Check reconciliation job creation/update persistence: synthetic INSERT IGNORE still returns ok=true, processed=1, jobs=0, decisions=1; add fault regressions before fixing",
-      "limitations": "Not complete: whole-job locking may delay other writers; failed transactions leave no failed-job row. Silent job/other helper suppression, historical contamination and contradiction/update metadata remain. Approval does not replay stored denied decisions.",
+      "job_persistence_result": "Job INSERT and completion UPDATE IGNORE both reproduced false success; creation existence and exact completion fields now checked in the existing transaction. ABORT/IGNORE rollback and fresh CLI retry: targeted 25/25 PASS, independently repeated by QA. Full gate failed only unchanged demo path normalization under scratch TMPDIR; maintenance push withheld.",
+      "next": "Fix demo transcript normalization for non-/tmp TMPDIR with regression coverage, rerun full gate, then publish verified maintenance commits",
+      "limitations": "Not complete: whole-job locking may delay other writers; failed transactions leave no failed-job row. Other helper suppression, historical contamination and contradiction/update metadata remain. Approval does not replay stored denied decisions.",
       "evidence": ["tests/test_ingest_reconcile.py", "DECISIONS.md", "docs/INGESTION.md"]
     },
     {
