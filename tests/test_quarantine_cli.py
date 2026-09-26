@@ -224,6 +224,28 @@ def check_approve_uses_existing_verification_semantics():
     return "approval reuses trust.verified_source_class + the single promotion write"
 
 
+def check_approve_releases_an_episode_too():
+    """Episode approval exercises episodic.set_verified_class, which targets a
+    different column set than beliefs (episodes have no ``source_class`` column).
+    A naive copy of the belief SQL would write rows_changed=0 here."""
+    _, db_path = _fresh("hh_quar_approve_ep_")
+    ep = _untrusted_episode(db_path, "the web agent walked the north shaft")
+    assert _recall_ids(_owner_view(db_path), "north shaft") == []
+
+    out, code = _cli(hungry_hippa_command="quarantine", quarantine_command="approve",
+                     target_id=ep["episode_id"], source_class="user_explicit")
+    assert code == 0, code
+    assert out["approved"] is True and out["rows_changed"] == 1, out
+
+    row = _owner_view(db_path).episodic.get_episode(ep["episode_id"])
+    assert not row["quarantined"], row
+    assert row["verified_source_class"] == "user_explicit", row
+    assert ep["episode_id"] in _recall_ids(_owner_view(db_path), "north shaft")
+    # the claim stays inspectable rather than silently rewritten
+    assert row["claimed_source_class"] == ep.get("claimed_source_class", ""), row
+    return "episode approve clears quarantine and sets verified provenance"
+
+
 def check_reject_removes_from_default_recall():
     _, db_path = _fresh("hh_quar_reject_")
     belief = _untrusted_write(db_path, "the web agent asserts the north shaft was revised")
@@ -350,6 +372,7 @@ def run_all() -> List[Dict[str, Any]]:
     check("approve_releases_and_recall_sees_it", check_approve_releases_and_recall_sees_it)
     check("approve_uses_existing_verification_semantics",
           check_approve_uses_existing_verification_semantics)
+    check("approve_releases_an_episode_too", check_approve_releases_an_episode_too)
     check("reject_removes_from_default_recall", check_reject_removes_from_default_recall)
     check("rejected_data_is_archived_not_purged", check_rejected_data_is_archived_not_purged)
     check("mcp_cannot_approve_or_reject", check_mcp_cannot_approve_or_reject)

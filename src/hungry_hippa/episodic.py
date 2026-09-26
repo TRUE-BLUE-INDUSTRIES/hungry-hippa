@@ -203,13 +203,15 @@ class EpisodicMemory:
                            clear_quarantine: bool = False) -> int:
         """Promote an episode's verified provenance, optionally leaving quarantine.
 
-        Episodes carry the same provenance columns as beliefs, so approval reuses
-        the same rule (``trust.verified_source_class``) rather than inventing one.
+        Episodes carry ``claimed_source_class`` + ``verified_source_class`` (no
+        ``source_class`` column), so approval promotes the verified class only
+        and leaves the claim untouched. The semantic method also writes
+        ``source_class`` because beliefs have that column; episodes do not.
         """
-        fields = ["source_class = ?", "verified_source_class = ?", "source_actor = ?",
+        fields = ["verified_source_class = ?", "source_actor = ?",
                   "ingestion_channel = ?"]
         actor = str(source_actor or _policy.DEFAULT_ACTOR)
-        params: List[Any] = [source_class, source_class, actor, _trust.CHANNEL_CLI]
+        params: List[Any] = [source_class, actor, _trust.CHANNEL_CLI]
         if clear_quarantine:
             fields.append("quarantined = 0")
         fields.append("updated_at = ?")
