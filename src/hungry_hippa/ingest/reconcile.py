@@ -415,6 +415,22 @@ def _set_status(database: _db.Database, belief_id: str, status: str) -> None:
     database._run(_u, write=True)
 
 
+def _link_evidence(
+    database: _db.Database, belief_id: str, evidence_ids: List[str], session_id: str,
+) -> None:
+    """Verify links within the caller's writer transaction, including existing links."""
+    database.link_evidence("belief", belief_id, evidence_ids, session_id)
+
+    def _verify(conn) -> None:
+        stored = {row[0] for row in conn.execute(
+            "SELECT evidence_id FROM belief_evidence WHERE belief_id = ?", (belief_id,),
+        )}
+        if not set(evidence_ids) <= stored:
+            raise RuntimeError("reconciliation evidence links were not persisted")
+
+    database._run(_verify)
+
+
 def _entity_name(belief_id: str) -> str:
     return f"belief:{belief_id}"
 
@@ -479,7 +495,7 @@ def _apply_decision_locked(
 
     if classification == "duplicate":
         if matched and cand_evidence:
-            database.link_evidence("belief", matched["belief_id"], cand_evidence, session_id)
+            _link_evidence(database, matched["belief_id"], cand_evidence, session_id)
         _set_status(database, candidate["belief_id"], "archived")
         database.log_mutation(
             "reconcile_duplicate", "belief", candidate["belief_id"],
@@ -498,7 +514,7 @@ def _apply_decision_locked(
             return decision
         if matched:
             if cand_evidence:
-                database.link_evidence("belief", matched["belief_id"], cand_evidence, session_id)
+                _link_evidence(database, matched["belief_id"], cand_evidence, session_id)
             semantic.reinforce(matched["belief_id"], 0.05, session_id)
             _relate(graph, matched["belief_id"], "SUPPORTED_BY", candidate["belief_id"],
                     source_ref=f"reconcile:{candidate['belief_id']}", session_id=session_id)

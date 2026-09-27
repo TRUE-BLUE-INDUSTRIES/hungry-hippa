@@ -1100,6 +1100,57 @@ def check_status_failure_rolls_back() -> str:
     return "three status effects refuse ABORT/IGNORE/reversal; whole-job rollback, CLI retry and idempotency"
 
 
+def check_evidence_link_failure_rolls_back() -> str:
+    from hungry_hippa.db import Database
+
+    for fault in ("ABORT, 'fixture refusal'", "IGNORE"):
+        path = _fresh_db()
+        target = _add_candidate(path, "project x uses method a")
+        db = Database(path)
+        db.record_ingest_reconcile_decision(
+            job_id="seed", candidate_id=target["belief_id"], classification="irrelevant")
+        earlier = _add_candidate(path, "the weather in paris is mild in april")
+        evidence = [db.add_evidence(f"invented supporting turn {i}", "document", f"test:turn:{i}")
+                    for i in range(2)]
+        candidate = _add_candidate(path, "project x uses method a", evidence_ids=evidence)
+        assert reconcile_store(db, dry_run=True).decisions[-1].classification == "reinforcement"
+        tables = ("beliefs", "belief_evidence", "evidence", "entities", "relationships",
+                  "mutation_log", "counters", "ingest_reconcile_jobs", "ingest_reconcile_decisions")
+
+        def snapshot():
+            with sqlite3.connect(path) as conn:
+                return {table: conn.execute(f"SELECT * FROM {table}").fetchall() for table in tables}
+
+        before = snapshot()
+        with sqlite3.connect(path) as conn:
+            conn.execute(f"""CREATE TRIGGER refuse_evidence BEFORE INSERT ON belief_evidence
+                WHEN NEW.belief_id = '{target['belief_id']}' AND NEW.evidence_id = '{evidence[-1]}'
+                BEGIN SELECT RAISE({fault}); END""")
+        try:
+            reconcile_store(db)
+        except (sqlite3.IntegrityError, RuntimeError):
+            pass
+        else:
+            raise AssertionError(f"missing evidence link reported success: {fault}")
+        assert snapshot() == before, f"partial evidence/effects escaped rollback: {fault}"
+        refused = _run_cli(["ingest", "reconcile", "--apply"], env=_cli_env(path),
+                           cwd=os.path.dirname(path))
+        assert refused.returncode != 0, refused.stdout
+        assert snapshot() == before
+        with sqlite3.connect(path) as conn:
+            conn.execute("DROP TRIGGER refuse_evidence")
+        retry = _run_cli(["ingest", "reconcile", "--apply"], env=_cli_env(path),
+                         cwd=os.path.dirname(path))
+        assert retry.returncode == 0, retry.stderr
+        assert set(target["evidence_ids"] + evidence) == set(_belief(path, target["belief_id"])["evidence_ids"])
+        assert _belief(path, candidate["belief_id"])["status"] == "archived"
+        assert db.get_ingest_reconcile_decision(earlier["belief_id"])
+        decision = db.get_ingest_reconcile_decision(candidate["belief_id"])
+        assert decision and decision["applied"]
+        assert reconcile_store(Database(path)).candidates_processed == 0
+    return "evidence INSERT ABORT/IGNORE rolls back earlier links/effects; CLI refuses, retries and is idempotent"
+
+
 # --------------------------------------------------------------------------- runner
 
 def run_all() -> List[Dict[str, Any]]:
@@ -1115,6 +1166,7 @@ def run_all() -> List[Dict[str, Any]]:
             results.append({"name": name, "passed": False,
                             "detail": f"{type(e).__name__}: {e}"})
 
+    check("evidence_link_failure_rolls_back", check_evidence_link_failure_rolls_back)
     check("status_failure_rolls_back", check_status_failure_rolls_back)
     check("job_insert_failure_rolls_back", check_job_insert_failure_rolls_back)
     check("job_update_failure_rolls_back", check_job_update_failure_rolls_back)

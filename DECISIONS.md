@@ -43,6 +43,15 @@ AFTER-trigger reversal fixtures must restore earlier job effects and support fre
 CLI retry. This does not change standalone semantic helpers or promise detection
 of every suppressed graph/evidence/metadata write.
 
+Evidence-link follow-up reproduced false success when the second reinforcement
+link INSERT was ignored. Wrap only reconciliation's link calls with expected-ID
+membership readback in the same writer transaction. Do not require positive INSERT
+rowcount: duplicate links legitimately already exist. ABORT/IGNORE regressions
+must restore earlier links and whole-job effects, refuse in a fresh CLI process,
+and retry idempotently. This preserves standalone helper compatibility and trust
+checks. Immediate readback does not detect later triggers removing checked links
+or validate every confidence, graph, audit or metadata effect.
+
 Tests cover four cross-process approval interleavings, approval committed first via
 CLI, split-Database helper rejection, ABORT/IGNORE on the second decision, complete
 row rollback and fresh-process CLI retry. Existing import/extract/CLI/recall tests

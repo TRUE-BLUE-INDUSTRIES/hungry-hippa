@@ -3,6 +3,31 @@
 Updated 2026-09-27. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
 
+## Autonomous maintenance — reconciliation evidence-link persistence, 2026-09-27
+
+Started clean at `18bc36be7222d98ba0be2449cef364d5c5ae8f05` on
+`automation/hh-maintenance`; fetched main remains an ancestor. No equivalent fix
+found in all-ref reconciliation history. Baseline 26/26; regression reproduced
+false success when the second reinforcement evidence INSERT was ignored (26/27).
+
+Reconciliation now reads back expected target evidence links within its existing
+writer transaction before continuing duplicate/reinforcement effects. Missing links
+raise and roll back the whole job. Standalone helpers and trust rules are unchanged.
+ABORT/IGNORE fixtures check earlier effects/links, fresh CLI refusal/retry and
+idempotency. Targeted suite 27/27 PASS; read-only QA independently passed twice;
+security review found no blocker. QA's additional inline probe was policy-blocked,
+not a passing check. Full shared 31-step gate PASS via external temporary-XDG
+chat-offline wrapper: two live-chat checks SKIP, two synthetic live-embedding checks
+PASS. Import/extract/CLI/second-process recall retains visible evidence EV-0001.
+
+Python 3.14.7; Linux 7.2.5-3-omarchy x86_64; AMD Ryzen 9 9950X3D, 32 logical CPUs.
+Measured this shift's diff over starting SHA with invented temporary stores only.
+No performance comparison, schema, dependency, main, live-store or plugin changes.
+This is immediate evidence-link readback, not proof against later trigger mutations
+or every suppressed confidence/graph/audit/metadata write. Historical partial writes
+are not repaired; configured live chat was not retested.
+Next: reproduce suppressed reinforcement confidence/count updates before extending checks.
+
 ## Autonomous maintenance — reconciliation status persistence, 2026-09-27
 
 Started clean at `546e490426933a25c943897282fd6b2574fa5323` on
