@@ -3,6 +3,35 @@
 Updated 2026-09-27. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
 
+## Autonomous maintenance — reconciliation status persistence, 2026-09-27
+
+Started clean at `546e490426933a25c943897282fd6b2574fa5323` on
+`automation/hh-maintenance`; fetched origin/main remains an ancestor. No existing
+fix found in other refs' reconciliation history. Baseline targeted suite 25/25.
+The new regression reproduced false applied/success when a duplicate candidate's
+archival UPDATE was silently ignored (25/26 before fix).
+
+The reconciliation-only status helper now checks UPDATE rowcount and reads back
+status inside the existing writer transaction. Failed archival/supersession rolls
+back the entire job rather than committing an applied decision with active rows.
+Regression covers duplicate, reinforcement and supersession with ABORT, IGNORE
+and AFTER-trigger status reversal; compares whole-job effect snapshots, refuses
+through a fresh CLI process, then retries successfully and idempotently.
+
+Targeted suite 26/26 PASS; read-only QA independently passed it twice before the
+additional reversal cases, with no blocker. Final full 31-step gate PASS using the
+existing external temporary-XDG chat-offline wrapper. Two optional live-chat checks
+SKIP/ENVIRONMENTAL; both synthetic live-embedding checks PASS. Configured live chat
+not retested. Gate includes import/extract/CLI/fresh-process recall and evidence,
+MCP/trust/security, package installation, migrations, quarantine and backup.
+
+Python 3.14.7; Linux 7.2.5-3-omarchy x86_64; AMD Ryzen 9 9950X3D, 32 logical CPUs.
+Tested this shift's diff over starting SHA with invented temporary stores only.
+No schema, trust rule, classifier, main, live-store, plugin or server changes.
+No performance comparison or deployment claim. Other helper-write suppression,
+historical contamination and failed-job durability remain outside this narrow fix.
+Next: reproduce evidence-link suppression in reconciliation before extending checks.
+
 ## Autonomous maintenance — demo portability integration, 2026-09-27
 
 Started clean at `414d4b77a2fa8a9174fe1264664b9d4dfbfef7d4` on

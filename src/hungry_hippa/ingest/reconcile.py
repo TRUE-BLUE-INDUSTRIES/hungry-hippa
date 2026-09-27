@@ -400,10 +400,17 @@ def _append_json_list(database: _db.Database, belief_id: str, field: str, value:
 
 def _set_status(database: _db.Database, belief_id: str, status: str) -> None:
     def _u(conn) -> None:
-        conn.execute(
+        cursor = conn.execute(
             "UPDATE beliefs SET status = ?, updated_at = ? WHERE belief_id = ?",
             (status, _db.now_iso(), belief_id),
         )
+        row = conn.execute(
+            "SELECT status FROM beliefs WHERE belief_id = ?", (belief_id,),
+        ).fetchone()
+        # IGNORE triggers raise no SQL error. Do not commit an applied decision
+        # unless its status effect exists inside the same writer transaction.
+        if cursor.rowcount != 1 or row is None or row["status"] != status:
+            raise RuntimeError("reconciliation belief status was not persisted")
 
     database._run(_u, write=True)
 

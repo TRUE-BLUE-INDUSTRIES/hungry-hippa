@@ -257,9 +257,11 @@ also locks fresh checks/effects and requires one shared Database instance. Dry-r
 remains read-only and advisory, not a reserved future decision.
 
 Job creation is read back before any decisions; completion status, timestamp and
-all candidate/classification counts are read back before commit. SQL exceptions,
-missing job/decision inserts or mismatched completion fields roll back the whole
-reconciliation job, including earlier candidates, graph/evidence links and the job row. Retry reloads
+all candidate/classification counts are read back before commit. Archival and
+supersession status writes require one updated row and matching status readback.
+SQL exceptions, suppressed/reversed status updates, missing job/decision inserts
+or mismatched completion fields roll back the whole reconciliation job, including
+earlier candidates, graph/evidence links and the job row. Retry reloads
 pending candidates; failed jobs do not leave a durable failure-status row. This
 whole-job transaction deliberately favors a small correctness fix over batching;
 large jobs may hold the writer lock for longer and other writers may need to retry.

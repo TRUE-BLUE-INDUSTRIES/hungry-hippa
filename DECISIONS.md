@@ -35,6 +35,14 @@ prior running-job status, and fresh CLI retry must produce one completed job wit
 matching decisions/counts. Do not change standalone helper error behavior or add a
 separate failure-status transaction; failed jobs still roll back entirely.
 
+A further status-write regression reproduced success despite ignored archival.
+Keep the fix scoped to reconciliation's status helper: require one affected row
+and read back the requested status before proceeding. Duplicate/reinforcement
+archival and unprotected supersession share this check. ABORT, IGNORE and
+AFTER-trigger reversal fixtures must restore earlier job effects and support fresh
+CLI retry. This does not change standalone semantic helpers or promise detection
+of every suppressed graph/evidence/metadata write.
+
 Tests cover four cross-process approval interleavings, approval committed first via
 CLI, split-Database helper rejection, ABORT/IGNORE on the second decision, complete
 row rollback and fresh-process CLI retry. Existing import/extract/CLI/recall tests
