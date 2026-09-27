@@ -1,5 +1,16 @@
 # Engineering decisions
 
+## ADR-010 — Reuse the existing demo portability fix (2026-09-27)
+
+The scratch-TMPDIR transcript mismatch reproduced on maintenance at 414d4b7.
+Another branch already contained a narrow fix (75b4e85) and its shared-resolver
+correction (test-only portion of 953d6e8). Integrate those changes only, retaining
+the original golden transcript and scratch location. Do not merge unrelated
+runtime, model-default, version or encryption work to unblock a demo gate.
+The normalizer self-check is wired into the common test runner. The full 31-step
+gate succeeds with temporary-XDG chat explicitly offline; two live-chat checks
+remain environmental skips, not evidence of live extraction success.
+
 ## ADR-009 — Serialize reconciliation checks, effects and decisions (2026-09-25)
 
 The ADR-008 residual race reproduced at 935ab8e: approving a target after its

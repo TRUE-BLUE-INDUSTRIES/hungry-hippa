@@ -40,7 +40,9 @@ DEFAULT_DB_DIR = DEMO_DIR / ".demo_db"
 
 YEAR_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
 DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
-DEMO_DB_RE = re.compile(r"(?:/[^\s'\"]*)?\.demo_db/hungry_hippa\.db|/tmp/hh_demo[^\s'\"]*")
+# mkdtemp(prefix="hh_demo_") follows TMPDIR, which is not always /tmp.
+DEMO_DB_RE = re.compile(
+    r"(?:/[^\s'\"]*)?\.demo_db/hungry_hippa\.db|/[^\s'\"]*hh_demo_[^\s'\"]*")
 # The only difference between the default and --tmp runs is the closing note.
 CLEANUP_RE = re.compile(
     r"^(Reset it with: python demo/demo\.py --reset"
@@ -370,7 +372,25 @@ def main(argv: Optional[List[str]] = None) -> int:
                         help="use a fresh temporary database instead of demo/.demo_db")
     parser.add_argument("--check", action="store_true",
                         help="compare the run against demo/expected_output.txt")
+    parser.add_argument("--check-normaliser", action="store_true",
+                        help="assert transcript paths normalise under the live temp dir")
     args = parser.parse_args(argv)
+
+    if args.check_normaliser:
+        scratch = tempfile.mkdtemp(prefix="hh_demo_")
+        live = os.path.join(scratch, "hungry_hippa.db")
+        samples = [
+            live,
+            "/tmp/hh_demo_example/hungry_hippa.db",
+            str(DEFAULT_DB_DIR / "hungry_hippa.db"),
+        ]
+        for sample in samples:
+            normalised = normalise(f"demo database: {sample}\n")
+            if sample in normalised or "<demo-db>" not in normalised:
+                print(f"normaliser left a machine path: {sample}", file=sys.stderr)
+                return 1
+        print("PASS demo path normaliser")
+        return 0
 
     db_path = demo_db_path(args.tmp)
 

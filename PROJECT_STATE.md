@@ -1,7 +1,34 @@
 # Project state
 
-Updated 2026-09-25. Git is authoritative for code; no live store or deployed MCP
+Updated 2026-09-27. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
+
+## Autonomous maintenance — demo portability integration, 2026-09-27
+
+Started clean at `414d4b77a2fa8a9174fe1264664b9d4dfbfef7d4` on
+`automation/hh-maintenance`; origin/main remains an ancestor. Reproduced the demo
+gate failure: only its database path differed under the Hermes scratch TMPDIR.
+The fix already existed on `feat/dolphinbench-campaign`: reused `75b4e85` plus only
+the test-resolver correction from `953d6e8`, rather than duplicating development
+or importing that branch's unrelated runtime/version/encryption changes.
+
+Demo path normalization now handles the observed non-/tmp scratch root. Added the
+existing CLI normalizer self-check and its suite to the shared runner; preserved
+the golden transcript unchanged. Targeted normalizer 1/1, import hygiene 9/9 and
+full demo transcript PASS. The existing external temporary-XDG chat-offline wrapper
+ran `.venv/bin/python scripts/check_all.py`: all 31 steps succeeded. Two optional
+live-chat checks SKIPPED/ENVIRONMENTAL; both synthetic live-embedding checks PASS.
+Configured live chat was not retested. Includes 25/25 reconciliation checks,
+import/extract -> fresh-process recall/evidence, MCP/security/limits, migrations,
+quarantine, vectors, Hippo-Pot, backup/integrity and clean wheel installation.
+
+Python 3.14.7; Linux 7.2.5-3-omarchy x86_64; AMD Ryzen 9 9950X3D, 32 logical CPUs.
+Measured this shift's diff over starting SHA using invented temporary stores.
+No performance comparison, release/deployment, main, live-store, plugin or server
+changes. Simple deterministic integration; no specialist spawned. The previously
+withheld reconciliation job-persistence commit is now covered by the green gate.
+Next: audit remaining reconciliation helper no-op suppression, reproducing any
+false applied/success report before changing runtime behavior.
 
 ## Autonomous maintenance — reconciliation job persistence, 2026-09-25
 
