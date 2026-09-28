@@ -515,7 +515,13 @@ def _apply_decision_locked(
         if matched:
             if cand_evidence:
                 _link_evidence(database, matched["belief_id"], cand_evidence, session_id)
-            semantic.reinforce(matched["belief_id"], 0.05, session_id)
+            reinforced = semantic.reinforce(matched["belief_id"], 0.05, session_id)
+            # The standalone helper returns the row even if SQLite ignores its
+            # UPDATE. Require both effects before archiving the candidate.
+            if (not reinforced
+                    or reinforced["confidence"] != min(0.98, matched["confidence"] + 0.05)
+                    or reinforced["reinforcement_count"] != matched["reinforcement_count"] + 1):
+                raise RuntimeError("reconciliation reinforcement was not persisted")
             _relate(graph, matched["belief_id"], "SUPPORTED_BY", candidate["belief_id"],
                     source_ref=f"reconcile:{candidate['belief_id']}", session_id=session_id)
         _set_status(database, candidate["belief_id"], "archived")

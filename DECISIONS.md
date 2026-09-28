@@ -52,6 +52,15 @@ and retry idempotently. This preserves standalone helper compatibility and trust
 checks. Immediate readback does not detect later triggers removing checked links
 or validate every confidence, graph, audit or metadata effect.
 
+Reinforcement follow-up (2026-09-28) reproduced false success on an ignored
+confidence/count UPDATE. Check the shared helper's persisted row against the
+pre-write confidence (capped at 0.98) and count plus one in reconciliation only.
+The helper returning a row is not proof it changed. ABORT/IGNORE and independent
+AFTER-trigger field reversals must roll back the whole job; capped confidence
+still requires a count increment. Fresh CLI refusal/retry and idempotency preserve
+standalone compatibility. Timestamp writes, later-trigger changes, graph/audit
+suppression and historical repair remain outside this check.
+
 Tests cover four cross-process approval interleavings, approval committed first via
 CLI, split-Database helper rejection, ABORT/IGNORE on the second decision, complete
 row rollback and fresh-process CLI retry. Existing import/extract/CLI/recall tests

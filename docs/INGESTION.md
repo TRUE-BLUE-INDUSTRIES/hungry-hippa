@@ -260,7 +260,9 @@ Job creation is read back before any decisions; completion status, timestamp and
 all candidate/classification counts are read back before commit. Archival and
 supersession status writes require one updated row and matching status readback.
 Duplicate/reinforcement evidence transfers read back every expected target link
-before continuing; already-present links remain valid. Missing evidence links,
+before continuing; already-present links remain valid. Reinforcement also reads
+back the expected capped confidence and incremented reinforcement count before
+archiving its candidate. Missing evidence links or reinforcement effects,
 SQL exceptions, suppressed/reversed status updates, missing job/decision inserts
 or mismatched completion fields roll back the whole reconciliation job, including
 earlier candidates, graph/evidence links and the job row. Retry reloads

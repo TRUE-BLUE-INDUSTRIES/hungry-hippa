@@ -1,7 +1,32 @@
 # Project state
 
-Updated 2026-09-27. Git is authoritative for code; no live store or deployed MCP
+Updated 2026-09-28. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
+
+## Autonomous maintenance — reinforcement persistence, 2026-09-28
+
+Started clean at `818ca25ad192779bbf555babc677c155a5a6ecb7` on
+`automation/hh-maintenance`; fetched main remains an ancestor. No equivalent fix
+found in inspected all-ref reconciliation history. Baseline 27/27; new regression
+reproduced false success after SQLite ignored reinforcement UPDATE (27/28).
+Reconciliation now requires persisted capped confidence and incremented count
+before candidate archival; mismatch rolls back its existing whole-job transaction.
+Shared semantic helper, schema and trust semantics remain unchanged.
+
+Targeted suite 28/28 PASS, including ABORT/IGNORE, capped confidence, independent
+AFTER-trigger field reversals, whole-job snapshots and fresh CLI refusal/retry.
+Read-only QA independently passed 28/28 before the cap case; security review found
+no blocker. QA's inline cap probe was policy-blocked; lead added the case to the
+suite and verified it. Full shared 31-step gate PASS via external temporary-XDG
+chat-offline wrapper: two live-chat SKIP/ENVIRONMENTAL, both synthetic live-embedding
+checks PASS. Import/extract/CLI/second-process recall retains visible EV-0001.
+
+Python 3.14.7; Linux 7.2.5-3-omarchy x86_64; AMD Ryzen 9 9950X3D, 32 logical CPUs.
+Tested this shift's diff over starting SHA with invented temporary stores only.
+No performance comparison or main/live-store/plugin/config/server changes.
+Timestamps, later-trigger mutations, graph/audit suppression and historical repair
+remain outside scope. Configured live chat not retested.
+Next: reproduce suppressed reconciliation graph relationship writes before extending checks.
 
 ## Autonomous maintenance — reconciliation evidence-link persistence, 2026-09-27
 

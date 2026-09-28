@@ -1151,6 +1151,70 @@ def check_evidence_link_failure_rolls_back() -> str:
     return "evidence INSERT ABORT/IGNORE rolls back earlier links/effects; CLI refuses, retries and is idempotent"
 
 
+def check_reinforcement_failure_rolls_back() -> str:
+    from hungry_hippa.db import Database
+
+    for fault in ("ABORT, 'fixture refusal'", "IGNORE", "CAPPED_IGNORE", "REVERT_CONFIDENCE", "REVERT_COUNT"):
+        path = _fresh_db()
+        target = _add_candidate(path, "project x uses method a")
+        if fault == "CAPPED_IGNORE":
+            with sqlite3.connect(path) as conn:
+                conn.execute("UPDATE beliefs SET confidence = 0.98 WHERE belief_id = ?",
+                             (target["belief_id"],))
+        db = Database(path)
+        db.record_ingest_reconcile_decision(
+            job_id="seed", candidate_id=target["belief_id"], classification="irrelevant")
+        earlier = _add_candidate(path, "the weather in paris is mild in april")
+        evidence = [db.add_evidence("invented reinforcement turn", "document", "test:reinforce")]
+        candidate = _add_candidate(path, "project x uses method a", evidence_ids=evidence)
+        assert reconcile_store(db, dry_run=True).decisions[-1].classification == "reinforcement"
+        tables = ("beliefs", "belief_evidence", "evidence", "entities", "relationships",
+                  "mutation_log", "counters", "ingest_reconcile_jobs", "ingest_reconcile_decisions")
+
+        def snapshot():
+            with sqlite3.connect(path) as conn:
+                return {table: conn.execute(f"SELECT * FROM {table}").fetchall() for table in tables}
+
+        before = snapshot()
+        original = _belief(path, target["belief_id"])
+        timing = "AFTER" if fault.startswith("REVERT") else "BEFORE"
+        field = "confidence" if fault == "REVERT_CONFIDENCE" else "reinforcement_count"
+        sql_fault = "IGNORE" if fault == "CAPPED_IGNORE" else fault
+        effect = (f"UPDATE beliefs SET {field} = OLD.{field} WHERE belief_id = OLD.belief_id"
+                  if fault.startswith("REVERT") else f"SELECT RAISE({sql_fault})")
+        with sqlite3.connect(path) as conn:
+            conn.execute(f"""CREATE TRIGGER refuse_reinforcement {timing} UPDATE OF reinforcement_count ON beliefs
+                WHEN NEW.belief_id = '{target['belief_id']}' AND NEW.reinforcement_count != OLD.reinforcement_count
+                BEGIN {effect}; END""")
+        try:
+            reconcile_store(db)
+        except (sqlite3.IntegrityError, RuntimeError):
+            pass
+        else:
+            raise AssertionError(f"missing reinforcement update reported success: {fault}")
+        assert snapshot() == before, f"partial reinforcement effects escaped rollback: {fault}"
+        refused = _run_cli(["ingest", "reconcile", "--apply"], env=_cli_env(path),
+                           cwd=os.path.dirname(path))
+        assert refused.returncode != 0, refused.stdout
+        assert snapshot() == before
+        with sqlite3.connect(path) as conn:
+            conn.execute("DROP TRIGGER refuse_reinforcement")
+        retry = _run_cli(["ingest", "reconcile", "--apply"], env=_cli_env(path),
+                         cwd=os.path.dirname(path))
+        assert retry.returncode == 0, retry.stderr
+        stored = _belief(path, target["belief_id"])
+        assert stored["confidence"] == min(0.98, original["confidence"] + 0.05)
+        assert stored["reinforcement_count"] == original["reinforcement_count"] + 1
+        assert set(evidence) <= set(stored["evidence_ids"])
+        assert _belief(path, candidate["belief_id"])["status"] == "archived"
+        assert db.get_ingest_reconcile_decision(earlier["belief_id"])
+        decision = db.get_ingest_reconcile_decision(candidate["belief_id"])
+        assert decision and decision["applied"]
+        assert reconcile_store(Database(path)).candidates_processed == 0
+        assert _belief(path, target["belief_id"]) == stored
+    return "reinforcement ABORT/IGNORE/field reversal rolls back whole job; CLI refusal, retry and idempotency"
+
+
 # --------------------------------------------------------------------------- runner
 
 def run_all() -> List[Dict[str, Any]]:
@@ -1166,6 +1230,7 @@ def run_all() -> List[Dict[str, Any]]:
             results.append({"name": name, "passed": False,
                             "detail": f"{type(e).__name__}: {e}"})
 
+    check("reinforcement_failure_rolls_back", check_reinforcement_failure_rolls_back)
     check("evidence_link_failure_rolls_back", check_evidence_link_failure_rolls_back)
     check("status_failure_rolls_back", check_status_failure_rolls_back)
     check("job_insert_failure_rolls_back", check_job_insert_failure_rolls_back)
