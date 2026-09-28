@@ -445,15 +445,33 @@ def _relate(
     dst_kind: str = "hypothesis",
     source_ref: str = "",
     session_id: str = "",
+    valid_from: Optional[str] = None,
 ) -> None:
     if graph is None or not src_id or not dst_id:
         return
-    graph.relate(
-        _entity_name(src_id), rel, _entity_name(dst_id),
+    expected = {
+        "src": _entity_name(src_id), "rel": rel, "dst": _entity_name(dst_id),
+        "confidence": 0.6, "source_type": "derived_pattern",
+        "source_ref": source_ref or f"reconcile:{src_id}:{dst_id}",
+        "status": "active", "valid_until": None,
+    }
+    related = graph.relate(
+        expected["src"], rel, expected["dst"],
         confidence=0.6, source_type="derived_pattern",
-        source_ref=source_ref or f"reconcile:{src_id}:{dst_id}",
+        source_ref=expected["source_ref"], valid_from=valid_from,
         src_type=src_kind, dst_type=dst_kind, session_id=session_id,
     )
+    if valid_from is not None:
+        expected["valid_from"] = valid_from
+
+    def _verify(conn) -> None:
+        # An allocated ID is not proof of insertion (RAISE(IGNORE) is silent).
+        row = conn.execute("SELECT * FROM relationships WHERE rel_id = ?",
+                           (related.get("rel_id"),)).fetchone()
+        if row is None or any(row[key] != value for key, value in expected.items()):
+            raise RuntimeError("reconciliation relationship was not persisted")
+
+    graph.db._run(_verify)
 
 
 def apply_decision(
@@ -588,12 +606,10 @@ def _apply_decision_locked(
                         _entity_name(candidate["belief_id"]),
                         reason="ingest reconcile supersession", session_id=session_id,
                     )
-                    graph.relate(
-                        _entity_name(candidate["belief_id"]), "SUPERSEDES",
-                        _entity_name(matched["belief_id"]),
-                        confidence=0.6, source_type="derived_pattern",
+                    _relate(
+                        graph, candidate["belief_id"], "SUPERSEDES", matched["belief_id"],
                         source_ref=f"reconcile:{candidate['belief_id']}",
-                        valid_from=now, src_type="hypothesis", dst_type="fact",
+                        valid_from=now, src_kind="hypothesis", dst_kind="fact",
                         session_id=session_id,
                     )
                 database.log_mutation(

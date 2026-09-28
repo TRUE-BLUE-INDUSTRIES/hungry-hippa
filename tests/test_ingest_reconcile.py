@@ -1215,6 +1215,77 @@ def check_reinforcement_failure_rolls_back() -> str:
     return "reinforcement ABORT/IGNORE/field reversal rolls back whole job; CLI refusal, retry and idempotency"
 
 
+def check_relationship_insert_failure_rolls_back() -> str:
+    from hungry_hippa.db import Database
+
+    cases = (
+        ("reinforcement", "project x uses method a", "project x uses method a", "SUPPORTED_BY"),
+        ("supersession", "project x uses method a", "project x now uses method b", "SUPERSEDES"),
+        ("contradiction", "the crane slot is Tuesday", "the crane slot is not Tuesday", "CONTRADICTED_BY"),
+        ("update", "the spare brass key is in the left workshop drawer",
+         "the spare brass key is in the left workshop drawer behind the calipers", "DERIVED_FROM"),
+    )
+    for classification, old_claim, new_claim, relation in cases:
+        for fault in ("ABORT, 'fixture refusal'", "IGNORE", "ALTER_SOURCE"):
+            path = _fresh_db()
+            target = _add_candidate(path, old_claim)
+            db = Database(path)
+            db.record_ingest_reconcile_decision(
+                job_id="seed", candidate_id=target["belief_id"], classification="irrelevant")
+            earlier = _add_candidate(path, "the weather in paris is mild in april")
+            candidate = _add_candidate(path, new_claim)
+            assert reconcile_store(db, dry_run=True).decisions[-1].classification == classification
+            tables = ("beliefs", "belief_evidence", "evidence", "entities", "relationships",
+                      "mutation_log", "counters", "ingest_reconcile_jobs", "ingest_reconcile_decisions")
+
+            def snapshot():
+                with sqlite3.connect(path) as conn:
+                    return {table: conn.execute(f"SELECT * FROM {table}").fetchall() for table in tables}
+
+            before = snapshot()
+            # Contradiction faults the second edge, proving the first rolls back too.
+            source = target if classification == "reinforcement" else candidate
+            timing = "AFTER" if fault == "ALTER_SOURCE" else "BEFORE"
+            effect = ("UPDATE relationships SET source_ref = 'fixture:wrong' WHERE rel_id = NEW.rel_id"
+                      if fault == "ALTER_SOURCE" else f"SELECT RAISE({fault})")
+            with sqlite3.connect(path) as conn:
+                conn.execute(f"""CREATE TRIGGER refuse_relationship {timing} INSERT ON relationships
+                    WHEN NEW.rel = '{relation}' AND NEW.src = 'belief:{source['belief_id']}'
+                    BEGIN {effect}; END""")
+            try:
+                reconcile_store(db)
+            except (sqlite3.IntegrityError, RuntimeError):
+                pass
+            else:
+                raise AssertionError(f"relationship failure reported success: {classification}/{fault}")
+            assert snapshot() == before, f"partial graph/effects escaped rollback: {classification}/{fault}"
+            refused = _run_cli(["ingest", "reconcile", "--apply"], env=_cli_env(path),
+                               cwd=os.path.dirname(path))
+            assert refused.returncode != 0, refused.stdout
+            assert snapshot() == before
+            with sqlite3.connect(path) as conn:
+                conn.execute("DROP TRIGGER refuse_relationship")
+            retry = _run_cli(["ingest", "reconcile", "--apply"], env=_cli_env(path),
+                             cwd=os.path.dirname(path))
+            assert retry.returncode == 0, retry.stderr
+            with sqlite3.connect(path) as conn:
+                rows = conn.execute(
+                    "SELECT src, rel, dst, status, source_type, source_ref FROM relationships"
+                ).fetchall()
+            src = f"belief:{source['belief_id']}"
+            dst = f"belief:{candidate['belief_id'] if source is target else target['belief_id']}"
+            expected = (src, relation, dst, "active", "derived_pattern", f"reconcile:{candidate['belief_id']}")
+            assert expected in rows, rows
+            assert len(rows) == (2 if classification == "contradiction" else 1), rows
+            assert db.get_ingest_reconcile_decision(earlier["belief_id"])
+            decision = db.get_ingest_reconcile_decision(candidate["belief_id"])
+            assert decision and decision["applied"]
+            after = snapshot()
+            assert reconcile_store(Database(path)).candidates_processed == 0
+            assert snapshot() == after
+    return "four graph insert paths refuse ABORT/IGNORE/provenance alteration; whole-job rollback and CLI retry"
+
+
 # --------------------------------------------------------------------------- runner
 
 def run_all() -> List[Dict[str, Any]]:
@@ -1230,6 +1301,7 @@ def run_all() -> List[Dict[str, Any]]:
             results.append({"name": name, "passed": False,
                             "detail": f"{type(e).__name__}: {e}"})
 
+    check("relationship_insert_failure_rolls_back", check_relationship_insert_failure_rolls_back)
     check("reinforcement_failure_rolls_back", check_reinforcement_failure_rolls_back)
     check("evidence_link_failure_rolls_back", check_evidence_link_failure_rolls_back)
     check("status_failure_rolls_back", check_status_failure_rolls_back)

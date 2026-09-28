@@ -3,6 +3,32 @@
 Updated 2026-09-28. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
 
+## Autonomous maintenance — relationship INSERT persistence, 2026-09-28
+
+Started clean at `844ebe8b7eccbbeb04c069e6ec922b4f4493b883` on
+`automation/hh-maintenance`; fetched main remains an ancestor. No equivalent fix
+found in inspected all-ref reconciliation history. Baseline 28/28; new regression
+reproduced ignored reinforcement relationship INSERT reporting success (28/29).
+Reconciliation now verifies the newly allocated relationship row's expected fields
+including source provenance, under its existing writer transaction. SUPERSEDES
+creation shares the wrapper; standalone graph API and graph=None stay unchanged.
+
+Targeted 29/29 PASS, covering four classification paths with ABORT/IGNORE/AFTER
+provenance alteration, second contradiction edge rollback, full checked job snapshots,
+fresh CLI refusal/retry and idempotency. Read-only QA independently passed twice;
+security source review found no blocker. QA's additional inline probe was policy-
+blocked, not a passing check. Full shared 31-step gate PASS through temporary-XDG
+chat-offline wrapper: two optional live-chat SKIP/ENVIRONMENTAL; both synthetic
+live-embedding checks PASS. Import/extract/CLI/second-process recall retains visible
+EV-0001 evidence. Configured live chat was not retested.
+
+Python 3.14.7; Linux 7.2.5-3-omarchy x86_64; AMD Ryzen 9 9950X3D, 32 logical CPUs.
+Tested shift diff over starting SHA using invented temporary stores only. No
+performance comparison, main/live-store/plugin/config/server/schema changes.
+Entity writes, relationship retirement UPDATEs, other metadata/audit suppression,
+later-trigger mutations and historical repair remain outside this bounded fix.
+Next: reproduce suppressed reconciliation relationship retirement UPDATEs.
+
 ## Autonomous maintenance — reinforcement persistence, 2026-09-28
 
 Started clean at `818ca25ad192779bbf555babc677c155a5a6ecb7` on

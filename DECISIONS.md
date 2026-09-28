@@ -61,6 +61,16 @@ still requires a count increment. Fresh CLI refusal/retry and idempotency preser
 standalone compatibility. Timestamp writes, later-trigger changes, graph/audit
 suppression and historical repair remain outside this check.
 
+Relationship-INSERT follow-up (2026-09-28) reproduced ignored graph writes being
+reported as applied. Read back the allocated relationship ID and expected endpoints,
+type, confidence, status, provenance and validity fields within reconciliation's
+existing transaction. Route SUPERSEDES creation through the same wrapper while
+preserving its explicit valid_from. Keep the shared graph API and graph=None behavior
+unchanged. Four classification paths cover ABORT/IGNORE/AFTER provenance alteration,
+including the second contradiction edge, whole-job rollback and fresh CLI retry.
+This is immediate row verification, not final commit-time integrity: entity writes,
+retirement UPDATEs, other metadata/audit suppression and later mutations are deferred.
+
 Tests cover four cross-process approval interleavings, approval committed first via
 CLI, split-Database helper rejection, ABORT/IGNORE on the second decision, complete
 row rollback and fresh-process CLI retry. Existing import/extract/CLI/recall tests

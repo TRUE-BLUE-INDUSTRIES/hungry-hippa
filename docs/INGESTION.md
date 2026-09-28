@@ -262,7 +262,11 @@ supersession status writes require one updated row and matching status readback.
 Duplicate/reinforcement evidence transfers read back every expected target link
 before continuing; already-present links remain valid. Reinforcement also reads
 back the expected capped confidence and incremented reinforcement count before
-archiving its candidate. Missing evidence links or reinforcement effects,
+archiving its candidate. New reconciliation graph relationships are read back by
+allocated ID, checking endpoints, relationship type, confidence, active status and
+source provenance (plus explicit supersession start time). Missing or immediately
+altered relationship rows also refuse; entity creation and retirement of existing
+graph edges are not covered by this check. Missing evidence links or reinforcement effects,
 SQL exceptions, suppressed/reversed status updates, missing job/decision inserts
 or mismatched completion fields roll back the whole reconciliation job, including
 earlier candidates, graph/evidence links and the job row. Retry reloads
