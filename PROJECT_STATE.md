@@ -1,7 +1,34 @@
 # Project state
 
-Updated 2026-09-28. Git is authoritative for code; no live store or deployed MCP
+Updated 2026-09-29. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
+
+## Autonomous maintenance — relationship retirement persistence, 2026-09-29
+
+Started clean at `4f4e6473af1748b670c2cc0b6233ed237e831fee` on
+`automation/hh-maintenance`; fetched main remains an ancestor. Inspected all-ref
+reconciliation history contains no equivalent fix. Baseline 29/29; new regression
+reproduced false success when SQLite ignored the second matching edge retirement
+UPDATE (29/30). Reconciliation now snapshots matching active edge IDs under its
+existing writer transaction, requires the expected update count, and reads back
+each edge's superseded status and nonempty valid_until. Empty matches remain valid;
+standalone graph helpers, graph=None behavior and trust rules are unchanged.
+
+Targeted 30/30 PASS covers IGNORE/ABORT and AFTER-trigger status/time reversal,
+whole-job rollback including earlier candidates, fresh CLI refusal/retry and
+idempotency. Read-only QA independently passed twice and identified a vacuous
+untouched-row assertion; strengthened it to exact expected-row equality before
+final gate. Full shared 31-step gate PASS through temporary-XDG chat-offline wrapper:
+two live-chat checks SKIP/ENVIRONMENTAL; both synthetic live-embedding checks PASS.
+Cross-process durable recall/provenance and ingestion evidence EV-0001 pass.
+Configured live chat was not retested. No production stores/plugins touched.
+
+Python 3.14.7; Linux 7.2.5-3-omarchy x86_64; AMD Ryzen 9 9950X3D, 32 logical CPUs.
+Tested this shift's diff over starting SHA using invented temporary stores only.
+No performance comparison, schema, main, installed-service or live-config changes.
+Arbitrary nonempty timestamp corruption, later-trigger mutations, entity writes,
+other metadata/audit suppression and historical repair remain outside scope.
+Next: reproduce suppressed reconciliation entity creation before extending checks.
 
 ## Autonomous maintenance — relationship INSERT persistence, 2026-09-28
 

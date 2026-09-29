@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-09-28",
+  "updated": "2026-09-29",
   "branch": "automation/hh-maintenance",
   "released": {
     "version": "1.0.0",
@@ -72,7 +72,8 @@
       "evidence_link_persistence_result": "Reproduced second reinforcement evidence INSERT IGNORE false success (26/27). Reconciliation-only link helper now verifies expected membership inside writer transaction. ABORT/IGNORE whole-job snapshots, fresh CLI refusal/retry and idempotency PASS. Targeted 27/27; QA repeated twice; security review no blocker; full 31-step gate PASS with two intentional live-chat SKIPs and two synthetic live-embedding passes. Later trigger mutations and other helper effects remain out of scope.",
       "reinforcement_persistence_result": "Reproduced ignored reinforcement UPDATE false success (27/28); reconciliation now checks persisted capped confidence and count increment before archival. ABORT/IGNORE, capped confidence, independent field reversal, whole-job rollback, CLI refusal/retry/idempotency PASS. Targeted 28/28; QA and security no blocker; full 31-step gate PASS with two intentional live-chat SKIPs and both synthetic live-embedding passes. Timestamps and later-trigger effects remain out of scope.",
       "relationship_insert_result": "Reproduced ignored reinforcement relationship INSERT false success (28/29). Reconciliation reads back expected new edge fields by allocated ID, including provenance; SUPERSEDES uses the same wrapper. Four classification paths with ABORT/IGNORE/AFTER provenance alteration pass whole-job rollback and fresh CLI refusal/retry/idempotency. Targeted 29/29, QA repeated twice, security review no blocker; full 31-step gate PASS with two intentional live-chat SKIPs and both synthetic live-embedding checks passing. Entity writes, edge retirement UPDATEs and later-trigger mutations remain out of scope.",
-      "next": "Reproduce suppressed reconciliation relationship retirement UPDATEs before extending persistence checks",
+      "relationship_retirement_result": "Reproduced ignored second matching edge retirement UPDATE reporting success (29/30). Reconciliation now checks locked active-ID snapshot, update count, persisted superseded status and nonempty valid_until. IGNORE/ABORT/AFTER status/time reversal pass whole-job rollback, fresh CLI refusal/retry/idempotency and unchanged history. Targeted 30/30; QA passed twice and its untouched-row assertion gap was strengthened before final 31-step gate PASS. Two intentional live-chat SKIPs, both synthetic embedding checks pass. Arbitrary nonempty timestamp corruption, entity writes and later-trigger mutation remain outside scope.",
+      "next": "Reproduce suppressed reconciliation entity creation before extending persistence checks",
       "limitations": "Not complete: whole-job locking may delay other writers; failed transactions leave no failed-job row. Other helper suppression, historical contamination and contradiction/update metadata remain. Approval does not replay stored denied decisions.",
       "evidence": ["tests/test_ingest_reconcile.py", "DECISIONS.md", "docs/INGESTION.md"]
     },

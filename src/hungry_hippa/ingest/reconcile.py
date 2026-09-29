@@ -474,6 +474,35 @@ def _relate(
     graph.db._run(_verify)
 
 
+def _retire_relationships(
+    graph: KnowledgeGraph, src: str, rel: str, dst: str, *, session_id: str,
+) -> None:
+    """Check retirement effects under reconciliation's existing writer lock."""
+    def _active(conn):
+        return [row[0] for row in conn.execute(
+            "SELECT rel_id FROM relationships "
+            "WHERE src = ? AND rel = ? AND dst = ? AND status = 'active'",
+            (src, rel, dst),
+        )]
+
+    expected_ids = graph.db._run(_active)
+    count = graph.supersede_relationship(
+        src, rel, dst, reason="ingest reconcile supersession", session_id=session_id,
+    )
+
+    def _verify(conn) -> None:
+        if count != len(expected_ids):
+            raise RuntimeError("reconciliation relationship retirement was not persisted")
+        for rel_id in expected_ids:
+            row = conn.execute(
+                "SELECT status, valid_until FROM relationships WHERE rel_id = ?", (rel_id,),
+            ).fetchone()
+            if row is None or row["status"] != "superseded" or not row["valid_until"]:
+                raise RuntimeError("reconciliation relationship retirement was not persisted")
+
+    graph.db._run(_verify)
+
+
 def apply_decision(
     decision: ReconcileDecision,
     *,
@@ -601,10 +630,9 @@ def _apply_decision_locked(
                                   f"supersedes:{matched['belief_id']}")
                 now = _db.now_iso()
                 if graph is not None:
-                    graph.supersede_relationship(
-                        _entity_name(matched["belief_id"]), "RELATED_TO",
-                        _entity_name(candidate["belief_id"]),
-                        reason="ingest reconcile supersession", session_id=session_id,
+                    _retire_relationships(
+                        graph, _entity_name(matched["belief_id"]), "RELATED_TO",
+                        _entity_name(candidate["belief_id"]), session_id=session_id,
                     )
                     _relate(
                         graph, candidate["belief_id"], "SUPERSEDES", matched["belief_id"],

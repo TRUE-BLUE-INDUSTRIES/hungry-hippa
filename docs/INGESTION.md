@@ -265,8 +265,11 @@ back the expected capped confidence and incremented reinforcement count before
 archiving its candidate. New reconciliation graph relationships are read back by
 allocated ID, checking endpoints, relationship type, confidence, active status and
 source provenance (plus explicit supersession start time). Missing or immediately
-altered relationship rows also refuse; entity creation and retirement of existing
-graph edges are not covered by this check. Missing evidence links or reinforcement effects,
+altered relationship rows also refuse. Retirement of matching active RELATED_TO
+edges snapshots their IDs, requires the matching update count and reads back each
+edge's superseded status and nonempty valid_until; an empty match remains valid.
+This does not validate arbitrary nonempty timestamp corruption, entity creation,
+or changes made by later triggers after readback. Missing evidence links or reinforcement effects,
 SQL exceptions, suppressed/reversed status updates, missing job/decision inserts
 or mismatched completion fields roll back the whole reconciliation job, including
 earlier candidates, graph/evidence links and the job row. Retry reloads
