@@ -1364,6 +1364,101 @@ def check_relationship_retirement_failure_rolls_back() -> str:
     return "retirement IGNORE/ABORT/status and time reversal roll back whole job; fresh CLI retry preserves history"
 
 
+def check_entity_insert_failure_rolls_back() -> str:
+    from hungry_hippa.db import Database
+
+    cases = (
+        ("reinforcement", "project x uses method a", "project x uses method a"),
+        ("supersession", "project x uses method a", "project x now uses method b"),
+        ("contradiction", "the crane slot is Tuesday", "the crane slot is not Tuesday"),
+        ("update", "the spare brass key is in the left workshop drawer",
+         "the spare brass key is in the left workshop drawer behind the calipers"),
+    )
+    for classification, old_claim, new_claim in cases:
+        for fault in ("IGNORE", "ABORT, 'fixture refusal'", "ALTER_NAME"):
+            path = _fresh_db()
+            target = _add_candidate(path, old_claim)
+            db = Database(path)
+            db.record_ingest_reconcile_decision(
+                job_id="seed", candidate_id=target["belief_id"], classification="irrelevant")
+            earlier = _add_candidate(path, "the weather in paris is mild in april")
+            candidate = _add_candidate(path, new_claim)
+            assert reconcile_store(db, dry_run=True).decisions[-1].classification == classification
+            tables = ("beliefs", "belief_evidence", "evidence", "entities", "relationships",
+                      "mutation_log", "counters", "ingest_reconcile_jobs", "ingest_reconcile_decisions")
+
+            def snapshot():
+                with sqlite3.connect(path) as conn:
+                    return {table: conn.execute(f"SELECT * FROM {table}").fetchall() for table in tables}
+
+            before = snapshot()
+            # Fault the second endpoint, so the first creation must also roll back.
+            endpoint = candidate if classification in ("reinforcement", "contradiction") else target
+            name = f"belief:{endpoint['belief_id']}"
+            timing = "AFTER" if fault == "ALTER_NAME" else "BEFORE"
+            effect = ("UPDATE entities SET name='fixture:wrong' WHERE entity_id=NEW.entity_id"
+                      if fault == "ALTER_NAME" else f"SELECT RAISE({fault})")
+            with sqlite3.connect(path) as conn:
+                conn.execute(f"""CREATE TRIGGER refuse_entity {timing} INSERT ON entities
+                    WHEN NEW.name='{name}' BEGIN {effect}; END""")
+            try:
+                reconcile_store(db)
+            except (sqlite3.IntegrityError, RuntimeError):
+                pass
+            else:
+                raise AssertionError(f"missing entity reported success: {classification}/{fault}")
+            assert snapshot() == before, f"partial entity/effects escaped rollback: {classification}/{fault}"
+            refused = _run_cli(["ingest", "reconcile", "--apply"], env=_cli_env(path),
+                               cwd=os.path.dirname(path))
+            assert refused.returncode != 0, refused.stdout
+            assert snapshot() == before
+            with sqlite3.connect(path) as conn:
+                conn.execute("DROP TRIGGER refuse_entity")
+            retry = _run_cli(["ingest", "reconcile", "--apply"], env=_cli_env(path),
+                             cwd=os.path.dirname(path))
+            assert retry.returncode == 0, retry.stderr
+            with sqlite3.connect(path) as conn:
+                names = {row[0] for row in conn.execute("SELECT name FROM entities")}
+                assert names == {f"belief:{target['belief_id']}", f"belief:{candidate['belief_id']}"}
+                assert conn.execute("SELECT COUNT(*) FROM relationships").fetchone()[0] == (
+                    2 if classification == "contradiction" else 1)
+            assert db.get_ingest_reconcile_decision(earlier["belief_id"])
+            decision = db.get_ingest_reconcile_decision(candidate["belief_id"])
+            assert decision and decision["applied"]
+            after = snapshot()
+            assert reconcile_store(Database(path)).candidates_processed == 0
+            assert snapshot() == after
+    return "four graph paths refuse entity IGNORE/ABORT/name alteration; whole-job rollback and fresh CLI retry"
+
+
+def check_existing_entities_preserved() -> str:
+    from hungry_hippa.db import Database
+    from hungry_hippa.graph import KnowledgeGraph
+
+    path = _fresh_db()
+    target = _add_candidate(path, "project x uses method a")
+    db = Database(path)
+    db.record_ingest_reconcile_decision(
+        job_id="seed", candidate_id=target["belief_id"], classification="irrelevant")
+    candidate = _add_candidate(path, "project x uses method a")
+    graph = KnowledgeGraph(db, {})
+    for belief in (target, candidate):
+        graph.get_or_create_entity(f"belief:{belief['belief_id']}", "concept",
+                                   properties={"fixture": "keep"})
+    with sqlite3.connect(path) as conn:
+        before = conn.execute("SELECT * FROM entities ORDER BY entity_id").fetchall()
+    assert len(before) == 2
+    result = _run_cli(["ingest", "reconcile", "--apply"], env=_cli_env(path),
+                      cwd=os.path.dirname(path))
+    assert result.returncode == 0, result.stderr
+    decision = db.get_ingest_reconcile_decision(candidate["belief_id"])
+    assert decision and decision["applied"]
+    with sqlite3.connect(path) as conn:
+        assert conn.execute("SELECT * FROM entities ORDER BY entity_id").fetchall() == before
+        assert conn.execute("SELECT COUNT(*) FROM relationships WHERE rel='SUPPORTED_BY'").fetchone()[0] == 1
+    return "existing endpoint types/properties and full rows preserved across CLI reconciliation"
+
+
 # --------------------------------------------------------------------------- runner
 
 def run_all() -> List[Dict[str, Any]]:
@@ -1379,6 +1474,8 @@ def run_all() -> List[Dict[str, Any]]:
             results.append({"name": name, "passed": False,
                             "detail": f"{type(e).__name__}: {e}"})
 
+    check("existing_entities_preserved", check_existing_entities_preserved)
+    check("entity_insert_failure_rolls_back", check_entity_insert_failure_rolls_back)
     check("relationship_retirement_failure_rolls_back", check_relationship_retirement_failure_rolls_back)
     check("relationship_insert_failure_rolls_back", check_relationship_insert_failure_rolls_back)
     check("reinforcement_failure_rolls_back", check_reinforcement_failure_rolls_back)

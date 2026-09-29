@@ -3,6 +3,35 @@
 Updated 2026-09-29. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
 
+## Autonomous maintenance — reconciliation entity persistence, 2026-09-29
+
+Started clean at `9e6dad32ce0d3a1d88c0cd426fcb3e3da15d1d2e` on
+`automation/hh-maintenance`; fetched main remains an ancestor. No equivalent fix
+found in inspected all-ref reconciliation history. Baseline 30/30; new regression
+reproduced successful reinforcement with a missing entity after INSERT IGNORE
+(30/31). Graph edges store endpoint names without foreign-key enforcement;
+reconciliation checked the edge but not node existence. It now reads back both
+endpoint names under its existing writer transaction, refusing dangling edges.
+Standalone graph APIs, schema and trust rules remain unchanged.
+
+Targeted suite reached 31/31; read-only QA independently repeated that twice and
+found a misleading second-endpoint comment/fixture for contradiction. Corrected
+the fixture and added existing differing-type/property node compatibility coverage.
+Final shared gate: reconciliation 32/32, all 31 steps PASS via external temporary-XDG
+chat-offline wrapper. Two optional live-chat checks SKIP/ENVIRONMENTAL; both
+synthetic live-embedding checks PASS. Cross-process durable recall/provenance and
+import/extract/CLI recall evidence EV-0001 pass. Configured live chat not retested.
+
+Regression covers four graph paths with IGNORE/ABORT/AFTER name alteration,
+whole-job rollback including earlier candidates and first node, fresh CLI
+refusal/retry/idempotency, and exact preservation of existing node rows.
+Python 3.14.7; Linux 7.2.5-3-omarchy x86_64; AMD Ryzen 9 9950X3D, 32 logical CPUs.
+Measured this shift's diff over starting SHA using invented temporary stores only.
+No performance comparison, main, live-store/plugin/config/server changes.
+Entity metadata correctness, later-trigger mutations, other metadata/audit/FTS
+suppression and historical repair remain outside scope.
+Next: reproduce suppressed reconciliation contradiction/update metadata writes.
+
 ## Autonomous maintenance — relationship retirement persistence, 2026-09-29
 
 Started clean at `4f4e6473af1748b670c2cc0b6233ed237e831fee` on

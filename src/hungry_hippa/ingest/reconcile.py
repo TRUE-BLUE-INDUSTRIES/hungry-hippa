@@ -470,6 +470,11 @@ def _relate(
                            (related.get("rel_id"),)).fetchone()
         if row is None or any(row[key] != value for key, value in expected.items()):
             raise RuntimeError("reconciliation relationship was not persisted")
+        # Edges store names, not foreign keys: a persisted edge can still dangle
+        # when entity creation was silently ignored. Existing node types are kept.
+        for name in (expected["src"], expected["dst"]):
+            if conn.execute("SELECT 1 FROM entities WHERE name = ?", (name,)).fetchone() is None:
+                raise RuntimeError("reconciliation relationship entity was not persisted")
 
     graph.db._run(_verify)
 

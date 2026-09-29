@@ -268,7 +268,11 @@ source provenance (plus explicit supersession start time). Missing or immediatel
 altered relationship rows also refuse. Retirement of matching active RELATED_TO
 edges snapshots their IDs, requires the matching update count and reads back each
 edge's superseded status and nonempty valid_until; an empty match remains valid.
-This does not validate arbitrary nonempty timestamp corruption, entity creation,
+Each new edge also requires both endpoint names to exist in entities inside the
+same transaction; ignored entity INSERTs or immediately renamed nodes refuse rather
+than leaving dangling edges. Existing node types/properties are preserved, not
+forced to match the suggested types of a new relationship.
+This does not validate arbitrary nonempty timestamp corruption, entity metadata,
 or changes made by later triggers after readback. Missing evidence links or reinforcement effects,
 SQL exceptions, suppressed/reversed status updates, missing job/decision inserts
 or mismatched completion fields roll back the whole reconciliation job, including
