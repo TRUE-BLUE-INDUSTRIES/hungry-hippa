@@ -275,6 +275,10 @@ forced to match the suggested types of a new relationship.
 Update/supersession derivation metadata is read back as the full expected list:
 missing new links or lost prior entries refuse and roll back the job. An
 already-present link remains valid even if its idempotent UPDATE is ignored.
+Contradiction linking also reads back both full expected lists against locked
+pre-write snapshots; a suppressed link or lost prior conflict rolls back the job.
+Already-linked and asymmetric pairs remain valid, without choosing a winner or
+changing either claim's quarantine/status/evidence.
 This does not validate arbitrary nonempty timestamp corruption, entity metadata,
 or changes made by later triggers after readback. Missing evidence links or reinforcement effects,
 SQL exceptions, suppressed/reversed status updates, missing job/decision inserts

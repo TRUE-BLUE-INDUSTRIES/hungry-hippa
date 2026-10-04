@@ -1,5 +1,17 @@
 # Engineering decisions
 
+## Contradiction persistence follow-up to ADR-009 (2026-10-04)
+
+Reproduced a silent candidate contradictions UPDATE committing an applied decision.
+Keep standalone semantic helper compatibility: reconciliation reads back both full
+lists against its existing writer-locked snapshots after the helper returns.
+Do not require an UPDATE count because already-linked pairs legitimately tolerate
+ignored redundant updates. Missing links or prior-entry loss must roll back the
+whole job, including earlier candidates. Test both rows with ABORT/IGNORE and
+AFTER-trigger reversal/prior loss, plus CLI refusal/retry and asymmetric/prelinked
+compatibility. This is immediate effect verification, not final commit-time
+integrity against later triggers, audit validation or historical repair.
+
 ## ADR-010 — Reuse the existing demo portability fix (2026-09-27)
 
 The scratch-TMPDIR transcript mismatch reproduced on maintenance at 414d4b7.

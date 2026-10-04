@@ -1243,6 +1243,108 @@ def check_existing_derivation_metadata() -> str:
     return "existing derivation links and prior entries preserved with ignored idempotent UPDATE"
 
 
+def check_existing_contradiction_metadata() -> str:
+    from hungry_hippa.db import Database
+
+    for prelinked in ("both", "candidate", "target"):
+        path = _fresh_db()
+        target = _add_candidate(path, "the crane slot is Tuesday")
+        db = Database(path)
+        db.record_ingest_reconcile_decision(
+            job_id="seed", candidate_id=target["belief_id"], classification="irrelevant")
+        candidate = _add_candidate(path, "the crane slot is not Tuesday")
+        expected = {}
+        with sqlite3.connect(path) as conn:
+            for side, row, other in (("candidate", candidate, target), ("target", target, candidate)):
+                prior = [f"fixture:{side}-prior"]
+                expected[row["belief_id"]] = prior + [other["belief_id"]]
+                if prelinked in ("both", side):
+                    prior.append(other["belief_id"])
+                conn.execute("UPDATE beliefs SET contradictions = ? WHERE belief_id = ?",
+                             (json.dumps(prior), row["belief_id"]))
+                if prelinked in ("both", side):
+                    conn.execute(f"""CREATE TRIGGER ignore_{side}_contradiction
+                        BEFORE UPDATE OF contradictions ON beliefs
+                        WHEN NEW.belief_id = '{row['belief_id']}'
+                        BEGIN SELECT RAISE(IGNORE); END""")
+        result = _run_cli(["ingest", "reconcile", "--apply"], env=_cli_env(path),
+                          cwd=os.path.dirname(path))
+        assert result.returncode == 0, result.stderr
+        for belief_id, links in expected.items():
+            assert json.loads(_belief(path, belief_id)["contradictions"]) == links
+        decision = db.get_ingest_reconcile_decision(candidate["belief_id"])
+        assert decision and decision["applied"] and decision["classification"] == "contradiction"
+    return "prelinked and asymmetric contradiction lists accept ignored redundant UPDATEs and preserve prior entries"
+
+
+def check_contradiction_metadata_failure_rolls_back() -> str:
+    from hungry_hippa.db import Database
+
+    for side in ("candidate", "target"):
+        for fault in ("IGNORE", "ABORT, 'fixture refusal'", "REVERSE", "DROP_PRIOR"):
+            path = _fresh_db()
+            target = _add_candidate(path, "the crane slot is Tuesday")
+            db = Database(path)
+            db.record_ingest_reconcile_decision(
+                job_id="seed", candidate_id=target["belief_id"], classification="irrelevant")
+            earlier = _add_candidate(path, "the weather in paris is mild in april")
+            candidate = _add_candidate(path, "the crane slot is not Tuesday")
+            assert reconcile_store(db, dry_run=True).decisions[-1].classification == "contradiction"
+            tables = ("beliefs", "belief_evidence", "evidence", "entities", "relationships",
+                      "mutation_log", "counters", "ingest_reconcile_jobs", "ingest_reconcile_decisions")
+
+            def snapshot():
+                with sqlite3.connect(path) as conn:
+                    return {table: conn.execute(f"SELECT * FROM {table}").fetchall() for table in tables}
+
+            original = ["fixture:prior-conflict", "fixture:second-conflict"]
+            with sqlite3.connect(path) as conn:
+                for row in (candidate, target):
+                    conn.execute("UPDATE beliefs SET contradictions = ? WHERE belief_id = ?",
+                                 (json.dumps(original), row["belief_id"]))
+            before = snapshot()
+            victim, other = (candidate, target) if side == "candidate" else (target, candidate)
+            timing = "AFTER" if fault in ("REVERSE", "DROP_PRIOR") else "BEFORE"
+            if fault == "DROP_PRIOR":
+                replacement = json.dumps([other["belief_id"]])
+                effect = (f"UPDATE beliefs SET contradictions = '{replacement}' "
+                          "WHERE belief_id = NEW.belief_id")
+            elif fault == "REVERSE":
+                effect = "UPDATE beliefs SET contradictions = OLD.contradictions WHERE belief_id = NEW.belief_id"
+            else:
+                effect = f"SELECT RAISE({fault})"
+            with sqlite3.connect(path) as conn:
+                conn.execute(f"""CREATE TRIGGER refuse_contradiction {timing} UPDATE OF contradictions ON beliefs
+                    WHEN NEW.belief_id = '{victim['belief_id']}' AND NEW.contradictions != OLD.contradictions
+                    BEGIN {effect}; END""")
+            try:
+                reconcile_store(db)
+            except (sqlite3.IntegrityError, RuntimeError):
+                pass
+            else:
+                raise AssertionError(f"contradiction metadata failure reported success: {side}/{fault}")
+            assert snapshot() == before, f"partial contradiction escaped rollback: {side}/{fault}"
+            refused = _run_cli(["ingest", "reconcile", "--apply"], env=_cli_env(path),
+                               cwd=os.path.dirname(path))
+            assert refused.returncode != 0, refused.stdout
+            assert snapshot() == before
+            with sqlite3.connect(path) as conn:
+                conn.execute("DROP TRIGGER refuse_contradiction")
+            retry = _run_cli(["ingest", "reconcile", "--apply"], env=_cli_env(path),
+                             cwd=os.path.dirname(path))
+            assert retry.returncode == 0, retry.stderr
+            for row, other_row in ((candidate, target), (target, candidate)):
+                assert json.loads(_belief(path, row["belief_id"])["contradictions"]) == (
+                    original + [other_row["belief_id"]])
+            assert db.get_ingest_reconcile_decision(earlier["belief_id"])
+            decision = db.get_ingest_reconcile_decision(candidate["belief_id"])
+            assert decision and decision["applied"]
+            after = snapshot()
+            assert reconcile_store(Database(path)).candidates_processed == 0
+            assert snapshot() == after
+    return "both contradiction lists refuse IGNORE/ABORT/reversal/prior loss; whole-job rollback and CLI retry"
+
+
 def check_derivation_metadata_failure_rolls_back() -> str:
     from hungry_hippa.db import Database
 
@@ -1572,6 +1674,8 @@ def run_all() -> List[Dict[str, Any]]:
             results.append({"name": name, "passed": False,
                             "detail": f"{type(e).__name__}: {e}"})
 
+    check("existing_contradiction_metadata", check_existing_contradiction_metadata)
+    check("contradiction_metadata_failure_rolls_back", check_contradiction_metadata_failure_rolls_back)
     check("existing_derivation_metadata", check_existing_derivation_metadata)
     check("derivation_metadata_failure_rolls_back", check_derivation_metadata_failure_rolls_back)
     check("existing_entities_preserved", check_existing_entities_preserved)

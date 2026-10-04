@@ -3,6 +3,31 @@
 Updated 2026-10-04. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
 
+## Autonomous maintenance — contradiction metadata persistence, 2026-10-04
+
+Started clean at `405976127445e993302d55065af9dec350080ec4` on
+`automation/hh-maintenance`; fetched main remains an ancestor. Baseline 34/34;
+new regression reproduced successful reconciliation with an ignored candidate
+contradiction-list UPDATE (34/35). Both complete lists are now read back against
+locked snapshots in the existing writer transaction, retaining prior conflicts.
+Standalone semantic APIs, schema, authority and quarantine rules are unchanged.
+
+Targeted 35/35 PASS; QA repeated it twice and security review found no blocker.
+Added their prelinked/asymmetric compatibility coverage before final full gate:
+reconciliation 36/36 and all 31 steps PASS through temporary-XDG chat-offline
+wrapper. Two optional live-chat checks SKIP/ENVIRONMENTAL; both synthetic
+live-embedding checks PASS. Durable cross-process recall/provenance and offline
+import/extract/recall evidence EV-0001 pass. Configured live chat not retested.
+
+Regression covers both rows with IGNORE/ABORT/AFTER reversal/prior-entry loss,
+whole-job rollback including earlier candidates, fresh CLI refusal/retry and
+idempotency. Tests use invented temporary stores only. Python 3.14.7; Linux
+7.2.5-3-omarchy x86_64; AMD Ryzen 9 9950X3D, 32 logical CPUs; gate measured the
+dirty implementation diff over starting SHA. No comparative performance claim.
+No main/live-store/plugin/config/server changes. Immediate readback cannot catch
+later-trigger mutations; audit/FTS suppression and historical repair remain open.
+Next: reproduce suppressed reconciliation audit writes before extending checks.
+
 ## Autonomous maintenance — derivation metadata persistence, 2026-10-04
 
 Started clean at `2e61de25bfadb4d86a4116110f3c5fabb18c3d78` on

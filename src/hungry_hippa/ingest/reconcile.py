@@ -595,6 +595,16 @@ def _apply_decision_locked(
             semantic.link_open_contradiction(
                 matched["belief_id"], candidate["belief_id"], session_id=session_id,
             )
+            # The helper's return value is not proof either UPDATE persisted.
+            # Check both full lists against the locked snapshots, keeping prior
+            # conflicts and accepting already-linked idempotent updates.
+            for row, other in ((matched, candidate), (candidate, matched)):
+                expected = list(row.get("contradictions") or [])
+                if other["belief_id"] not in expected:
+                    expected.append(other["belief_id"])
+                stored = semantic.get_belief(row["belief_id"])
+                if stored is None or stored.get("contradictions") != expected:
+                    raise RuntimeError("reconciliation contradiction metadata was not persisted")
             _relate(graph, matched["belief_id"], "CONTRADICTED_BY", candidate["belief_id"],
                     src_kind="fact", dst_kind="hypothesis",
                     source_ref=f"reconcile:{candidate['belief_id']}", session_id=session_id)
