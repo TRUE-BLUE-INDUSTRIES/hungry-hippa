@@ -1215,6 +1215,104 @@ def check_reinforcement_failure_rolls_back() -> str:
     return "reinforcement ABORT/IGNORE/field reversal rolls back whole job; CLI refusal, retry and idempotency"
 
 
+def check_existing_derivation_metadata() -> str:
+    from hungry_hippa.db import Database
+
+    for claim, prefix in (("project x now uses method b", "supersedes:"),
+                          ("project x uses method a behind the workshop", "update_of:")):
+        path = _fresh_db()
+        target = _add_candidate(path, "project x uses method a")
+        db = Database(path)
+        db.record_ingest_reconcile_decision(
+            job_id="seed", candidate_id=target["belief_id"], classification="irrelevant")
+        candidate = _add_candidate(path, claim)
+        expected = ["fixture:prior-source", prefix + target["belief_id"]]
+        with sqlite3.connect(path) as conn:
+            conn.execute("UPDATE beliefs SET derived_from = ? WHERE belief_id = ?",
+                         (json.dumps(expected), candidate["belief_id"]))
+            conn.execute(f"""CREATE TRIGGER ignore_existing_derivation BEFORE UPDATE OF derived_from ON beliefs
+                WHEN NEW.belief_id = '{candidate['belief_id']}'
+                BEGIN SELECT RAISE(IGNORE); END""")
+        preview = reconcile_store(db, dry_run=True)
+        assert preview.decisions[0].classification == ("supersession" if prefix == "supersedes:" else "update")
+        applied = _run_cli(["ingest", "reconcile", "--apply"], env=_cli_env(path), cwd=os.path.dirname(path))
+        assert applied.returncode == 0, applied.stderr
+        assert json.loads(_belief(path, candidate["belief_id"])["derived_from"]) == expected
+        decision = db.get_ingest_reconcile_decision(candidate["belief_id"])
+        assert decision and decision["applied"]
+    return "existing derivation links and prior entries preserved with ignored idempotent UPDATE"
+
+
+def check_derivation_metadata_failure_rolls_back() -> str:
+    from hungry_hippa.db import Database
+
+    cases = (
+        ("supersession", "project x uses method a", "project x now uses method b", "supersedes:"),
+        ("update", "the spare brass key is in the left workshop drawer",
+         "the spare brass key is in the left workshop drawer behind the calipers", "update_of:"),
+    )
+    for classification, old_claim, new_claim, prefix in cases:
+        for fault in ("IGNORE", "ABORT, 'fixture refusal'", "REVERSE", "DROP_PRIOR"):
+            path = _fresh_db()
+            target = _add_candidate(path, old_claim)
+            db = Database(path)
+            db.record_ingest_reconcile_decision(
+                job_id="seed", candidate_id=target["belief_id"], classification="irrelevant")
+            earlier = _add_candidate(path, "the weather in paris is mild in april")
+            candidate = _add_candidate(path, new_claim)
+            assert reconcile_store(db, dry_run=True).decisions[-1].classification == classification
+            tables = ("beliefs", "belief_evidence", "evidence", "entities", "relationships",
+                      "mutation_log", "counters", "ingest_reconcile_jobs", "ingest_reconcile_decisions")
+
+            def snapshot():
+                with sqlite3.connect(path) as conn:
+                    return {table: conn.execute(f"SELECT * FROM {table}").fetchall() for table in tables}
+
+            original = ["fixture:prior-source", "fixture:second-source"]
+            with sqlite3.connect(path) as conn:
+                conn.execute("UPDATE beliefs SET derived_from = ? WHERE belief_id = ?",
+                             (json.dumps(original), candidate["belief_id"]))
+            before = snapshot()
+            timing = "AFTER" if fault in ("REVERSE", "DROP_PRIOR") else "BEFORE"
+            if fault == "DROP_PRIOR":
+                expected_link = json.dumps([prefix + target["belief_id"]])
+                effect = (f"UPDATE beliefs SET derived_from = '{expected_link}' "
+                          "WHERE belief_id = NEW.belief_id")
+            elif fault == "REVERSE":
+                effect = "UPDATE beliefs SET derived_from = OLD.derived_from WHERE belief_id = NEW.belief_id"
+            else:
+                effect = f"SELECT RAISE({fault})"
+            with sqlite3.connect(path) as conn:
+                conn.execute(f"""CREATE TRIGGER refuse_derivation {timing} UPDATE OF derived_from ON beliefs
+                    WHEN NEW.belief_id = '{candidate['belief_id']}' AND NEW.derived_from != OLD.derived_from
+                    BEGIN {effect}; END""")
+            try:
+                reconcile_store(db)
+            except (sqlite3.IntegrityError, RuntimeError):
+                pass
+            else:
+                raise AssertionError(f"derivation failure reported success: {classification}/{fault}")
+            assert snapshot() == before, f"partial metadata/effects escaped rollback: {classification}/{fault}"
+            refused = _run_cli(["ingest", "reconcile", "--apply"], env=_cli_env(path),
+                               cwd=os.path.dirname(path))
+            assert refused.returncode != 0, refused.stdout
+            assert snapshot() == before
+            with sqlite3.connect(path) as conn:
+                conn.execute("DROP TRIGGER refuse_derivation")
+            retry = _run_cli(["ingest", "reconcile", "--apply"], env=_cli_env(path),
+                             cwd=os.path.dirname(path))
+            assert retry.returncode == 0, retry.stderr
+            assert json.loads(_belief(path, candidate["belief_id"])["derived_from"]) == (
+                original + [prefix + target["belief_id"]])
+            assert db.get_ingest_reconcile_decision(earlier["belief_id"])
+            decision = db.get_ingest_reconcile_decision(candidate["belief_id"])
+            assert decision and decision["applied"]
+            after = snapshot()
+            assert reconcile_store(Database(path)).candidates_processed == 0
+            assert snapshot() == after
+    return "update/supersession metadata IGNORE/ABORT/reversal roll back whole job; fresh CLI refusal/retry"
+
+
 def check_relationship_insert_failure_rolls_back() -> str:
     from hungry_hippa.db import Database
 
@@ -1474,6 +1572,8 @@ def run_all() -> List[Dict[str, Any]]:
             results.append({"name": name, "passed": False,
                             "detail": f"{type(e).__name__}: {e}"})
 
+    check("existing_derivation_metadata", check_existing_derivation_metadata)
+    check("derivation_metadata_failure_rolls_back", check_derivation_metadata_failure_rolls_back)
     check("existing_entities_preserved", check_existing_entities_preserved)
     check("entity_insert_failure_rolls_back", check_entity_insert_failure_rolls_back)
     check("relationship_retirement_failure_rolls_back", check_relationship_retirement_failure_rolls_back)

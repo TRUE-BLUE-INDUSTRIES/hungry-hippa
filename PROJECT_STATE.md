@@ -1,7 +1,34 @@
 # Project state
 
-Updated 2026-09-29. Git is authoritative for code; no live store or deployed MCP
+Updated 2026-10-04. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
+
+## Autonomous maintenance — derivation metadata persistence, 2026-10-04
+
+Started clean at `2e61de25bfadb4d86a4116110f3c5fabb18c3d78` on
+`automation/hh-maintenance`; fetched main remains an ancestor. No equivalent fix
+found in inspected all-ref reconciliation history. Repository lock acquired using
+a standalone scratch script after inline execution was policy-blocked.
+Baseline 32/32; new regression reproduced supersession success despite an ignored
+`derived_from` UPDATE (32/33). Reconciliation now reads back the full expected list
+inside its existing writer transaction; missing rows/links or lost prior entries
+raise and roll back the job. Existing-link idempotent UPDATE suppression is valid.
+
+Targeted 34/34 PASS; read-only QA repeated the earlier 33/33 suite twice and its
+prior-entry/compatibility coverage gaps were added before the gate. Security source
+review found no blocker. Full shared 31-step gate PASS through temporary-XDG
+chat-offline wrapper: two optional live-chat checks SKIP/ENVIRONMENTAL, both synthetic
+live-embedding checks PASS. Cross-process durable recall/provenance and offline
+import/extract/recall evidence EV-0001 pass. Configured live chat not retested.
+
+Regression covers update/supersession IGNORE/ABORT/AFTER reversal and prior-entry
+loss, whole-job rollback, fresh CLI refusal/retry/idempotency, and existing links.
+Python 3.14.7; Linux 7.2.5-3-omarchy x86_64; AMD Ryzen 9 9950X3D, 32 logical CPUs.
+Measured this shift's diff over starting SHA using invented temporary stores only.
+No performance comparison, schema, main, live-store/plugin/config/server changes.
+Immediate readback is not final commit-time integrity against later triggers;
+contradiction metadata, other helper suppression and historical repair remain open.
+Next: reproduce suppressed reconciliation contradiction metadata writes.
 
 ## Autonomous maintenance — reconciliation entity persistence, 2026-09-29
 

@@ -71,6 +71,14 @@ including the second contradiction edge, whole-job rollback and fresh CLI retry.
 This is immediate row verification, not final commit-time integrity: entity writes,
 retirement UPDATEs, other metadata/audit suppression and later mutations are deferred.
 
+Derivation metadata follow-up (2026-10-04) reproduced successful supersession with
+an ignored derived_from UPDATE. Read back the whole expected list, not only the new
+link: prior provenance must survive too. Permit ignored idempotent UPDATEs when the
+expected list already exists. Update/supersession fault tests cover IGNORE, ABORT,
+AFTER reversal and loss of prior entries, whole-job rollback and fresh CLI retry.
+Keep this inside the existing transaction and reconciliation helper. It does not
+repair historical rows or detect later writes invalidating earlier checks.
+
 Tests cover four cross-process approval interleavings, approval committed first via
 CLI, split-Database helper rejection, ABORT/IGNORE on the second decision, complete
 row rollback and fresh-process CLI retry. Existing import/extract/CLI/recall tests

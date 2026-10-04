@@ -272,6 +272,9 @@ Each new edge also requires both endpoint names to exist in entities inside the
 same transaction; ignored entity INSERTs or immediately renamed nodes refuse rather
 than leaving dangling edges. Existing node types/properties are preserved, not
 forced to match the suggested types of a new relationship.
+Update/supersession derivation metadata is read back as the full expected list:
+missing new links or lost prior entries refuse and roll back the job. An
+already-present link remains valid even if its idempotent UPDATE is ignored.
 This does not validate arbitrary nonempty timestamp corruption, entity metadata,
 or changes made by later triggers after readback. Missing evidence links or reinforcement effects,
 SQL exceptions, suppressed/reversed status updates, missing job/decision inserts

@@ -386,7 +386,7 @@ def _append_json_list(database: _db.Database, belief_id: str, field: str, value:
             f"SELECT {field} FROM beliefs WHERE belief_id = ?", (belief_id,)
         ).fetchone()
         if not row:
-            return
+            raise RuntimeError("reconciliation belief metadata target is missing")
         current = list(_db.jload(row[field], []) or [])
         if value not in current:
             current.append(value)
@@ -394,6 +394,13 @@ def _append_json_list(database: _db.Database, belief_id: str, field: str, value:
             f"UPDATE beliefs SET {field} = ?, updated_at = ? WHERE belief_id = ?",
             (_db.jdump(current), _db.now_iso(), belief_id),
         )
+        stored = conn.execute(
+            f"SELECT {field} FROM beliefs WHERE belief_id = ?", (belief_id,)
+        ).fetchone()
+        # Verify the full list: retaining the new link must not lose old provenance.
+        # Existing links are valid, even if an idempotent UPDATE is ignored.
+        if stored is None or _db.jload(stored[field], None) != current:
+            raise RuntimeError("reconciliation belief metadata was not persisted")
 
     database._run(_u, write=True)
 
