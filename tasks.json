@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-04",
+  "updated": "2026-10-05",
   "branch": "automation/hh-maintenance",
   "released": {
     "version": "1.0.0",
@@ -76,7 +76,8 @@
       "entity_persistence_result": "Reproduced ignored entity INSERT leaving a dangling relationship while reporting success (30/31). Reconciliation now checks both endpoint names exist inside its writer transaction. Four graph paths with IGNORE/ABORT/AFTER name alteration verify whole-job rollback and fresh CLI refusal/retry/idempotency. QA passed 31/31 twice; corrected its contradiction endpoint fixture finding and added existing-node type/property compatibility. Final reconciliation 32/32 and shared 31-step gate PASS; two intentional live-chat SKIPs, both synthetic live-embedding checks pass. Entity metadata, later triggers and historical repair remain outside scope.",
       "derivation_metadata_result": "Reproduced supersession success with ignored derived_from UPDATE (32/33). Reconciliation now reads back the full expected list inside its writer transaction; missing new links or lost prior entries roll back. Update/supersession IGNORE/ABORT/AFTER reversal/prior-entry loss, whole-job snapshots, fresh CLI refusal/retry/idempotency, and existing-link compatibility pass (34/34). QA repeated earlier 33/33 twice; its coverage gaps were addressed. Security review no blocker; full 31-step gate PASS with two intentional live-chat SKIPs and both synthetic live-embedding checks passing. Later triggers and historical repair remain out of scope.",
       "contradiction_metadata_result": "Reproduced ignored candidate contradiction UPDATE reporting success (34/35). Both complete lists now read back against locked snapshots before graph/decision effects. Both-side IGNORE/ABORT/AFTER reversal/prior loss, whole-job rollback, fresh CLI refusal/retry and prelinked/asymmetric compatibility pass (36/36). QA repeated earlier 35/35 twice, security no blocker; full 31-step gate PASS with two intentional live-chat SKIPs and both synthetic embedding checks passing. Standalone helper unchanged; later triggers and historical repair remain outside scope.",
-      "next": "Reproduce suppressed reconciliation audit writes before extending checks",
+      "audit_persistence_result": "Reproduced ignored explicit audit INSERT reporting success (36/37). Reconcile-only wrapper now requires one new row with expected redacted fields and nonempty timestamp under writer lock. Success and both denial paths cover IGNORE/ABORT, field alteration, extra rows, whole-job rollback and fresh CLI refusal/retry/idempotency. Redaction/cap compatibility passes. Targeted 38/38 and full 31-step gate PASS; two intentional live-chat environmental SKIPs. QA repeated earlier 37/37 twice; security source review no blocker (its test execution blocked by policy). Nested helper audit writes, later-trigger mutations and historical repair remain outside scope.",
+      "next": "Reproduce reconciliation FTS consistency under status changes before extending checks",
       "limitations": "Not complete: whole-job locking may delay other writers; failed transactions leave no failed-job row. Other helper suppression, later-trigger mutations and historical contamination remain. Approval does not replay stored denied decisions.",
       "evidence": ["tests/test_ingest_reconcile.py", "DECISIONS.md", "docs/INGESTION.md"]
     },

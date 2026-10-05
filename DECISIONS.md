@@ -1,5 +1,18 @@
 # Engineering decisions
 
+## Audit persistence follow-up to ADR-009 (2026-10-05)
+
+Reproduced an ignored explicit reconciliation audit INSERT committing effects and
+an applied decision. Keep Database.log_mutation and nested helper compatibility:
+a reconciliation-only wrapper snapshots the maximum audit ID under the existing
+writer lock and verifies exactly one new row, its expected redacted/capped fields,
+and a nonempty timestamp. A historical matching row cannot satisfy this check.
+Missing/altered/extra rows refuse and roll back the entire job, including earlier
+candidates. Cover success and both denial paths (which target the matched belief),
+IGNORE/ABORT, detail/session/timestamp faults, extra rows, fresh CLI retry, and
+redaction compatibility. This is immediate verification of explicit reconciliation
+logs only, not nested helper audit validation, later-trigger integrity or repair.
+
 ## Contradiction persistence follow-up to ADR-009 (2026-10-04)
 
 Reproduced a silent candidate contradictions UPDATE committing an applied decision.

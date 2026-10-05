@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .. import db as _db
+from ..limits import redact
 from ..config import load_config
 from ..graph import KnowledgeGraph
 from ..semantic import SemanticMemory, protection_reason
@@ -515,6 +516,28 @@ def _retire_relationships(
     graph.db._run(_verify)
 
 
+def _log_mutation(
+    database: _db.Database, action: str, target_kind: str, target_id: str,
+    detail: str, session_id: str,
+) -> None:
+    """Require a new, intact audit row under reconciliation's writer lock."""
+    previous_id = database._run(
+        lambda conn: conn.execute("SELECT COALESCE(MAX(id), 0) FROM mutation_log").fetchone()[0]
+    )
+    database.log_mutation(action, target_kind, target_id, detail, session_id)
+    expected = (action, target_kind, target_id, redact(detail)[:2000], session_id)
+
+    def _verify(conn) -> None:
+        rows = conn.execute(
+            "SELECT action, target_kind, target_id, detail, session_id, ts "
+            "FROM mutation_log WHERE id > ?", (previous_id,),
+        ).fetchall()
+        if len(rows) != 1 or tuple(rows[0])[:5] != expected or not rows[0]["ts"]:
+            raise RuntimeError("reconciliation audit row was not persisted")
+
+    database._run(_verify)
+
+
 def apply_decision(
     decision: ReconcileDecision,
     *,
@@ -556,7 +579,7 @@ def _apply_decision_locked(
         if matched and cand_evidence:
             _link_evidence(database, matched["belief_id"], cand_evidence, session_id)
         _set_status(database, candidate["belief_id"], "archived")
-        database.log_mutation(
+        _log_mutation(database,
             "reconcile_duplicate", "belief", candidate["belief_id"],
             f"matched={decision.matched_id}", session_id,
         )
@@ -566,7 +589,7 @@ def _apply_decision_locked(
             decision.applied = False
             decision.protected = "unapproved-candidate"
             decision.reason += "; unapproved candidate cannot strengthen established memory"
-            database.log_mutation(
+            _log_mutation(database,
                 "reconcile_reinforcement_denied", "belief", matched["belief_id"],
                 f"unapproved candidate={candidate['belief_id']}", session_id,
             )
@@ -584,7 +607,7 @@ def _apply_decision_locked(
             _relate(graph, matched["belief_id"], "SUPPORTED_BY", candidate["belief_id"],
                     source_ref=f"reconcile:{candidate['belief_id']}", session_id=session_id)
         _set_status(database, candidate["belief_id"], "archived")
-        database.log_mutation(
+        _log_mutation(database,
             "reconcile_reinforcement", "belief", candidate["belief_id"],
             f"matched={decision.matched_id}", session_id,
         )
@@ -611,7 +634,7 @@ def _apply_decision_locked(
             _relate(graph, candidate["belief_id"], "CONTRADICTED_BY", matched["belief_id"],
                     src_kind="hypothesis", dst_kind="fact",
                     source_ref=f"reconcile:{candidate['belief_id']}", session_id=session_id)
-        database.log_mutation(
+        _log_mutation(database,
             "reconcile_contradiction", "belief", candidate["belief_id"],
             f"matched={decision.matched_id} resolved=false", session_id,
         )
@@ -623,7 +646,7 @@ def _apply_decision_locked(
             _relate(graph, candidate["belief_id"], "DERIVED_FROM", matched["belief_id"],
                     src_kind="hypothesis", dst_kind="fact",
                     source_ref=f"reconcile:{candidate['belief_id']}", session_id=session_id)
-        database.log_mutation(
+        _log_mutation(database,
             "reconcile_update", "belief", candidate["belief_id"],
             f"matched={decision.matched_id}", session_id,
         )
@@ -640,7 +663,7 @@ def _apply_decision_locked(
                     f"{decision.reason}; protected:{protected} — existing claim kept, "
                     "candidate stays quarantined"
                 ).strip("; ")
-                database.log_mutation(
+                _log_mutation(database,
                     "reconcile_supersede_denied", "belief", matched["belief_id"],
                     f"protected:{protected} candidate={candidate['belief_id']}",
                     session_id,
@@ -662,13 +685,13 @@ def _apply_decision_locked(
                         valid_from=now, src_kind="hypothesis", dst_kind="fact",
                         session_id=session_id,
                     )
-                database.log_mutation(
+                _log_mutation(database,
                     "reconcile_supersession", "belief", candidate["belief_id"],
                     f"supersedes={matched['belief_id']}", session_id,
                 )
 
     elif classification in ("low-confidence", "irrelevant"):
-        database.log_mutation(
+        _log_mutation(database,
             f"reconcile_{classification.replace('-', '_')}", "belief",
             candidate["belief_id"],
             f"matched={decision.matched_id}", session_id,

@@ -1,7 +1,33 @@
 # Project state
 
-Updated 2026-10-04. Git is authoritative for code; no live store or deployed MCP
+Updated 2026-10-05. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
+
+## Autonomous maintenance — reconciliation audit persistence, 2026-10-05
+
+Started clean at `ba21830c555ef78b472816f9e25fdcbe042aafe3` on
+`automation/hh-maintenance`; fetched main remains an ancestor and inspected all-ref
+history contains no equivalent fix. Restored lock acquisition via a standalone
+scratch holder after inline execution was policy-blocked. Baseline 36/36; new
+regression reproduced ignored audit INSERT reporting success (36/37).
+Reconciliation now verifies each explicit success/denial audit row under its
+existing writer lock; standalone/nested helper logging remains unchanged.
+
+Targeted 38/38 PASS; QA independently repeated earlier 37/37 twice. QA/security
+coverage findings addressed: both matched-target denial paths, detail/session/empty
+timestamp alteration, extra rows, and redaction/cap compatibility. Security source
+review found no blocker; its independent test attempt was policy-blocked.
+Full shared gate: all 31 steps PASS via temporary-XDG chat-offline wrapper, with
+two optional live-chat checks SKIP/ENVIRONMENTAL (not pass). Cross-process durable
+recall/provenance and offline ingestion/CLI recall evidence EV-0001 pass.
+Configured live chat not retested; no production memory/config/server changes.
+
+Tests use invented temporary stores only. Python 3.14.7; Linux 7.2.5-3-omarchy
+x86_64; AMD Ryzen 9 9950X3D, 32 logical CPUs. Gate measured the implementation diff
+over starting SHA; no performance comparison. No main, schema or trust changes.
+Nested helper audit suppression, later-trigger mutation, FTS and historical repair
+remain outside scope. Next: reproduce reconciliation FTS consistency under status
+changes before extending checks.
 
 ## Autonomous maintenance — contradiction metadata persistence, 2026-10-04
 

@@ -934,6 +934,94 @@ def check_precommitted_approval_and_database_binding() -> str:
     return "CLI approval wins before lock; stale decisions recheck trust; split connections refused"
 
 
+def check_audit_failure_rolls_back_effects() -> str:
+    from hungry_hippa.db import Database
+
+    cases = ((scenario, fault) for scenario in ("supersession", "reinforcement_denied", "supersede_denied")
+             for fault in ("IGNORE", "ABORT", "ALTER", "TIMESTAMP", "IDENTITY", "EXTRA"))
+    for scenario, fault in cases:
+        path = _fresh_db()
+        target = (_add_candidate(path, "project x uses method a") if scenario == "supersession"
+                  else _add_established(path, "project x uses method a"))
+        db = Database(path)
+        if scenario == "supersession":
+            db.record_ingest_reconcile_decision(
+                job_id="seed", candidate_id=target["belief_id"], classification="irrelevant")
+        earlier = _add_candidate(path, "the garden gate is painted green")
+        db.record_ingest_reconcile_decision(
+            job_id="seed", candidate_id=earlier["belief_id"], classification="irrelevant")
+        first = _add_candidate(path, "the garden gate is painted green")
+        claim = ("project x uses method a" if scenario == "reinforcement_denied"
+                 else "project x now uses method b")
+        second = _add_candidate(path, claim)
+        audit_target = second["belief_id"] if scenario == "supersession" else target["belief_id"]
+        action = "reconcile_" + scenario
+        assert preview_pending(db).decisions[-1].classification == (
+            "reinforcement" if scenario == "reinforcement_denied" else "supersession")
+        tables = ("beliefs", "belief_evidence", "evidence", "entities", "relationships",
+                  "mutation_log", "counters", "ingest_reconcile_jobs", "ingest_reconcile_decisions")
+
+        def snapshot():
+            with sqlite3.connect(path) as conn:
+                return {table: conn.execute(f"SELECT * FROM {table}").fetchall() for table in tables}
+
+        before = snapshot()
+        timing = "BEFORE" if fault in ("IGNORE", "ABORT") else "AFTER"
+        body = {
+            "IGNORE": "SELECT RAISE(IGNORE);",
+            "ABORT": "SELECT RAISE(ABORT, 'fixture refusal');",
+            "ALTER": "UPDATE mutation_log SET detail = 'altered' WHERE id = NEW.id;",
+            "TIMESTAMP": "UPDATE mutation_log SET ts = '' WHERE id = NEW.id;",
+            "IDENTITY": "UPDATE mutation_log SET session_id = 'altered' WHERE id = NEW.id;",
+            "EXTRA": "INSERT INTO mutation_log(ts, action, target_kind) VALUES ('fixture', 'extra', 'belief');",
+        }[fault]
+        with sqlite3.connect(path) as conn:
+            conn.execute(f"""CREATE TRIGGER refuse_audit {timing} INSERT ON mutation_log
+                WHEN NEW.target_id = '{audit_target}' AND NEW.action = '{action}'
+                BEGIN {body} END""")
+        try:
+            reconcile_store(db)
+        except (sqlite3.IntegrityError, RuntimeError):
+            pass
+        else:
+            raise AssertionError(f"audit failure reported success: {fault}")
+        assert snapshot() == before, f"partial effects escaped rollback: {fault}"
+        refused = _run_cli(["ingest", "reconcile", "--apply"], env=_cli_env(path),
+                           cwd=os.path.dirname(path))
+        assert refused.returncode != 0, refused.stdout
+        assert snapshot() == before
+        with sqlite3.connect(path) as conn:
+            conn.execute("DROP TRIGGER refuse_audit")
+        retry = _run_cli(["ingest", "reconcile", "--apply"], env=_cli_env(path),
+                         cwd=os.path.dirname(path))
+        assert retry.returncode == 0, retry.stderr
+        assert db.get_ingest_reconcile_decision(first["belief_id"])
+        assert db.get_ingest_reconcile_decision(second["belief_id"])
+        with sqlite3.connect(path) as conn:
+            assert conn.execute("SELECT count(*) FROM mutation_log WHERE target_id = ? "
+                                "AND action = ?", (audit_target, action)).fetchone()[0] == 1
+        assert reconcile_store(Database(path)).candidates_processed == 0
+    return "success/denial audit faults roll back whole job; CLI refusal/retry and idempotency"
+
+
+def check_audit_redaction_compatibility() -> str:
+    from hungry_hippa.db import Database
+    from hungry_hippa.ingest.reconcile import _log_mutation
+    from hungry_hippa.limits import redact
+
+    path = _fresh_db()
+    db = Database(path)
+    detail = "password=synthetic-fixture-secret " + "x" * 2100
+    with db.transaction():
+        _log_mutation(db, "reconcile_fixture", "belief", "B-fixture", detail, "fixture")
+    with sqlite3.connect(path) as conn:
+        stored = conn.execute("SELECT detail FROM mutation_log WHERE action='reconcile_fixture'").fetchone()[0]
+    assert stored == redact(detail)[:2000]
+    assert "synthetic-fixture-secret" not in stored
+    assert len(stored) == 2000
+    return "checked audit preserves existing secret redaction and 2000-character cap"
+
+
 def check_decision_failure_rolls_back_effects() -> str:
     from hungry_hippa.db import Database
 
@@ -1674,6 +1762,8 @@ def run_all() -> List[Dict[str, Any]]:
             results.append({"name": name, "passed": False,
                             "detail": f"{type(e).__name__}: {e}"})
 
+    check("audit_redaction_compatibility", check_audit_redaction_compatibility)
+    check("audit_failure_rolls_back_effects", check_audit_failure_rolls_back_effects)
     check("existing_contradiction_metadata", check_existing_contradiction_metadata)
     check("contradiction_metadata_failure_rolls_back", check_contradiction_metadata_failure_rolls_back)
     check("existing_derivation_metadata", check_existing_derivation_metadata)

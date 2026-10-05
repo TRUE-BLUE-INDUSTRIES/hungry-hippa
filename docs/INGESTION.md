@@ -279,6 +279,10 @@ Contradiction linking also reads back both full expected lists against locked
 pre-write snapshots; a suppressed link or lost prior conflict rolls back the job.
 Already-linked and asymmetric pairs remain valid, without choosing a winner or
 changing either claim's quarantine/status/evidence.
+Explicit reconciliation success/denial audit writes require exactly one new row
+with the expected action, target, redacted/capped detail, session and a nonempty
+timestamp. Suppressed inserts or immediate field alterations roll back the job;
+standalone database logging and nested semantic/graph audit helpers are unchanged.
 This does not validate arbitrary nonempty timestamp corruption, entity metadata,
 or changes made by later triggers after readback. Missing evidence links or reinforcement effects,
 SQL exceptions, suppressed/reversed status updates, missing job/decision inserts
