@@ -1,5 +1,23 @@
 # Engineering decisions
 
+## ADR-011 — Reserve an active FTS recall window (2026-10-13)
+
+Reconciliation legitimately retains archived duplicate rows in the FTS history.
+Filtering status only after the bounded FTS query allowed those rows to consume
+all candidates and hide a durable active fact. Keep the historical query and its
+owner-only exclusion diagnostics, then supplement with a second query selecting
+active beliefs/episodes before LIMIT. Each window is bounded at twice recall's
+limit; existing kind/id deduplication, policy partition, ranking and context budget
+remain in force. The optional database query flag defaults off so semantic/graph
+callers retain historical behavior. No index deletion or schema migration.
+
+This pays for one additional FTS query rather than discarding diagnostics or
+iterating unbounded history. It does not prevent active unauthorized/quarantined
+matches from consuming the active window, change vectors, establish constant-time
+non-enumeration, or claim measured performance improvement. Verify actual CLI
+archival and second-process recall/evidence, episode status selection, historical
+compatibility, external actor denial, quarantine review and overlapping-hit dedupe.
+
 ## Audit persistence follow-up to ADR-009 (2026-10-05)
 
 Reproduced an ignored explicit reconciliation audit INSERT committing effects and

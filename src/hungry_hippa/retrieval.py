@@ -273,6 +273,11 @@ class RetrievalRouter:
         # 3) FTS keyword search
         fts_hits = self.db.fts_search(query, kinds=["episode", "belief"],
                                       limit=limit * 2)
+        # Keep the historical window for existing exclusion diagnostics, but
+        # reserve an independent bounded window for active rows. Filtering only
+        # after LIMIT lets archived duplicates hide the surviving memory.
+        fts_hits += self.db.fts_search(query, kinds=["episode", "belief"],
+                                       limit=limit * 2, active_only=True)
 
         # 4) assemble candidate items (status/policy filtering happens at step 6)
         for h in vec_hits:

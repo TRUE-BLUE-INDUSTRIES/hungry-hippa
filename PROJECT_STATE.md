@@ -1,7 +1,38 @@
 # Project state
 
-Updated 2026-10-05. Git is authoritative for code; no live store or deployed MCP
+Updated 2026-10-13. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
+
+## Autonomous maintenance — active FTS candidate window, 2026-10-13
+
+Started clean at `0dee2b6a4dbdc7ff907f309a72573b39355a854a` on
+`automation/hh-maintenance`; fetched main remains an ancestor. No equivalent fix
+found in inspected all-ref history. Reproduced a P1 recall failure: six archived
+reconciliation duplicates consume the FTS window, leaving limit-one recall empty
+although the established fact and evidence remain durable.
+
+Recall now supplements its historical FTS window with a separately bounded active
+belief/episode window whose status predicate precedes LIMIT. Historical index rows,
+low-level default search, owner exclusion diagnostics and downstream authorization
+are preserved. No schema, reconciliation writes, main or live installation changes.
+
+Targeted reconciliation 39/39, memory architecture 10/10 and existence oracle 6/6
+PASS. CLI archival followed by second-process recall returns the fact and provenance.
+QA independently passed the first two suites plus trust, supersession and prior
+oracle coverage. Security source review found no bypass; its requested supplement-
+only external-actor regression was added and passed. Reviewers' extra inline probes
+were policy-blocked, not passing checks.
+
+Full shared gate: all 31 steps PASS via external temporary-XDG chat-offline wrapper;
+two live-chat checks SKIP/ENVIRONMENTAL, both synthetic live-embedding checks PASS.
+Configured live chat was not retested. Python 3.14.7; Linux 7.2.5-3-omarchy x86_64;
+AMD Ryzen 9 9950X3D, 32 logical CPUs. Invented temporary stores only; gate measured
+this shift's diff over starting SHA. No comparative performance claim. One extra
+bounded FTS query is a deliberate compatibility cost; see ADR-011.
+
+Active quarantined/unauthorized matches can still consume the active candidate
+window; vector candidate budgeting is unchanged. Next: reproduce active-policy
+candidate starvation with an explicit actor before changing eligibility selection.
 
 ## Autonomous maintenance — reconciliation audit persistence, 2026-10-05
 

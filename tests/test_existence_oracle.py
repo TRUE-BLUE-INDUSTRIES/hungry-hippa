@@ -66,6 +66,49 @@ def _leak_surface(out: Dict[str, Any]) -> str:
                    "explain": out.get("explain", [])})
 
 
+def check_supplement_only_rows_keep_actor_boundary():
+    import sqlite3
+
+    for quarantined in (False, True):
+        owner, outsider = _pair()
+        for _ in range(4):
+            owner.semantic.add_belief("cobalt", source_class="document")
+        with sqlite3.connect(owner.db.path) as conn:
+            conn.execute("UPDATE beliefs SET status='archived'")
+        ev = owner.db.add_evidence("invented hidden evidence", "document", "test:hidden", "")
+        b = owner.semantic.add_belief("cobalt concealed belief detail", source_class="user_explicit",
+                                      quarantined=quarantined, evidence_ids=[ev])
+        e = owner.remember_episode(context="cobalt concealed episode detail",
+                                   quarantined=quarantined, embed=False)
+        hidden_ids = {b["belief_id"], e["episode_id"]}
+        historical = owner.db.fts_search("cobalt", kinds=["belief", "episode"], limit=2)
+        assert not hidden_ids & {h["target_id"] for h in historical}, historical
+        active = owner.db.fts_search("cobalt", kinds=["belief", "episode"], limit=2, active_only=True)
+        assert hidden_ids == {h["target_id"] for h in active}, active
+        for review in (False, True):
+            out = outsider.recall("cobalt", limit=1, include_quarantined=review, explain=True)
+            miss = outsider.recall("unmatched wombat", limit=1, include_quarantined=review, explain=True)
+            assert _leak_surface(out) == _leak_surface(miss), (out, miss)
+            assert out["context"] == "" and out["context_package"]["items"] == []
+            assert out["context_package"]["excluded"] == miss["context_package"]["excluded"]
+            blob = json.dumps(out)
+            assert all(token not in blob for token in [*hidden_ids, ev, "concealed", "hidden evidence"]), out
+        # Operator-created row assigned to this actor is readable; selecting it
+        # through the supplement must not rewrite its origin or duplicate it.
+        allowed_ev = owner.db.add_evidence("invented shared evidence", "document", "test:shared", "")
+        allowed = owner.semantic.add_belief(
+            "cobalt", actor_id="probe-client", identity=trust.OWNER,
+            provenance=trust.PROVENANCE_USER, source_class="document", evidence_ids=[allowed_ev])
+        out = outsider.recall("cobalt", limit=1, explain=True)
+        assert [r.get("belief_id") for r in out["items"]] == [allowed["belief_id"]], out
+        assert out["items"][0]["claimed_source_class"] == "document"
+        assert out["items"][0]["verified_source_class"] == "document"
+        assert allowed_ev in out["sources"], out
+        overlap = outsider.recall("cobalt", limit=10, explain=True)
+        assert [r.get("belief_id") for r in overlap["items"]] == [allowed["belief_id"]], overlap
+    return "supplement-only beliefs/episodes preserve actor denial, evidence, provenance and deduplication"
+
+
 def check_hit_and_miss_are_indistinguishable():
     """A protected match and no match must produce identical metadata."""
     owner, untrusted = _pair()
@@ -176,6 +219,7 @@ def run_all() -> List[Dict[str, Any]]:
             results.append({"name": name, "passed": False,
                             "detail": f"{type(e).__name__}: {e}"})
 
+    check("supplement_only_rows_keep_actor_boundary", check_supplement_only_rows_keep_actor_boundary)
     check("hit_and_miss_are_indistinguishable", check_hit_and_miss_are_indistinguishable)
     check("no_protected_ids_or_counts_leak", check_no_protected_ids_or_counts_leak)
     check("owner_keeps_rich_diagnostics", check_owner_keeps_rich_diagnostics)

@@ -400,7 +400,12 @@ class Database:
         self._run(_del, write=True)
 
     def fts_search(self, query: str, kinds: Optional[List[str]] = None,
-                   limit: int = 10) -> List[Dict[str, Any]]:
+                   limit: int = 10, *, active_only: bool = False) -> List[Dict[str, Any]]:
+        """Search history by default; optionally select active beliefs/episodes only.
+
+        The active predicate precedes LIMIT so retired rows cannot consume the
+        recall candidate budget. This is status selection, not authorization.
+        """
         q = query.strip()
         if not q:
             return []
@@ -412,6 +417,15 @@ class Database:
         if kinds:
             sql += " AND target_kind IN (%s)" % ",".join("?" for _ in kinds)
             params.extend(kinds)
+        if active_only:
+            sql += """ AND (
+                (target_kind = 'belief' AND EXISTS (
+                    SELECT 1 FROM beliefs b WHERE b.belief_id = memory_fts.target_id
+                    AND b.status = 'active'))
+                OR (target_kind = 'episode' AND EXISTS (
+                    SELECT 1 FROM episodes e WHERE e.episode_id = memory_fts.target_id
+                    AND e.status = 'active'))
+            )"""
         sql += " ORDER BY score LIMIT ?"
         params.append(limit)
 

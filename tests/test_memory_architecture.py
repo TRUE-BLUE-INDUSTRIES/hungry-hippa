@@ -124,6 +124,32 @@ def check_superseded_belief_loses():
     return f"{b2['belief_id']} wins; {b1['belief_id']} kept as superseded history"
 
 
+def check_active_fts_window_preserves_policy():
+    c, path = _fresh("hh_ma_active_fts_")
+    retired = []
+    for status in ("archived", "superseded"):
+        b = c.semantic.add_belief("cobalt history", source_class="document")
+        e = c.remember_episode(context="cobalt history", embed=False)
+        with sqlite3.connect(path) as conn:
+            conn.execute("UPDATE beliefs SET status=? WHERE belief_id=?", (status, b["belief_id"]))
+            conn.execute("UPDATE episodes SET status=? WHERE episode_id=?", (status, e["episode_id"]))
+        retired.extend([b["belief_id"], e["episode_id"]])
+    active = c.remember_episode(context="cobalt current workshop log", embed=False)
+    hidden = c.remember_episode(context="cobalt restricted review log", quarantined=True, embed=False)
+    before = c.db.fts_search("cobalt", limit=20)
+    hits = c.db.fts_search("cobalt", kinds=["belief", "episode"], limit=20, active_only=True)
+    assert {h["target_id"] for h in hits} == {active["episode_id"], hidden["episode_id"]}, hits
+    assert c.db.fts_search("cobalt", limit=20) == before
+    assert len(before) == 6
+    out = c.recall("cobalt", limit=1)
+    assert _ids(out) == [active["episode_id"]], out
+    review = c.recall("cobalt", limit=10, include_quarantined=True)
+    assert hidden["episode_id"] in _ids(review), review
+    assert not set(retired) & set(_ids(review)), review
+    assert review["context_package"]["trust"]["authority"] == "none"
+    return "active episode window excludes retired rows, retains history and enforces quarantine"
+
+
 def check_explain_has_score_parts():
     c, _db = _fresh("hh_ma_ex_")
     claim = "the hoist cable inspection interval is quarterly"
@@ -392,6 +418,7 @@ def run_all() -> List[Dict[str, Any]]:
             results.append({"name": name, "passed": False,
                             "detail": f"{type(e).__name__}: {e}"})
 
+    check("active_fts_window_preserves_policy", check_active_fts_window_preserves_policy)
     check("quarantined_memory_not_recalled", check_quarantined_not_recalled)
     check("superseded_belief_loses_to_current", check_superseded_belief_loses)
     check("explain_returns_score_parts", check_explain_has_score_parts)

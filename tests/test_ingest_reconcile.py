@@ -756,6 +756,47 @@ def check_quarantined_chain_does_not_launder_into_established_memory():
     return "quarantine-only reinforcement/supersession chain cannot modify established memory"
 
 
+def check_archived_duplicates_do_not_starve_recall():
+    """Reconciled history must not consume the active FTS candidate budget."""
+    from hungry_hippa.db import Database
+
+    path = _fresh_db()
+    claim = "cobalt fixture uses brass"
+    candidates = [_add_candidate(path, claim) for _ in range(6)]
+    established = _add_established(path, claim, evidence="invented cobalt workshop note")
+    Database(path).link_evidence("belief", established["belief_id"],
+                                 [e for row in candidates for e in row["evidence_ids"]], "seed")
+    env = _cli_env(path)
+    cwd = os.path.dirname(path)
+    applied = _run_cli(["ingest", "reconcile", "--apply"], env=env, cwd=cwd)
+    assert applied.returncode == 0, applied.stderr
+    assert all(_belief(path, row["belief_id"])["status"] == "archived"
+               for row in candidates)
+    # Retaining history in FTS is intentional; it must remain available to
+    # low-level callers without preventing the active record from being found.
+    hits = Database(path).fts_search("cobalt", kinds=["belief"], limit=2)
+    assert len(hits) == 2 and all(h["target_id"] != established["belief_id"] for h in hits), hits
+    reader = subprocess.run(
+        [sys.executable, "-c",
+         "import sys,json; from hungry_hippa.config import load_config; "
+         "from hungry_hippa.controller import MemoryController; "
+         "from hungry_hippa import trust; "
+         "cfg=load_config(); cfg['retrieval']['vectors_enabled']=False; "
+         "c=MemoryController(cfg,db_path=sys.argv[1]); "
+         "c.bind_session(session_id='reader',platform='cli',trust=trust.local_binding('primary')); "
+         "print(json.dumps(c.recall('cobalt',limit=1)))", path],
+        env=env, cwd=cwd, capture_output=True, text=True, timeout=120,
+    )
+    assert reader.returncode == 0, reader.stderr
+    recalled = json.loads(reader.stdout)
+    assert [r.get("belief_id") for r in recalled["items"]] == [established["belief_id"]], recalled
+    assert established["evidence_id"] in recalled["items"][0]["evidence_ids"], recalled
+    assert candidates[0]["evidence_ids"][0] in recalled["sources"], recalled
+    assert recalled["items"][0]["verified_source_class"] == "user_explicit", recalled
+    assert any(e.get("reason") == "archived" for e in recalled["excluded"]), recalled
+    return "CLI archives six duplicates; second-process limit-one recall retains active fact and provenance"
+
+
 def check_unapproved_import_cannot_change_durable_memory():
     """Import/extract -> CLI reconcile -> separate-process recall and evidence."""
     from hungry_hippa.db import Database
@@ -1762,6 +1803,7 @@ def run_all() -> List[Dict[str, Any]]:
             results.append({"name": name, "passed": False,
                             "detail": f"{type(e).__name__}: {e}"})
 
+    check("archived_duplicates_do_not_starve_recall", check_archived_duplicates_do_not_starve_recall)
     check("audit_redaction_compatibility", check_audit_redaction_compatibility)
     check("audit_failure_rolls_back_effects", check_audit_failure_rolls_back_effects)
     check("existing_contradiction_metadata", check_existing_contradiction_metadata)

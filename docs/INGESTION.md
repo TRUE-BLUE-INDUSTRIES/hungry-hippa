@@ -5,6 +5,16 @@ original bytes and canonical conversations separately from derived memory.
 Importing does **not** create beliefs, episodes, embeddings or recall results.
 Model extraction and additional provider adapters remain follow-up work.
 
+### Maintenance-branch recall after reconciliation
+
+Archived duplicates and superseded beliefs remain stored with their history.
+Recall supplements its historical keyword-search window with a bounded active
+belief/episode window, so retired matches cannot occupy every keyword candidate
+slot. Existing authorization/quarantine filtering and context limits still apply;
+owner exclusion diagnostics remain available. This is not a remedy for active
+quarantined/unauthorized matches crowding the candidate limit or for vector-only
+ranking misses. No history is deleted or reindexed by this change.
+
 ### Maintenance-branch extraction safety
 
 The integrated `automation/hh-maintenance` extractor refuses any batch containing
