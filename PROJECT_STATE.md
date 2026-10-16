@@ -1,7 +1,35 @@
 # Project state
 
-Updated 2026-10-13. Git is authoritative for code; no live store or deployed MCP
+Updated 2026-10-16. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
+
+## Autonomous maintenance — quarantine FTS candidate window, 2026-10-16
+
+Started clean at `836194b7b43f274197f3af38b77acbbb1ed1abd3` on
+`automation/hh-maintenance`; fetched main remains an ancestor. No equivalent fix
+found in inspected all-ref history. Reproduced a P1 failure: six active quarantined
+matches hide a durable approved fact from fresh-process limit-one owner recall.
+The supplemental active FTS query now excludes quarantine before LIMIT for normal
+recall; explicit review, historical diagnostics and downstream authorization stay.
+
+New regression failed with empty recall before the fix. Follow-up fixture failures
+were corrected: review legitimately deduplicates identical claims, and episode
+provenance uses claimed_source_class/source_refs rather than source_class.
+Final architecture 11/11, oracle 6/6 PASS. QA independently passed architecture,
+oracle and quarantine CLI 8/8; security review passed architecture/oracle and found
+no blocker. Added exact episode-source and independent query-flag coverage from
+review before the gate. All 31 shared gate steps PASS via temporary-XDG chat-offline
+wrapper; two live-chat checks SKIP/ENVIRONMENTAL, both synthetic live-embedding
+checks PASS. Configured live chat not retested. Offline ingestion/CLI recall
+retains EV-0001; new belief/episode second-process recall retains the manual source.
+
+Python 3.14.7; Linux 7.2.5-3-omarchy x86_64; AMD Ryzen 9 9950X3D, 32 logical CPUs.
+Invented temporary stores only; gate measured this shift's implementation diff over
+starting SHA, before documentation updates. No performance comparison or live
+configuration/plugin/store changes. See ADR-011 follow-up. Remaining active
+other-actor/sensitivity crowding and vector limits are unchanged.
+Next: reproduce nonquarantined cross-actor candidate starvation before changing
+actor-aware selection.
 
 ## Autonomous maintenance — active FTS candidate window, 2026-10-13
 

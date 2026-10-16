@@ -274,10 +274,12 @@ class RetrievalRouter:
         fts_hits = self.db.fts_search(query, kinds=["episode", "belief"],
                                       limit=limit * 2)
         # Keep the historical window for existing exclusion diagnostics, but
-        # reserve an independent bounded window for active rows. Filtering only
-        # after LIMIT lets archived duplicates hide the surviving memory.
+        # reserve an independent bounded window for active rows eligible for
+        # quarantine review. Post-LIMIT filtering lets retired/unapproved matches
+        # hide the surviving memory. Actor authorization still runs at step 6.
         fts_hits += self.db.fts_search(query, kinds=["episode", "belief"],
-                                       limit=limit * 2, active_only=True)
+                                       limit=limit * 2, active_only=True,
+                                       exclude_quarantined=not include_quarantined)
 
         # 4) assemble candidate items (status/policy filtering happens at step 6)
         for h in vec_hits:

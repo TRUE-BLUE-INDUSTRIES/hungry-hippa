@@ -1,5 +1,22 @@
 # Engineering decisions
 
+## Quarantine selection follow-up to ADR-011 (2026-10-16)
+
+Six active quarantined matches filled both FTS windows and hid an approved fact
+from fresh-process limit-one owner recall. Extend the existing supplemental query
+with opt-in quarantine exclusion before LIMIT, enabled only for normal recall.
+Keep its active predicate, historical diagnostic query, downstream actor policy,
+review labeling and context budget unchanged. No additional query, schema change,
+index deletion or duplicated SQL actor-authorization policy.
+
+The database flag defaults off and is independent of active-only selection.
+Regression verifies both kinds, durable fresh-process source provenance, owner
+review with existing deduplication, and historical-search compatibility. QA and
+security review found no blocker; their exact episode-source and independent-flag
+coverage recommendations were added before the full gate. Other-actor/sensitivity
+crowding, vector budgets, timing security and general retrieval quality remain
+outside scope. No comparative performance claim.
+
 ## ADR-011 — Reserve an active FTS recall window (2026-10-13)
 
 Reconciliation legitimately retains archived duplicate rows in the FTS history.

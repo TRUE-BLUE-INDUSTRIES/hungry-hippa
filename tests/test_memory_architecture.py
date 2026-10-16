@@ -365,6 +365,71 @@ def check_v4_migrates_populated_v3_database():
     return f"pre-v4 DB upgraded in place; {os.path.basename(report['backup'])} backup written"
 
 
+def check_quarantine_cannot_starve_active_window():
+    """Unapproved matches must not hide a durable approved memory at limit one."""
+    import subprocess
+
+    for kind in ("belief", "episode"):
+        c, db = _fresh("hh_ma_quarantine_window_")
+        hidden = []
+        for i in range(6):
+            if kind == "belief":
+                row = c.semantic.add_belief("zircon fixture", quarantined=True,
+                                            source_class="document")
+            else:
+                row = c.remember_episode(context="zircon fixture", quarantined=True,
+                                         embed=False)
+            hidden.append(row[f"{kind}_id"])
+        text = "zircon fixture approved manual specifies a copper alignment pin"
+        if kind == "belief":
+            gold = c.semantic.add_belief(text, source_class="document",
+                                        derived_from=["invented-approved-manual"])
+        else:
+            gold = c.remember_episode(context=text, claimed_source_class="document",
+                                      source_refs=["invented-approved-manual"], embed=False)
+        gold_id = gold[f"{kind}_id"]
+        before = c.db.fts_search("zircon fixture", limit=20, active_only=True)
+        assert gold_id not in [h["target_id"] for h in before[:2]], before
+        code = """
+import json, sys
+from hungry_hippa.config import load_config
+from hungry_hippa.controller import MemoryController
+cfg = load_config()
+cfg['retrieval']['vectors_enabled'] = False
+cfg['manager'] = {'enabled': False}
+c = MemoryController(cfg, db_path=sys.argv[1])
+c.bind_session(session_id='quarantine-window-reader', platform='cli', actor_id='primary')
+print(json.dumps(c.recall('zircon fixture', limit=1, explain=True)))
+"""
+        result = subprocess.run([sys.executable, "-c", code, db], capture_output=True,
+                                text=True, timeout=30, check=True)
+        out = json.loads(result.stdout)
+        assert _ids(out) == [gold_id], (kind, out)
+        assert "copper alignment pin" in out["context"], out
+        assert "document" in out["context"] and out["sources"], out
+        assert "invented-approved-manual" in out["sources"], out
+        assert not set(hidden) & set(_ids(out)), out
+        assert any(e["reason"] == "quarantined" for e in out["excluded"]), out
+        review = c.recall("zircon fixture", limit=20, include_quarantined=True)
+        assert set(hidden) & set(_ids(review)), review
+        reviewed_or_deduplicated = set(_ids(review)) | {
+            e["item"].split(":", 1)[1] for e in review["excluded"]
+            if e["reason"] == "duplicate"
+        }
+        assert set(hidden).issubset(reviewed_or_deduplicated), review
+        assert "[QUARANTINED]" in review["context"], review
+        assert c.db.fts_search("zircon fixture", limit=20, active_only=True) == before
+        # The new low-level flag is independent of active-only selection.
+        with sqlite3.connect(db) as conn:
+            table = "beliefs" if kind == "belief" else "episodes"
+            conn.execute(f"UPDATE {table} SET status='archived' WHERE {kind}_id=?", (gold_id,))
+        history = c.db.fts_search("zircon fixture", limit=20, exclude_quarantined=True)
+        assert [h["target_id"] for h in history] == [gold_id], history
+        assert c.db.fts_search("zircon fixture", limit=20, active_only=True,
+                               exclude_quarantined=True) == []
+    return "quarantine crowding cannot hide approved beliefs/episodes in fresh-process recall"
+
+
 def check_growth_recall_across_process():
     """A precise durable fact must survive competing routine episode hits."""
     import subprocess
@@ -418,6 +483,7 @@ def run_all() -> List[Dict[str, Any]]:
             results.append({"name": name, "passed": False,
                             "detail": f"{type(e).__name__}: {e}"})
 
+    check("quarantine_cannot_starve_active_window", check_quarantine_cannot_starve_active_window)
     check("active_fts_window_preserves_policy", check_active_fts_window_preserves_policy)
     check("quarantined_memory_not_recalled", check_quarantined_not_recalled)
     check("superseded_belief_loses_to_current", check_superseded_belief_loses)

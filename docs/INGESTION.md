@@ -10,10 +10,12 @@ Model extraction and additional provider adapters remain follow-up work.
 Archived duplicates and superseded beliefs remain stored with their history.
 Recall supplements its historical keyword-search window with a bounded active
 belief/episode window, so retired matches cannot occupy every keyword candidate
-slot. Existing authorization/quarantine filtering and context limits still apply;
-owner exclusion diagnostics remain available. This is not a remedy for active
-quarantined/unauthorized matches crowding the candidate limit or for vector-only
-ranking misses. No history is deleted or reindexed by this change.
+slot. During normal recall that window also excludes quarantined rows before its
+limit; explicit quarantine review retains them. Existing actor authorization and
+context limits still apply; owner exclusion diagnostics remain available. Active
+nonquarantined matches denied by actor/sensitivity policy can still crowd the
+candidate limit. Vector-only ranking misses are unchanged. No history is deleted
+or reindexed by these changes.
 
 ### Maintenance-branch extraction safety
 

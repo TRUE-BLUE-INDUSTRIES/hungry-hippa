@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-13",
+  "updated": "2026-10-16",
   "branch": "automation/hh-maintenance",
   "released": {
     "version": "1.0.0",
@@ -78,7 +78,8 @@
       "contradiction_metadata_result": "Reproduced ignored candidate contradiction UPDATE reporting success (34/35). Both complete lists now read back against locked snapshots before graph/decision effects. Both-side IGNORE/ABORT/AFTER reversal/prior loss, whole-job rollback, fresh CLI refusal/retry and prelinked/asymmetric compatibility pass (36/36). QA repeated earlier 35/35 twice, security no blocker; full 31-step gate PASS with two intentional live-chat SKIPs and both synthetic embedding checks passing. Standalone helper unchanged; later triggers and historical repair remain outside scope.",
       "audit_persistence_result": "Reproduced ignored explicit audit INSERT reporting success (36/37). Reconcile-only wrapper now requires one new row with expected redacted fields and nonempty timestamp under writer lock. Success and both denial paths cover IGNORE/ABORT, field alteration, extra rows, whole-job rollback and fresh CLI refusal/retry/idempotency. Redaction/cap compatibility passes. Targeted 38/38 and full 31-step gate PASS; two intentional live-chat environmental SKIPs. QA repeated earlier 37/37 twice; security source review no blocker (its test execution blocked by policy). Nested helper audit writes, later-trigger mutations and historical repair remain outside scope.",
       "fts_status_result": "Reproduced six archived duplicates crowding the FTS candidate window and empty second-process limit-one recall. Recall now unions bounded historical and active windows; status selection precedes active LIMIT, with unchanged downstream policy. CLI/fresh-process evidence regression passes; reconciliation 39/39, memory architecture 10/10, oracle 6/6. QA passed targeted suites; security requested supplemental cross-actor coverage now added. Full 31-step gate PASS via temporary chat-offline config, two live-chat SKIPs and both synthetic live-embedding checks PASS. Historical rows and exclusions preserved; active unauthorized/quarantined crowding and vector budgets remain outside scope (ADR-011).",
-      "next": "Reproduce active-policy candidate starvation with an explicit actor before changing eligibility selection",
+      "quarantine_window_result": "Reproduced six active quarantined matches hiding a durable approved fact in fresh-process limit-one owner recall (10/11). Supplemental active FTS query now excludes quarantine before LIMIT for normal recall; explicit review, historical defaults, diagnostics and downstream authorization unchanged. Architecture 11/11 and oracle 6/6 PASS; QA also quarantine CLI 8/8, security no blocker. Added exact episode-source and independent quarantine/status flag coverage from review. All 31 gate steps PASS via temporary chat-offline configuration, two live-chat SKIPs and both synthetic live-embedding checks PASS. Cross-actor/sensitivity crowding and vector limits remain outside scope.",
+      "next": "Reproduce nonquarantined cross-actor candidate starvation before changing actor-aware selection",
       "limitations": "Not complete: whole-job locking may delay other writers; failed transactions leave no failed-job row. Other helper suppression, later-trigger mutations and historical contamination remain. Approval does not replay stored denied decisions.",
       "evidence": ["tests/test_ingest_reconcile.py", "DECISIONS.md", "docs/INGESTION.md"]
     },
