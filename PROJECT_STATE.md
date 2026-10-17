@@ -1,7 +1,38 @@
 # Project state
 
-Updated 2026-10-16. Git is authoritative for code; no live store or deployed MCP
+Updated 2026-10-17. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
+
+## Autonomous maintenance — cross-actor FTS candidate window, 2026-10-17
+
+Started clean at `0238eb9d3d136a01bb7628670ebbe357d6113c7b` on
+`automation/hh-maintenance`; fetched main remains an ancestor. No equivalent fix
+found in inspected all-ref recent history. Reproduced a P1 failure: six active,
+nonquarantined other-actor matches hide an actor's own durable fact from
+fresh-process limit-one recall. The new regression failed with empty items.
+
+Supplemental active FTS selection now restricts non-owner/non-system callers to
+their normalized actor label before LIMIT. Owner/system callers, historical
+search, quarantine review and downstream read authorization are unchanged.
+No extra query, schema change or new dependencies. Exact stored-label matching
+is intentional; noncanonical direct-SQL labels remain a compatibility limitation.
+
+Baseline architecture 11/11 and oracle 6/6 PASS; reproduction oracle 6/7 FAIL;
+fixed oracle 7/7 and architecture 11/11 PASS. QA independently repeated both twice;
+security static review found no blocker. Added review-requested actor/identity,
+independent query flags, quoted labels, quarantine review and supplement-only
+sensitivity-denial coverage: final oracle 8/8 PASS. Both reviewers' extra inline
+probes were execution-policy-blocked, not passing checks.
+
+All 31 shared gate steps PASS via external temporary-XDG chat-offline wrapper;
+two live-chat checks SKIP/ENVIRONMENTAL. Configured live chat was not retested.
+Offline import/extract/CLI recall retains EV-0001; the new second-process
+belief/episode test retains linked evidence and untrusted-data framing.
+Python 3.14.7; Linux 7.2.5-3-omarchy x86_64; AMD Ryzen 9 9950X3D, 32 logical CPUs.
+Gate measured the implementation diff over starting SHA, before documentation
+updates, with invented scratch stores only. No comparative performance claim.
+See ADR-011 actor follow-up. Next: reproduce same-actor sensitivity crowding
+before extending candidate eligibility; vector limits remain unchanged.
 
 ## Autonomous maintenance — quarantine FTS candidate window, 2026-10-16
 

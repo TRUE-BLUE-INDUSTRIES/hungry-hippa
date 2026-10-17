@@ -1,5 +1,28 @@
 # Engineering decisions
 
+## Actor selection follow-up to ADR-011 (2026-10-17)
+
+Six active nonquarantined other-actor matches filled both FTS windows, hiding
+an actor's own durable memory in fresh-process limit-one recall. Restrict the
+existing supplemental query by exact actor label for non-owner/non-system
+callers before LIMIT. Keep historical queries, owner/system selection, bounded
+windows, quarantine review and final may_read authorization unchanged. This is
+candidate selection, not a new identity or authorization mechanism.
+
+The optional database actor_id defaults to None (no filter) and uses parameters,
+not SQL interpolation. Normal writers normalize stored labels; recall normalizes
+the caller using existing policy. Noncanonical labels created by direct SQL can
+still miss this supplement despite normalized policy acceptance; historical
+search compatibility remains tested. Do not silently migrate stored identities.
+
+Regression covers durable belief/episode recall with evidence, independent flags,
+quote-containing labels, padded/invalid callers, untrusted owner-label collisions,
+owner/system and legacy identity exemptions, own quarantine review, and private
+same-actor supplement-only denial. QA/security found no blocker; lead added their
+boundary matrix before the full gate. Same-actor sensitivity crowding, vector
+candidate limits, timing security and general recall-quality claims remain out
+of scope. No extra query or comparative performance claim.
+
 ## Quarantine selection follow-up to ADR-011 (2026-10-16)
 
 Six active quarantined matches filled both FTS windows and hid an approved fact

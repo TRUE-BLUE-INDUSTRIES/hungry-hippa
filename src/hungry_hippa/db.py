@@ -401,11 +401,14 @@ class Database:
 
     def fts_search(self, query: str, kinds: Optional[List[str]] = None,
                    limit: int = 10, *, active_only: bool = False,
-                   exclude_quarantined: bool = False) -> List[Dict[str, Any]]:
+                   exclude_quarantined: bool = False,
+                   actor_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Search history by default; optionally select eligible beliefs/episodes.
 
-        Selection precedes LIMIT so retired/quarantined rows cannot consume the
-        recall candidate budget. This is candidate selection, not authorization.
+        Selection precedes LIMIT so retired/quarantined/other-actor rows cannot
+        consume the recall candidate budget. actor_id matches the stored label
+        exactly (normal writers normalize it). None leaves actors unrestricted.
+        This is candidate selection, not authorization.
         """
         q = query.strip()
         if not q:
@@ -418,18 +421,20 @@ class Database:
         if kinds:
             sql += " AND target_kind IN (%s)" % ",".join("?" for _ in kinds)
             params.extend(kinds)
-        if active_only or exclude_quarantined:
+        if active_only or exclude_quarantined or actor_id is not None:
             sql += """ AND (
                 (target_kind = 'belief' AND EXISTS (
                     SELECT 1 FROM beliefs b WHERE b.belief_id = memory_fts.target_id
                     AND (? = 0 OR b.status = 'active')
-                    AND (? = 0 OR b.quarantined = 0)))
+                    AND (? = 0 OR b.quarantined = 0)
+                    AND (? IS NULL OR b.actor_id = ?)))
                 OR (target_kind = 'episode' AND EXISTS (
                     SELECT 1 FROM episodes e WHERE e.episode_id = memory_fts.target_id
                     AND (? = 0 OR e.status = 'active')
-                    AND (? = 0 OR e.quarantined = 0)))
+                    AND (? = 0 OR e.quarantined = 0)
+                    AND (? IS NULL OR e.actor_id = ?)))
             )"""
-            params.extend([active_only, exclude_quarantined] * 2)
+            params.extend([active_only, exclude_quarantined, actor_id, actor_id] * 2)
         sql += " ORDER BY score LIMIT ?"
         params.append(limit)
 

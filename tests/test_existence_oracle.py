@@ -109,6 +109,130 @@ def check_supplement_only_rows_keep_actor_boundary():
     return "supplement-only beliefs/episodes preserve actor denial, evidence, provenance and deduplication"
 
 
+def check_other_actors_cannot_starve_own_recall():
+    import subprocess
+
+    for kind in ("belief", "episode"):
+        owner, outsider = _pair()
+        for _ in range(6):
+            owner.semantic.add_belief("cobalt", source_class="document")
+        ev = owner.db.add_evidence("invented actor evidence", "document", "test:actor", "")
+        if kind == "belief":
+            own = owner.semantic.add_belief(
+                "cobalt assigned workshop detail", actor_id="probe-client", identity=trust.OWNER,
+                provenance=trust.PROVENANCE_USER, source_class="document", evidence_ids=[ev])
+            key = "belief_id"
+        else:
+            own = owner.episodic.remember_episode(
+                context="cobalt assigned workshop detail", actor_id="probe-client",
+                identity=trust.OWNER, evidence_ids=[ev])
+            key = "episode_id"
+        historical = owner.db.fts_search("cobalt", limit=2, active_only=True,
+                                         exclude_quarantined=True)
+        assert own[key] not in {h["target_id"] for h in historical}, historical
+        # New interpreter: source data and evidence must survive process boundaries.
+        code = """
+import json, sys
+from hungry_hippa.config import load_config
+from hungry_hippa.controller import MemoryController
+from hungry_hippa import trust
+cfg = load_config()
+cfg['retrieval']['vectors_enabled'] = False
+cfg['manager'] = {'enabled': False}
+c = MemoryController(cfg, db_path=sys.argv[1])
+c.bind_session(session_id='fresh', platform='mcp', trust=trust.external_binding('probe-client'))
+print(json.dumps(c.recall('cobalt', limit=1, explain=True)))
+"""
+        result = subprocess.run([sys.executable, "-c", code, owner.db.path],
+                                capture_output=True, text=True, check=True)
+        out = json.loads(result.stdout)
+        assert [r.get(key) for r in out["items"]] == [own[key]], out
+        assert ev in out["sources"], out
+        assert "assigned workshop detail" in out["context"], out
+        assert out["excluded"] == {"unauthorized": True,
+                                    "note": "excluded items are not enumerated for this caller"}
+        assert out["context_package"]["trust"]["authority"] == "none"
+    return "other-actor FTS crowding cannot hide own durable beliefs/episodes or evidence"
+
+
+def check_actor_window_selection_boundaries():
+    import sqlite3
+    from hungry_hippa import policy
+
+    owner, _ = _pair()
+    for _ in range(6):
+        owner.semantic.add_belief("cobalt", source_class="document")
+    actor = "probe'client"
+    own = owner.semantic.add_belief(
+        "cobalt assigned workshop detail", actor_id=actor, identity=trust.OWNER,
+        source_class="document")
+    q = owner.semantic.add_belief(
+        "cobalt quarantined workshop detail", actor_id=actor, identity=trust.OWNER,
+        source_class="document", quarantined=True)
+    retired = owner.semantic.add_belief(
+        "cobalt historical workshop detail", actor_id=actor, identity=trust.OWNER,
+        source_class="document")
+    with sqlite3.connect(owner.db.path) as conn:
+        conn.execute("UPDATE beliefs SET status='archived' WHERE belief_id=?", (retired['belief_id'],))
+    for active in (False, True):
+        for exclude in (False, True):
+            hits = owner.db.fts_search("cobalt", limit=20, actor_id=actor,
+                                       active_only=active, exclude_quarantined=exclude)
+            expected = {own['belief_id']}
+            if not active:
+                expected.add(retired['belief_id'])
+            if not exclude:
+                expected.add(q['belief_id'])
+            assert {h['target_id'] for h in hits} == expected, hits
+    recall = owner.retrieval.recall
+    for label in (actor, "  " + actor + "  "):
+        out = recall("cobalt", limit=1, actor_id=label, identity=trust.UNTRUSTED)
+        assert [r.get('belief_id') for r in out['items']] == [own['belief_id']], out
+    review = recall("cobalt", limit=10, actor_id=actor, identity=trust.UNTRUSTED,
+                    include_quarantined=True)
+    assert q['belief_id'] in {r.get('belief_id') for r in review['items']}, review
+    for label in ("primary", "owner", "   "):
+        out = recall("cobalt", limit=1, actor_id=label, identity=trust.UNTRUSTED)
+        assert out['items'] == [], out
+    for label, identity in (("non-owner-label", trust.OWNER),
+                             ("background", policy.IDENTITY_SYSTEM), ("primary", None)):
+        out = recall("cobalt", limit=1, actor_id=label, identity=identity)
+        assert out['count'] == 1, out
+        assert out['items'][0]['actor_id'] == 'primary', out
+
+    # Same-actor private rows reach the supplemental query, but may_read must
+    # still deny them. This directly exercises post-selection authorization.
+    for kind in ('belief', 'episode'):
+        c, outsider = _pair()
+        for _ in range(6):
+            c.semantic.add_belief('cobalt', source_class='document')
+        if kind == 'belief':
+            hidden = c.semantic.add_belief('cobalt private detail', actor_id='probe-client',
+                                           identity=trust.OWNER, sensitivity='private')
+            key = 'belief_id'
+        else:
+            hidden = c.episodic.remember_episode(context='cobalt private detail',
+                actor_id='probe-client', identity=trust.OWNER, sensitivity='restricted')
+            key = 'episode_id'
+        hits = c.db.fts_search('cobalt', limit=2, active_only=True, actor_id='probe-client')
+        assert [h['target_id'] for h in hits] == [hidden[key]], hits
+        out = outsider.recall('cobalt', limit=1, explain=True)
+        assert _leak_surface(out) == _leak_surface(outsider.recall('wombat', limit=1, explain=True))
+        assert 'private detail' not in json.dumps(out), out
+
+    # Direct SQL can create noncanonical labels that normal writers never emit.
+    # Exact candidate selection does not normalize stored labels; the historical
+    # window still passes such rows through the existing normalized read policy.
+    with sqlite3.connect(owner.db.path) as conn:
+        conn.execute('UPDATE beliefs SET actor_id=? WHERE belief_id=?',
+                     ('  ' + actor + '  ', own['belief_id']))
+    assert own['belief_id'] not in {h['target_id'] for h in owner.db.fts_search(
+        'cobalt', actor_id=actor, limit=20)}
+    out = recall('cobalt', actor_id=actor, identity=trust.UNTRUSTED, limit=20)
+    assert own['belief_id'] in {r.get('belief_id') for r in out['items']}, out
+    return 'actor filter flags, identity exemptions, normalized callers and downstream sensitivity denial'
+
+
 def check_hit_and_miss_are_indistinguishable():
     """A protected match and no match must produce identical metadata."""
     owner, untrusted = _pair()
@@ -219,6 +343,8 @@ def run_all() -> List[Dict[str, Any]]:
             results.append({"name": name, "passed": False,
                             "detail": f"{type(e).__name__}: {e}"})
 
+    check("actor_window_selection_boundaries", check_actor_window_selection_boundaries)
+    check("other_actors_cannot_starve_own_recall", check_other_actors_cannot_starve_own_recall)
     check("supplement_only_rows_keep_actor_boundary", check_supplement_only_rows_keep_actor_boundary)
     check("hit_and_miss_are_indistinguishable", check_hit_and_miss_are_indistinguishable)
     check("no_protected_ids_or_counts_leak", check_no_protected_ids_or_counts_leak)
