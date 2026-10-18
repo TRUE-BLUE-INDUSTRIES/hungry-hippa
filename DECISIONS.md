@@ -1,5 +1,28 @@
 # Engineering decisions
 
+## Sensitivity selection follow-up to ADR-011 (2026-10-18)
+
+Six same-actor internal/private/restricted matches could consume both bounded FTS
+windows and leave an authorized unclassified memory absent from limit-one recall.
+The supplemental query now optionally selects canonical `unclassified` sensitivity
+before LIMIT, enabled only for non-owner/non-system callers. Historical search,
+operator/system access, quarantine review semantics and downstream `may_read` stay
+unchanged. No extra query, schema, dependency or trust promotion is introduced.
+
+Exact stored-label matching is deliberate, as with the preceding actor filter.
+Normal writers canonicalize sensitivity; direct-SQL noncanonical labels (including
+unknown values normalized by policy to unclassified) retain historical-window
+compatibility but are not guaranteed a supplemental slot. No labels are migrated.
+This is candidate eligibility, not authorization: a forced sensitive supplemental
+candidate is still denied without leaking identifiers or content. Owner and system
+supplement-only reads and independent status/quarantine/actor/sensitivity flags
+are covered for beliefs and episodes. Fresh-process recall retains evidence.
+
+No general quality, timing-security or comparative performance claim. Vector
+candidate limits and noncanonical-label starvation remain outside this change.
+Next: reproduce noncanonical stored-label starvation and decide compatibility
+semantics before extending selection or changing stored data.
+
 ## Actor selection follow-up to ADR-011 (2026-10-17)
 
 Six active nonquarantined other-actor matches filled both FTS windows, hiding

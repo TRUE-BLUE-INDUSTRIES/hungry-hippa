@@ -1,7 +1,38 @@
 # Project state
 
-Updated 2026-10-17. Git is authoritative for code; no live store or deployed MCP
+Updated 2026-10-18. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
+
+## Autonomous maintenance — sensitivity FTS candidate window, 2026-10-18
+
+Started clean at `77f052a4a8ab75278c82959e34f35b5ae37af431` on
+`automation/hh-maintenance`; fetched main remains an ancestor. No equivalent fix
+found in inspected all-ref retrieval history. Reproduced a P1 failure: same-actor
+sensitive rows crowd both FTS windows, hiding a durable unclassified fact from
+fresh-process limit-one recall. Regression failed with empty items (oracle 8/9).
+
+Supplemental selection now requires canonical unclassified sensitivity for
+non-owner/non-system callers before LIMIT. Historical search, downstream policy,
+quarantine review and privileged reads remain unchanged. No extra query or schema
+change. Noncanonical direct-SQL labels remain a documented compatibility limit.
+
+Baseline oracle 8/8 and architecture 11/11 PASS. Fixed oracle 9/9 and architecture
+11/11 PASS. Read-only QA repeated oracle twice and passed architecture/security;
+security source review found no authorization regression. Both identified stale
+post-selection denial coverage. Added a forced-candidate negative control,
+independent query-flag matrix, sensitive owner/system supplement-only reads and
+noncanonical historical compatibility: final oracle 10/10 PASS.
+
+Full shared gate: all 31 steps successful through temporary-XDG chat-offline
+wrapper; two live-chat checks explicitly SKIP/ENVIRONMENTAL, both synthetic live
+embedding checks PASS. Configured live chat not retested; prior environmental
+load failure is not claimed resolved. Includes cross-process durable recall with
+evidence, ingestion E2E, MCP/auth/security, migrations, backup and wheel install.
+Tests used invented scratch stores. Python 3.14.7; Linux 7.2.5-3-omarchy x86_64;
+AMD Ryzen 9 9950X3D, 32 logical CPUs. Gate measured the implementation diff over
+starting SHA, before documentation updates; no comparative performance claim.
+See ADR-011 sensitivity follow-up. Next: reproduce noncanonical stored-label
+starvation before deciding compatibility semantics; vector limits are unchanged.
 
 ## Autonomous maintenance — cross-actor FTS candidate window, 2026-10-17
 

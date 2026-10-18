@@ -155,6 +155,107 @@ print(json.dumps(c.recall('cobalt', limit=1, explain=True)))
     return "other-actor FTS crowding cannot hide own durable beliefs/episodes or evidence"
 
 
+def check_sensitive_rows_cannot_starve_own_recall():
+    import subprocess
+
+    for kind in ("belief", "episode"):
+        for sensitivity in ("internal", "private", "restricted"):
+            owner, outsider = _pair()
+            for _ in range(6):
+                if kind == "belief":
+                    owner.semantic.add_belief("cobalt", actor_id="probe-client",
+                        identity=trust.OWNER, sensitivity=sensitivity)
+                else:
+                    owner.episodic.remember_episode(context="cobalt", actor_id="probe-client",
+                        identity=trust.OWNER, sensitivity=sensitivity)
+            ev = owner.db.add_evidence("invented public evidence", "document", "test:sensitivity", "")
+            if kind == "belief":
+                own = owner.semantic.add_belief("cobalt assigned workshop detail",
+                    actor_id="probe-client", identity=trust.OWNER, evidence_ids=[ev])
+                key = "belief_id"
+            else:
+                own = owner.episodic.remember_episode(context="cobalt assigned workshop detail",
+                    actor_id="probe-client", identity=trust.OWNER, evidence_ids=[ev])
+                key = "episode_id"
+            hits = owner.db.fts_search("cobalt", limit=2, active_only=True,
+                exclude_quarantined=True, actor_id="probe-client")
+            assert own[key] not in {h["target_id"] for h in hits}, hits
+            code = """
+import json, sys
+from hungry_hippa.config import load_config
+from hungry_hippa.controller import MemoryController
+from hungry_hippa import trust
+cfg = load_config()
+cfg['retrieval']['vectors_enabled'] = False
+cfg['manager'] = {'enabled': False}
+c = MemoryController(cfg, db_path=sys.argv[1])
+c.bind_session(session_id='fresh', platform='mcp', trust=trust.external_binding('probe-client'))
+print(json.dumps([c.recall('cobalt', limit=1, explain=True, include_quarantined=review)
+                  for review in (False, True)]))
+"""
+            result = subprocess.run([sys.executable, "-c", code, owner.db.path],
+                                    capture_output=True, text=True, check=True)
+            for out in json.loads(result.stdout):
+                assert [r.get(key) for r in out["items"]] == [own[key]], (kind, sensitivity, out)
+                assert ev in out["sources"], out
+                assert ev in out["items"][0]["evidence_ids"], out
+                assert "assigned workshop detail" in out["context"], out
+                assert out["context_package"]["trust"]["authority"] == "none"
+                assert out["excluded"] == {"unauthorized": True,
+                    "note": "excluded items are not enumerated for this caller"}
+            privileged = owner.recall("cobalt", limit=1)
+            assert privileged["items"][0]["sensitivity"] == sensitivity, privileged
+    return "same-actor sensitive matches cannot starve durable public belief/episode recall or review"
+
+
+def check_sensitivity_window_flags():
+    import itertools
+    import sqlite3
+
+    owner, _ = _pair()
+    rows = []
+    for kind, active, quarantine, actor, sensitivity in itertools.product(
+            ('belief', 'episode'), (False, True), (False, True),
+            ('probe-client', 'other'), ('unclassified', 'private')):
+        kwargs: Dict[str, Any] = dict(actor_id=actor, identity=trust.OWNER,
+                      quarantined=quarantine, sensitivity=sensitivity)
+        if kind == 'belief':
+            row = owner.semantic.add_belief('cobalt', **kwargs)
+            key, table = 'belief_id', 'beliefs'
+        else:
+            row = owner.episodic.remember_episode(context='cobalt', **kwargs)
+            key, table = 'episode_id', 'episodes'
+        if not active:
+            with sqlite3.connect(owner.db.path) as conn:
+                conn.execute(f"UPDATE {table} SET status='archived' WHERE {key}=?", (row[key],))
+        rows.append((row[key], active, quarantine, actor, sensitivity))
+    for active, exclude, actor, unclassified in itertools.product(
+            (False, True), (False, True), (None, 'probe-client'), (False, True)):
+        hits = owner.db.fts_search('cobalt', limit=100, active_only=active,
+            exclude_quarantined=exclude, actor_id=actor, unclassified_only=unclassified)
+        expected = {rid for rid, a, q, who, s in rows if
+                    (not active or a) and (not exclude or not q) and
+                    (actor is None or who == actor) and (not unclassified or s == 'unclassified')}
+        assert {h['target_id'] for h in hits} == expected, (active, exclude, actor, unclassified, hits)
+    # Direct SQL labels bypass normal writer canonicalization. Preserve historical
+    # search/policy compatibility without promising supplemental eligibility.
+    for kind in ('belief', 'episode'):
+        if kind == 'belief':
+            row = owner.semantic.add_belief('noncanonical', actor_id='probe-client', identity=trust.OWNER)
+            key, table = 'belief_id', 'beliefs'
+        else:
+            row = owner.episodic.remember_episode(context='noncanonical', actor_id='probe-client', identity=trust.OWNER)
+            key, table = 'episode_id', 'episodes'
+        for label in (' UNCLASSIFIED ', 'unknown-label'):
+            with sqlite3.connect(owner.db.path) as conn:
+                conn.execute(f"UPDATE {table} SET sensitivity=? WHERE {key}=?", (label, row[key]))
+            filtered = owner.db.fts_search('noncanonical', unclassified_only=True)
+            assert row[key] not in {h['target_id'] for h in filtered}
+            out = owner.retrieval.recall('noncanonical', actor_id='probe-client', identity=trust.UNTRUSTED)
+            assert row[key] in {r.get(key) for r in out['items']}, out
+    return 'independent sensitivity/status/quarantine/actor flags and noncanonical historical compatibility'
+
+
 def check_actor_window_selection_boundaries():
     import sqlite3
     from hungry_hippa import policy
@@ -200,12 +301,15 @@ def check_actor_window_selection_boundaries():
         assert out['count'] == 1, out
         assert out['items'][0]['actor_id'] == 'primary', out
 
-    # Same-actor private rows reach the supplemental query, but may_read must
-    # still deny them. This directly exercises post-selection authorization.
+    # Canonical private rows are removed by candidate selection. Force the
+    # previously observed hit through the supplement as a negative control to
+    # prove selection is not the authorization boundary.
     for kind in ('belief', 'episode'):
         c, outsider = _pair()
         for _ in range(6):
             c.semantic.add_belief('cobalt', source_class='document')
+        with sqlite3.connect(c.db.path) as conn:
+            conn.execute("UPDATE beliefs SET status='archived'")
         if kind == 'belief':
             hidden = c.semantic.add_belief('cobalt private detail', actor_id='probe-client',
                                            identity=trust.OWNER, sensitivity='private')
@@ -216,7 +320,22 @@ def check_actor_window_selection_boundaries():
             key = 'episode_id'
         hits = c.db.fts_search('cobalt', limit=2, active_only=True, actor_id='probe-client')
         assert [h['target_id'] for h in hits] == [hidden[key]], hits
+        for identity in (trust.OWNER, policy.IDENTITY_SYSTEM):
+            privileged = c.retrieval.recall('cobalt', limit=1,
+                actor_id='background', identity=identity)
+            assert hidden[key] in {r.get(key) for r in privileged['items']}, privileged
+        original_search = outsider.db.fts_search
+        reached = []
+
+        def forced_supplement(query, *args, **kwargs):
+            if query == 'cobalt' and kwargs.get('unclassified_only'):
+                reached.append(True)
+                return hits
+            return original_search(query, *args, **kwargs)
+
+        outsider.db.fts_search = forced_supplement
         out = outsider.recall('cobalt', limit=1, explain=True)
+        assert reached, 'negative control never reached the supplement'
         assert _leak_surface(out) == _leak_surface(outsider.recall('wombat', limit=1, explain=True))
         assert 'private detail' not in json.dumps(out), out
 
@@ -343,6 +462,8 @@ def run_all() -> List[Dict[str, Any]]:
             results.append({"name": name, "passed": False,
                             "detail": f"{type(e).__name__}: {e}"})
 
+    check("sensitivity_window_flags", check_sensitivity_window_flags)
+    check("sensitive_rows_cannot_starve_own_recall", check_sensitive_rows_cannot_starve_own_recall)
     check("actor_window_selection_boundaries", check_actor_window_selection_boundaries)
     check("other_actors_cannot_starve_own_recall", check_other_actors_cannot_starve_own_recall)
     check("supplement_only_rows_keep_actor_boundary", check_supplement_only_rows_keep_actor_boundary)

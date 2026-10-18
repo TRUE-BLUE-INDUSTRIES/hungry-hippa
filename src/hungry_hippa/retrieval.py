@@ -283,7 +283,8 @@ class RetrievalRouter:
         fts_hits += self.db.fts_search(query, kinds=["episode", "belief"],
                                        limit=limit * 2, active_only=True,
                                        exclude_quarantined=not include_quarantined,
-                                       actor_id=None if unrestricted else _policy.normalize_actor(actor_id))
+                                       actor_id=None if unrestricted else _policy.normalize_actor(actor_id),
+                                       unclassified_only=not unrestricted)
 
         # 4) assemble candidate items (status/policy filtering happens at step 6)
         for h in vec_hits:
