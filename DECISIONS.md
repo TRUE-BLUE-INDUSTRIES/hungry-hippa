@@ -1,5 +1,33 @@
 # Engineering decisions
 
+## Vector eligible-window follow-up to ADR-011 (2026-10-18)
+
+Vector-only recall could return empty when the raw cosine top-k contained only
+other-actor, sensitive, quarantined or retired records. FTS supplementation cannot
+recover a query without lexical overlap. Retain raw vector top-k for historical
+owner diagnostics and union a separately bounded eligible top-k before assembly.
+Both windows share one embedding request and cosine scan. The optional internal
+predicate receives joined status/actor/sensitivity/quarantine metadata and calls
+existing `may_read`; fetched rows still undergo ordinary downstream authorization.
+Orphan vectors remain compatible with raw search but never enter the supplement.
+No identity, schema, dependency, MCP surface or stored vector changes.
+
+For positive k, returned candidates are at most 2k, deduplicated by kind and ID.
+This is not bounded scan memory/CPU: the existing full-store scan remains, with
+additional indexed metadata joins, policy evaluations and an eligible sort.
+No comparative timing or live-model relevance claim. Existing zero/negative k
+semantics are unchanged, not newly validated. Normalized stored policy labels
+work through shared policy rather than SQL-only label matching; this does not
+change the existing FTS supplement's noncanonical-label limitation.
+
+Regression proves eight fresh-process synthetic cases with evidence and exactly
+one embedding call. Boundary coverage includes both memory kinds, positive-k
+bounds/overlap/ties/kind filtering/orphans, owner/system privileges, untrusted
+owner-label collisions, own versus third-party quarantine review, archived
+exclusion, padded/quoted labels and post-selection sensitivity changes. A record
+changed after selection is denied at fetch-time policy checks; this is not a
+transactional snapshot guarantee for changes after that final authorization.
+
 ## Sensitivity selection follow-up to ADR-011 (2026-10-18)
 
 Six same-actor internal/private/restricted matches could consume both bounded FTS

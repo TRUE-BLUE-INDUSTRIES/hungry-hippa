@@ -16,7 +16,7 @@ import math
 import struct
 import threading
 import urllib.request
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import urlparse
 
 from . import db as _db
@@ -176,31 +176,62 @@ class VectorStore:
     # ------------------------------------------------------------ similarity
 
     def search(self, query: str, kinds: Optional[List[str]] = None,
-               top_k: Optional[int] = None) -> List[Dict[str, Any]]:
-        """Vector search over stored embeddings, ranked by cosine similarity."""
+               top_k: Optional[int] = None, *,
+               supplement_eligible: Optional[Callable[[Dict[str, Any]], bool]] = None
+               ) -> List[Dict[str, Any]]:
+        """Rank vectors; optionally union a bounded eligible-memory window.
+
+        The internal predicate receives status/actor/sensitivity/quarantine metadata,
+        not text. Raw search stays unchanged. Both windows share one embedding and
+        cosine scan; downstream retrieval must still authorize fetched records.
+        """
         qvec = self.embed(query)
         if not qvec:
             return []
         top_k = top_k or int(self.ret.get("vector_top_k", 8))
 
         def _search(conn) -> List[Dict[str, Any]]:
-            sql = "SELECT * FROM vectors"
+            sql = "SELECT v.* FROM vectors v"
+            if supplement_eligible is not None:
+                sql = """SELECT v.*,
+                    COALESCE(b.belief_id, e.episode_id) AS memory_id,
+                    COALESCE(b.status, e.status) AS status,
+                    COALESCE(b.actor_id, e.actor_id) AS actor_id,
+                    COALESCE(b.sensitivity, e.sensitivity) AS sensitivity,
+                    COALESCE(b.quarantined, e.quarantined) AS quarantined
+                    FROM vectors v
+                    LEFT JOIN beliefs b ON v.kind = 'belief' AND v.target_id = b.belief_id
+                    LEFT JOIN episodes e ON v.kind = 'episode' AND v.target_id = e.episode_id"""
             params: List[Any] = []
             if kinds:
-                sql += " WHERE kind IN (%s)" % ",".join("?" for _ in kinds)
+                sql += " WHERE v.kind IN (%s)" % ",".join("?" for _ in kinds)
                 params.extend(kinds)
             rows = conn.execute(sql, params).fetchall()
             scored = []
+            eligible = []
             for r in rows:
                 try:
                     vec = list(struct.unpack(f"<{r['dim']}f", bytes(r["vec"])))
                 except Exception:
                     continue
-                scored.append({
+                hit = {
                     "kind": r["kind"], "target_id": r["target_id"],
                     "score": _cosine(qvec, vec),
-                })
+                }
+                scored.append(hit)
+                if (supplement_eligible is not None and r['memory_id'] is not None
+                        and supplement_eligible(dict(r))):
+                    eligible.append(hit)
             scored.sort(key=lambda x: -x["score"])
-            return scored[:top_k]
+            hits = scored[:top_k]
+            if supplement_eligible is not None:
+                eligible.sort(key=lambda x: -x["score"])
+                seen = {(h['kind'], h['target_id']) for h in hits}
+                for hit in eligible[:top_k]:
+                    key = (hit['kind'], hit['target_id'])
+                    if key not in seen:
+                        hits.append(hit)
+                        seen.add(key)
+            return hits
 
         return self.db._run(_search) or []

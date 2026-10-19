@@ -3,6 +3,40 @@
 Updated 2026-10-18. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
 
+## Autonomous maintenance — vector eligible window, 2026-10-18
+
+Started clean at `fc0c01c93b5021bf7a5adb935ce43b9386f037fd` on
+`automation/hh-maintenance`; fetched main remains an ancestor, no existing vector
+fix found in inspected all-ref history. Promoted the prior external reproducer:
+new regression failed with empty fresh-process recall behind other-actor vectors
+(11/12). Raw top-k selection happened before status/read-policy filtering.
+
+Recall now unions historical and eligible vector windows, sharing one embedding
+and cosine scan. Eligibility reuses status and existing read policy on joined
+metadata; fetched records still undergo downstream authorization. Raw vector
+search remains compatible. For positive k, at most 2k candidates are returned;
+the full scan and additional metadata/policy/sort work are not bounded by k.
+See the vector follow-up to ADR-011 for limits and compatibility.
+
+Final vectors 13/13 and oracle 10/10 PASS. Eight synthetic belief/episode cases
+verify second-process recall, evidence and one embedding call. QA independently
+passed earlier vectors 12/12 twice, oracle 10/10, identity 6/6 and limits 8/8.
+Security source review found no blocker. Added their boundary requests: bounded
+union/dedup, orphan/tie/kind behavior, identity/review matrix, normalized labels
+and actual post-selection restriction followed by downstream denial.
+Reviewers' extra command probes were execution-policy-blocked, not passes.
+
+Full unchanged 31-step gate PASS via temporary-XDG chat-offline wrapper; two
+live-chat checks intentionally SKIP/ENVIRONMENTAL, both live synthetic embedding
+checks PASS. Includes MCP/security, ingest/extract/reconcile/CLI/second-process
+recall/provenance, migrations, backups, Hippo-Pot and clean wheel installation.
+Configured live chat not retested. Python 3.14.7; Linux 7.2.5-3-omarchy x86_64;
+AMD Ryzen 9 9950X3D, 32 logical CPUs. Gate measured implementation diff over starting
+SHA before documentation updates, using invented temporary stores only. No timing
+comparison, deployment, main, production-memory or installed-plugin changes.
+Next: reproduce noncanonical stored-label FTS starvation before changing its
+compatibility semantics. Vector zero/negative k behavior remains unqualified.
+
 ## Autonomous maintenance — sensitivity FTS candidate window, 2026-10-18
 
 Started clean at `77f052a4a8ab75278c82959e34f35b5ae37af431` on

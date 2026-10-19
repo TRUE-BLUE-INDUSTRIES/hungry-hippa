@@ -255,6 +255,177 @@ def check_unknown_backend_fail_open():
     return "backend other than ollama|openai-compat fail-opens"
 
 
+def check_vector_only_eligible_recall():
+    """Unreadable top-k vectors must not hide a durable permitted memory."""
+    import subprocess
+    from hungry_hippa import trust
+    from hungry_hippa.controller import MemoryController
+
+    child = '''
+import copy, json, sys
+from hungry_hippa.config import DEFAULTS
+from hungry_hippa.controller import MemoryController
+from hungry_hippa import trust
+cfg = copy.deepcopy(DEFAULTS)
+cfg['manager'] = {'enabled': False}
+c = MemoryController(cfg, db_path=sys.argv[1])
+c.bind_session(session_id='second-process', platform='mcp',
+               trust=trust.external_binding('fixture-client'))
+calls = []
+def embed(text):
+    calls.append(text)
+    return [1.0, 0.0]
+c.vectors.embed = embed
+out = c.recall('semanticquestion', limit=1, explain=True)
+print(json.dumps({'recall': out, 'calls': calls}))
+'''
+    for kind in ('belief', 'episode'):
+        for crowd in ('other_actor', 'private', 'quarantined', 'archived'):
+            with tempfile.TemporaryDirectory(prefix='hh_vec_eligible_') as root:
+                path = str(Path(root) / 'fixture.db')
+                cfg = _cfg(vectors_enabled=True)
+                cfg['manager'] = {'enabled': False}
+                c = MemoryController(cfg, db_path=path)
+                c.vectors.embed = lambda text: [0.8, 0.6] if text == 'allowed' else [1.0, 0.0]
+                key = kind + '_id'
+
+                def add(text, **kwargs):
+                    kwargs.setdefault('actor_id', 'fixture-client')
+                    kwargs['identity'] = trust.OWNER
+                    if kind == 'belief':
+                        return c.semantic.add_belief(text, source_class='document', **kwargs)
+                    return c.episodic.remember_episode(context=text, **kwargs)
+
+                hidden = []
+                for n in range(c.vectors.ret.get('vector_top_k', 8)):
+                    kw = {}
+                    if crowd == 'private': kw['sensitivity'] = 'private'
+                    if crowd == 'quarantined': kw['quarantined'] = True
+                    if crowd == 'other_actor': kw['actor_id'] = 'other-client'
+                    row = add(f'invented concealed workshop record {n}', **kw)
+                    rid = row[key]
+                    if crowd == 'archived':
+                        table = 'beliefs' if kind == 'belief' else 'episodes'
+                        c.db._run(lambda conn: conn.execute(
+                            f'UPDATE {table} SET status=? WHERE {key}=?',
+                            ('archived', rid)), write=True)
+                    assert c.vectors.store(kind, rid, 'hidden')
+                    hidden.append(rid)
+                evidence = c.db.add_evidence('invented durable vector evidence',
+                                             'document', 'fixture:vector', '')
+                own = add('assigned workshop detail', evidence_ids=[evidence])
+                assert c.vectors.store(kind, own[key], 'allowed')
+                assert c.db.fts_search('semanticquestion') == []
+                raw = c.vectors.search('semanticquestion')
+                assert {h['target_id'] for h in raw} == set(hidden), raw
+                assert own[key] in {h['target_id'] for h in c.vectors.search('semanticquestion', top_k=100)}
+                proc = subprocess.run([sys.executable, '-c', child, path],
+                                      capture_output=True, text=True, check=True)
+                result = json.loads(proc.stdout)
+                out = result['recall']
+                assert 'error' not in out, out
+                assert [r.get(key) for r in out['items']] == [own[key]], (kind, crowd, out)
+                assert evidence in out['sources'], out
+                assert 'assigned workshop detail' in out['context'], out
+                assert result['calls'] == ['semanticquestion'], result
+    return 'eight vector-only second-process recall cases retain evidence; one embedding each; raw search unchanged'
+
+
+def check_vector_window_boundaries():
+    from hungry_hippa import trust
+    from hungry_hippa.controller import MemoryController
+
+    with tempfile.TemporaryDirectory(prefix='hh_vec_boundary_') as root:
+        c = MemoryController(_cfg(vector_top_k=1), db_path=str(Path(root) / 'fixture.db'))
+        calls = []
+        def embed(text):
+            calls.append(text)
+            return [0.8, 0.6] if text == 'allowed' else [1.0, 0.0]
+        c.vectors.embed = embed
+        # An orphan always wins the historical window but is never supplemented.
+        assert c.vectors.store('belief', 'B-orphan', 'hidden')
+        targets = []
+        for kind in ('belief', 'episode'):
+            kwargs: Dict[str, Any] = dict(actor_id='fixture-client', identity=trust.OWNER)
+            row = (c.semantic.add_belief('invented boundary belief', **kwargs)
+                   if kind == 'belief' else
+                   c.episodic.remember_episode(context='invented boundary episode', **kwargs))
+            rid = row[kind + '_id']
+            assert c.vectors.store(kind, rid, 'allowed')
+            targets.append((kind, rid))
+        for k in (1, 2, 5):
+            raw = c.vectors.search('semanticquestion', top_k=k)
+            for predicate in (lambda row: True, lambda row: False):
+                calls.clear()
+                hits = c.vectors.search('semanticquestion', top_k=k,
+                                         supplement_eligible=predicate)
+                keys = [(h['kind'], h['target_id']) for h in hits]
+                assert len(keys) == len(set(keys)) <= 2 * k, hits
+                assert hits[:len(raw)] == raw, (raw, hits)
+                assert calls == ['semanticquestion'], calls
+            assert c.vectors.search('semanticquestion', top_k=k) == raw
+        hits = c.vectors.search('semanticquestion', top_k=1,
+                                 supplement_eligible=lambda row: True)
+        assert [(h['kind'], h['target_id']) for h in hits] == [('belief', 'B-orphan'), targets[0]]
+        episode_hits = c.vectors.search('semanticquestion', kinds=['episode'], top_k=1,
+                                         supplement_eligible=lambda row: True)
+        assert [(h['kind'], h['target_id']) for h in episode_hits] == [targets[1]]
+
+        # Run every identity/review case with only that kind and the orphan indexed.
+        for kind, rid in targets:
+            other_kind, other_id = next(pair for pair in targets if pair[0] != kind)
+            c.vectors.remove(other_kind, other_id)
+            table = 'beliefs' if kind == 'belief' else 'episodes'
+            key = kind + '_id'
+            cases = [
+                ('elsewhere', 'private', 0, 'active', 'viewer', trust.OWNER, False, True),
+                ('elsewhere', 'restricted', 0, 'active', 'viewer', trust.SYSTEM, False, True),
+                ('primary', 'unclassified', 0, 'active', 'primary', trust.UNTRUSTED, True, False),
+                ('owner', 'unclassified', 0, 'active', 'owner', trust.UNTRUSTED, True, False),
+                ('fixture-client', 'unclassified', 1, 'active', 'fixture-client', trust.UNTRUSTED, False, False),
+                ('fixture-client', 'unclassified', 1, 'active', 'fixture-client', trust.UNTRUSTED, True, True),
+                ('elsewhere', 'unclassified', 1, 'active', 'fixture-client', trust.UNTRUSTED, True, False),
+                ('fixture-client', 'unclassified', 1, 'archived', 'fixture-client', trust.OWNER, True, False),
+                ("  fixture'client  ", ' UNCLASSIFIED ', 0, 'active', " fixture'client ", trust.UNTRUSTED, False, True),
+                ('fixture-client', 'private', 0, 'active', 'fixture-client', trust.UNTRUSTED, True, False),
+            ]
+            for actor, sensitivity, quarantined, status, caller, identity, review, expected in cases:
+                c.db._run(lambda conn: conn.execute(
+                    f'UPDATE {table} SET actor_id=?, sensitivity=?, quarantined=?, status=? WHERE {key}=?',
+                    (actor, sensitivity, quarantined, status, rid)), write=True)
+                out = c.retrieval.recall('semanticquestion', actor_id=caller,
+                                          identity=identity, include_quarantined=review,
+                                          limit=1, explain=True)
+                assert 'error' not in out, out
+                assert bool(out['items']) == expected, (kind, cases, out)
+                if expected:
+                    assert out['items'][0][key] == rid, out
+                else:
+                    assert not out['sources'] and not out.get('explain'), out
+                    if identity == trust.UNTRUSTED:
+                        assert out['excluded']['unauthorized'] is True, out
+            # Selection is not authorization: change the record after search returns.
+            c.db._run(lambda conn: conn.execute(
+                f'UPDATE {table} SET actor_id=?, sensitivity=?, quarantined=0, status=? WHERE {key}=?',
+                ('fixture-client', 'unclassified', 'active', rid)), write=True)
+            original = c.vectors.search
+            selected = []
+            def search_then_restrict(*args, **kwargs):
+                hits = original(*args, **kwargs)
+                assert rid in [h['target_id'] for h in hits], hits
+                selected.append(rid)
+                c.db._run(lambda conn: conn.execute(
+                    f'UPDATE {table} SET sensitivity=? WHERE {key}=?', ('private', rid)), write=True)
+                return hits
+            with patch.object(c.vectors, 'search', side_effect=search_then_restrict):
+                out = c.retrieval.recall('semanticquestion', actor_id='fixture-client',
+                                          identity=trust.UNTRUSTED, explain=True)
+            assert selected == [rid] and out['items'] == [] and out['sources'] == [], out
+            assert out['explain'] == [] and out['excluded']['unauthorized'], out
+            assert c.vectors.store(other_kind, other_id, 'allowed')
+    return 'bounded deduplicated windows, orphan/kind/tie compatibility, identity/review matrix and post-selection denial'
+
+
 # ---------------------------------------------------------------- live (skip)
 
 def _live_probe() -> Optional[List[float]]:
@@ -307,6 +478,8 @@ def run_all() -> List[Dict[str, Any]]:
     check("ollama_request_shape", check_ollama_request_shape)
     check("proxy_env_does_not_escape_loopback", check_proxy_env_does_not_escape_loopback)
     check("unknown_backend_fail_open", check_unknown_backend_fail_open)
+    check("vector_window_boundaries", check_vector_window_boundaries)
+    check("vector_only_eligible_recall", check_vector_only_eligible_recall)
     check("live_embed_returns_768", check_live_embed_returns_768)
     check("live_store_and_search", check_live_store_and_search)
     return results

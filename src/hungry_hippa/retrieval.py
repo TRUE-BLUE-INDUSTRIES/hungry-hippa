@@ -268,7 +268,15 @@ class RetrievalRouter:
         # 2) vector search (episodes + beliefs) — degrades to [] offline
         vec_hits: List[Dict[str, Any]] = []
         if self.vectors is not None:
-            vec_hits = self.vectors.search(query, kinds=["episode", "belief"])
+            def eligible_vector(row: Dict[str, Any]) -> bool:
+                return (str(row.get("status") or "active").lower() == "active"
+                        and _policy.may_read(
+                            row, actor_id, include_quarantined=include_quarantined,
+                            identity=identity)[0])
+
+            vec_hits = self.vectors.search(
+                query, kinds=["episode", "belief"],
+                supplement_eligible=eligible_vector)
 
         # 3) FTS keyword search
         fts_hits = self.db.fts_search(query, kinds=["episode", "belief"],
