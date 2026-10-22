@@ -85,3 +85,14 @@ The maintainer-provided artwork is preserved unchanged as
 README, demo guide and support page. [Brand guidance](assets/branding/README.md)
 records its integrity hash and makes it the reference for future UI/demo assets.
 Logo adoption changes presentation only; runtime and benchmark code are unchanged.
+
+## AML Cycle 2 adapter scaffold (2026-10-04, uncommitted branch work)
+
+Branch `feature/aml-add-search-adapter` (local, not pushed): stdlib-only HTTP
+Add/Search adapter for the Agent Memory Leaderboard Cycle 2
+(`src/hungry_hippa/aml_adapter.py`), wired into `scripts/check_all.py` via
+`tests/test_aml_adapter.py` (6/6). Deployment plan in `docs/AML_CYCLE2.md`;
+decisions in ADR-004. Verified: full suite green in a venv with the declared
+`mcp` dependency (only pre-existing local-LLM suites excluded). Wire field
+names are scaffold-grade — verify against the official API Guide after Key
+issuance, before the Full run. Nothing pushed; owner reviews and pushes.

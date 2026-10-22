@@ -50,6 +50,7 @@ STEPS: Sequence[Tuple[str, List[str]]] = (
     ("backup + rotation", ["python", "tests/test_backup_rotation.py"]),
     ("security", ["python", "tests/test_security.py"]),
     ("Hippo-Pot deployment", ["python", "tests/test_hippo_pot.py"]),
+    ("AML Add/Search adapter", ["python", "tests/test_aml_adapter.py"]),
     ("demo transcript", ["python", "demo/demo.py", "--tmp", "--check"]),
     ("eval result drift", ["python", "eval/check_results.py"]),
     ("synthetic import benchmark smoke", ["python", "eval/ingest_benchmark.py", "--smoke"]),
