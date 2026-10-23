@@ -30,6 +30,8 @@ import contextlib
 import io
 import json
 import os
+import sqlite3
+import subprocess
 import sys
 import tempfile
 import types
@@ -224,6 +226,109 @@ def check_approve_uses_existing_verification_semantics():
     return "approval reuses trust.verified_source_class + the single promotion write"
 
 
+def check_approve_releases_an_episode_too():
+    """Episode approval exercises episodic.set_verified_class, which targets a
+    different column set than beliefs (episodes have no ``source_class`` column).
+    A naive copy of the belief SQL would write rows_changed=0 here."""
+    _, db_path = _fresh("hh_quar_approve_ep_")
+    ep = _untrusted_episode(db_path, "the web agent walked the north shaft")
+    assert _recall_ids(_owner_view(db_path), "north shaft") == []
+
+    out, code = _cli(hungry_hippa_command="quarantine", quarantine_command="approve",
+                     target_id=ep["episode_id"], source_class="user_explicit")
+    assert code == 0, code
+    assert out["approved"] is True and out["rows_changed"] == 1, out
+
+    row = _owner_view(db_path).episodic.get_episode(ep["episode_id"])
+    assert not row["quarantined"], row
+    assert row["verified_source_class"] == "user_explicit", row
+    assert ep["episode_id"] in _recall_ids(_owner_view(db_path), "north shaft")
+    # the claim stays inspectable rather than silently rewritten
+    assert row["claimed_source_class"] == ep.get("claimed_source_class", ""), row
+    return "episode approve clears quarantine and sets verified provenance"
+
+
+def check_approval_persistence_faults():
+    """CLI success requires a durable promotion, not just a helper return."""
+    def command(path, *args):
+        result = subprocess.run(
+            [sys.executable, "-m", "hungry_hippa.cli", *args],
+            env=dict(os.environ, HUNGRY_HIPPA_DB=path),
+            text=True, capture_output=True, timeout=30)
+        assert "Traceback" not in result.stderr, result.stderr
+        return result.returncode, json.loads(result.stdout)
+
+    def snapshot(path, table):
+        with sqlite3.connect(path) as conn:
+            return (conn.execute(f"SELECT * FROM {table}").fetchall(),
+                    conn.execute("SELECT * FROM mutation_log").fetchall())
+
+    cases = 0
+    for kind, table in (("belief", "beliefs"), ("episode", "episodes")):
+        fields = ["quarantined", "verified_source_class", "source_actor",
+                  "ingestion_channel", "claimed_source_class"]
+        if kind == "belief":
+            fields.append("source_class")
+        for fault in ("IGNORE", "ABORT", "missing_row", "audit_reversal", *fields):
+            ctrl, path = _fresh("hh_quar_fault_")
+            text = "Synthetic amber valve uses ceramic seals"
+            row = (_untrusted_write(path, text) if kind == "belief"
+                   else _untrusted_episode(path, text))
+            target = row[kind + "_id"]
+            evidence = ctrl.db.add_evidence(text, kind="document",
+                                             source_ref="fixture:amber-valve")
+            ctrl.db.link_evidence(kind, target, [evidence])
+            before = snapshot(path, table)
+            if fault in ("IGNORE", "ABORT"):
+                timing = "BEFORE"
+                body = ("SELECT RAISE(IGNORE);" if fault == "IGNORE" else
+                        "SELECT RAISE(ABORT, 'synthetic refusal');")
+            elif fault == "missing_row":
+                timing = "AFTER"
+                body = f"DELETE FROM {table} WHERE {kind}_id=NEW.{kind}_id;"
+            elif fault == "audit_reversal":
+                timing = "AFTER"
+                body = (f"UPDATE {table} SET quarantined=1 "
+                        f"WHERE {kind}_id=NEW.target_id;")
+            else:
+                timing = "AFTER"
+                value = ("1" if fault == "quarantined" else "'synthetic-alteration'")
+                body = (f"UPDATE {table} SET {fault}={value} "
+                        f"WHERE {kind}_id=NEW.{kind}_id;")
+            with sqlite3.connect(path) as conn:
+                event = ("INSERT ON mutation_log WHEN NEW.action='quarantine_approved'"
+                         if fault == "audit_reversal" else
+                         f"UPDATE OF quarantined ON {table}")
+                conn.execute(f"CREATE TRIGGER stop_promotion {timing} {event} BEGIN {body} END")
+            code, out = command(path, "quarantine", "approve", target,
+                                "--source-class", "document")
+            assert code == 1 and out.get("approved") is False and out.get("error"), (
+                kind, fault, code, out)
+            assert snapshot(path, table) == before, (kind, fault, "partial write/audit")
+            code, recalled = command(path, "recall", "amber valve ceramic seals")
+            assert code == 0 and not recalled.get("items"), recalled
+            with sqlite3.connect(path) as conn:
+                conn.execute("DROP TRIGGER stop_promotion")
+            code, out = command(path, "quarantine", "approve", target,
+                                "--source-class", "document")
+            assert code == 0 and out["approved"] and out["rows_changed"] == 1, out
+            code, recalled = command(path, "recall", "amber valve ceramic seals")
+            assert code == 0, recalled
+            item = next(i for i in recalled["items"] if i.get(kind + "_id") == target)
+            assert evidence in item["evidence_ids"], item
+            assert item["verified_source_class"] == "document", item
+            assert evidence in recalled["sources"], recalled
+            with sqlite3.connect(path) as conn:
+                assert conn.execute("SELECT source_ref FROM evidence WHERE evidence_id=?",
+                                    (evidence,)).fetchone() == ("fixture:amber-valve",)
+            # Re-approval stays compatible: the row need not still be quarantined.
+            code, out = command(path, "quarantine", "approve", target,
+                                "--source-class", "document")
+            assert code == 0 and out["approved"], out
+            cases += 1
+    return f"{cases} promotion faults roll back; fresh CLI retry/recall retains evidence"
+
+
 def check_reject_removes_from_default_recall():
     _, db_path = _fresh("hh_quar_reject_")
     belief = _untrusted_write(db_path, "the web agent asserts the north shaft was revised")
@@ -350,6 +455,8 @@ def run_all() -> List[Dict[str, Any]]:
     check("approve_releases_and_recall_sees_it", check_approve_releases_and_recall_sees_it)
     check("approve_uses_existing_verification_semantics",
           check_approve_uses_existing_verification_semantics)
+    check("approve_releases_an_episode_too", check_approve_releases_an_episode_too)
+    check("approval_persistence_faults", check_approval_persistence_faults)
     check("reject_removes_from_default_recall", check_reject_removes_from_default_recall)
     check("rejected_data_is_archived_not_purged", check_rejected_data_is_archived_not_purged)
     check("mcp_cannot_approve_or_reject", check_mcp_cannot_approve_or_reject)

@@ -256,7 +256,10 @@ Classification counts include these refused effects; they are not promotion coun
 
 Re-running reconciliation remains a no-op for recorded decisions. Explicit
 `quarantine approve` can promote the candidate itself, but does not replay a denied
-reinforcement/supersession. Operator correction APIs remain separate. Duplicate
+reinforcement/supersession. Approval commits only after checking the persisted
+quarantine and provenance fields; a refused or suppressed promotion rolls back and
+exits nonzero. This applies to beliefs and episodes. Approval does not reactivate
+archived rows or override read policy. Operator correction APIs remain separate. Duplicate
 same-evidence archival, contradiction/update metadata and quarantine-to-quarantine
 reconciliation retain their existing behavior; this is not blanket quarantine
 isolation of every graph or metadata effect.

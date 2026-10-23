@@ -829,31 +829,48 @@ def _cmd_quarantine_approve(args) -> None:
     if not _quarantine_is_operator_action(ctrl):
         _print_json({"error": "quarantine approval is an operator action"})
         sys.exit(1)
-    kind, row = _resolve_quarantined(ctrl, target_id)
-    if not row:
-        _print_json({"error": f"unknown memory {target_id}"})
-        sys.exit(1)
     if source_class not in _QUARANTINE_SOURCE_CLASSES:
         _print_json({"error": "source_class must be one of "
                               + ", ".join(_QUARANTINE_SOURCE_CLASSES)})
         sys.exit(1)
-    claimed_before = row.get("claimed_source_class", "")
-    # The verification rule is not re-implemented here: the operator channel may
-    # assert the origin of a memory, which is what trust.verified_source_class
-    # already decides, and set_verified_class is the single promotion write.
+    # Resolve, promote and verify under one writer lock. Standalone memory
+    # helpers retain their legacy behavior; this operator command fails closed.
     verified = _trust.verified_source_class(source_class, _trust.PROVENANCE_USER)
-    if kind == "belief":
-        changed = ctrl.semantic.set_verified_class(target_id, verified,
-                                                   source_actor=ctrl.actor_id,
-                                                   clear_quarantine=True)
-    else:
-        changed = ctrl.episodic.set_verified_class(target_id, verified,
-                                                   source_actor=ctrl.actor_id,
-                                                   clear_quarantine=True)
-    ctrl.db.log_mutation("quarantine_approved", kind, target_id,
-                         f"operator released from quarantine; "
-                         f"verified_source_class={verified} "
-                         f"(claimed was {claimed_before})", ctrl.session_id)
+    try:
+        with ctrl.db.transaction():
+            kind, row = _resolve_quarantined(ctrl, target_id)
+            if not row:
+                _print_json({"error": f"unknown memory {target_id}"})
+                sys.exit(1)
+            claimed_before = row.get("claimed_source_class", "")
+            if kind == "belief":
+                changed = ctrl.semantic.set_verified_class(target_id, verified,
+                                                           source_actor=ctrl.actor_id,
+                                                           clear_quarantine=True)
+            else:
+                changed = ctrl.episodic.set_verified_class(target_id, verified,
+                                                           source_actor=ctrl.actor_id,
+                                                           clear_quarantine=True)
+            if changed != 1:
+                raise RuntimeError("promotion did not update one row")
+            ctrl.db.log_mutation("quarantine_approved", kind, target_id,
+                                 f"operator released from quarantine; "
+                                 f"verified_source_class={verified} "
+                                 f"(claimed was {claimed_before})", ctrl.session_id)
+            _, persisted = _resolve_quarantined(ctrl, target_id)
+            expected = {"quarantined": 0, "verified_source_class": verified,
+                        "source_actor": ctrl.actor_id,
+                        "ingestion_channel": _trust.CHANNEL_CLI,
+                        "claimed_source_class": claimed_before}
+            if kind == "belief":
+                expected["source_class"] = verified
+            if not persisted or any(persisted.get(k) != v for k, v in expected.items()):
+                raise RuntimeError("promotion did not persist expected provenance")
+    except Exception:
+        # Do not expose database exception text (which may contain memory data).
+        _print_json({"approved": False, "id": target_id,
+                     "error": "quarantine approval failed; transaction rolled back"})
+        sys.exit(1)
     _print_json({
         "approved": bool(changed),
         "id": target_id,
@@ -861,7 +878,7 @@ def _cmd_quarantine_approve(args) -> None:
         "claimed_source_class": claimed_before,
         "verified_source_class": verified,
         "rows_changed": changed,
-        "note": "the row is no longer quarantined and is recall-visible again",
+        "note": "quarantine cleared; existing status and read policy still govern recall",
     })
 
 

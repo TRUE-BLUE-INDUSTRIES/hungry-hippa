@@ -1,7 +1,43 @@
 # Project state
 
-Updated 2026-10-18. Git is authoritative for code; no live store or deployed MCP
+Updated 2026-10-22. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
+
+## Autonomous maintenance — quarantine approval persistence, 2026-10-22
+
+Started clean at `1988f1df838c19dea9c59a9a6460060155712809` on
+`automation/hh-maintenance`; fetched main remains an ancestor. Reproduced a P1
+operator failure: suppressed promotion exits zero, writes an approval audit, and
+claims recall visibility although the row remains quarantined. Ordinary episode
+approval also failed because its SQL targeted a nonexistent `source_class` column.
+Reused existing `8db7566` from `feat/dolphinbench-campaign` rather than reimplementing
+that column fix and its regression.
+
+Approval now locks before resolution, uses the existing promotion helper, requires
+one updated row, and reads back quarantine/provenance after its audit, committing
+before success output. Failure rolls back and returns exit 1 without database
+exception text. The success note no longer promises archived rows become visible.
+Standalone helpers, verify/reject, authorization and MCP surface remain unchanged.
+See ADR-012 for the bounded guarantee and audit-suppression limitation.
+
+Baseline quarantine 8/8 PASS; existing episode fix 9/9 PASS. New regression failed
+9/10 on ignored belief UPDATE, then passed 10/10. Final coverage exercises 19
+belief/episode faults, including missing rows and audit-trigger reversal requested
+by QA, with row/audit rollback and fresh-process retry/recall retaining evidence.
+QA independently passed the earlier 15-fault suite twice; security source review
+found no blocker. Their supplemental command probes were policy-blocked, not passes.
+
+Default full gate FAIL: configured live chat model returned HTTP 400/SIGABRT;
+only extraction step failed (20/21), with live E2E extraction SKIP/ENVIRONMENTAL.
+All 31 final gate steps succeeded through the existing temporary-XDG chat-offline
+wrapper: two live-chat checks intentionally SKIP/ENVIRONMENTAL, both synthetic live
+embedding checks PASS. Includes install/MCP/trust/limits/migrations/ingestion,
+reconciliation 39/39, backup, Hippo-Pot and cross-process evidence paths.
+Python 3.14.7; Linux 7.2.5-3-omarchy x86_64; AMD Ryzen 9 9950X3D, 32 logical CPUs.
+Tests used invented scratch stores and the implementation diff over starting SHA;
+no timing comparison, live configuration change, deployment or main modification.
+Next: reproduce standalone `verify` reporting successful provenance after a
+suppressed promotion UPDATE before extending the persistence boundary.
 
 ## Autonomous maintenance — vector eligible window, 2026-10-18
 

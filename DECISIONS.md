@@ -1,5 +1,31 @@
 # Engineering decisions
 
+## ADR-012 — Verify operator quarantine promotion before success (2026-10-22)
+
+The CLI previously treated a failed/no-op promotion as a successful command,
+logged `quarantine_approved`, and claimed recall visibility despite `approved=false`.
+Episode approval also referenced the belief-only `source_class` column. Reuse
+existing commit `8db7566b2dce6387e857d37885096a99af3e7a10` (episode SQL and test)
+from `feat/dolphinbench-campaign`; do not duplicate that work or merge its branch.
+
+Use the existing `Database.transaction` writer lock before resolving the row.
+Keep operator capability/source-class validation and both promotion helpers;
+require rowcount one and read back the expected promotion fields after logging.
+Check quarantine, verified provenance, operator actor/channel, unchanged claimed
+provenance, and belief effective source class. Commit before printing success.
+On failure roll back promotion and audit and return a generic error/exit 1, without
+printing database exceptions that could contain stored text. Repeat approvals
+remain supported. Approval does not reactivate archived rows or override read policy.
+
+Tests cover both memory kinds with BEFORE IGNORE/ABORT, AFTER individual field
+alteration, target disappearance, and an audit-trigger quarantine reversal. Compare
+target-table/audit snapshots, then retry and recall through new CLI processes with
+durable evidence. This verifies promotion fields, not arbitrary metadata, all-table
+integrity or independent audit INSERT suppression. The transaction uses the existing
+SQLite locking behavior; no new independent concurrency-barrier test was added.
+Standalone `verify`/reject and helper error semantics remain outside this change.
+No schema/dependency/MCP additions, historical repairs or production-store access.
+
 ## Vector eligible-window follow-up to ADR-011 (2026-10-18)
 
 Vector-only recall could return empty when the raw cosine top-k contained only
