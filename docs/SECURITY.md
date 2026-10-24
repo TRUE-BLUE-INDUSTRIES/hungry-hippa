@@ -114,6 +114,11 @@ fields roll back the promotion and exit 1; an old matching audit is insufficient
 This is persistence verification, not tamper-proof logging: arbitrary nonempty
 timestamps, later mutations and nested helper audits are not covered by this check.
 
+Quarantine rejection is archival-only. Direct handler dispatch refuses purge
+without recommending a nonexistent `hungry-hippa forget` CLI command; the standalone
+parser likewise accepts only `--mode archival`. This does not change the separate
+controller/MCP forget API or its authorization requirements.
+
 `quarantine reject` resolves, authorizes, archives and reads back status after its
 audit call in one writer transaction. Failed/suppressed archival exits 1 and rolls
 back; success prints after commit and requires an archived row at readback.

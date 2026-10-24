@@ -3,6 +3,26 @@
 Updated 2026-10-24. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
 
+## Autonomous maintenance — invalid rejection guidance, 2026-10-24
+
+Started clean at `9cbe1c5340b1d82107086678ad5f212e5db58ac6` on
+`automation/hh-maintenance`; origin/main remains an ancestor. The previous next
+step assumed a standalone `forget` command, but parser help and source confirm
+none exists. Direct quarantine rejection dispatch nevertheless recommended it
+when refusing purge. Replaced that nonexistent-command guidance with an accurate
+archival-only explanation; no command, permission or persistence behavior added.
+
+Quarantine baseline 15/15, regression RED 14/15 on the misleading error, GREEN
+15/15. Extended existing regression checks unchanged archived row and real parser
+refusal of `forget --help`. All 31 shared gate steps succeeded via temporary-XDG
+chat-offline wrapper; two live-chat environmental SKIPs, both synthetic live
+embedding checks PASS. Existing source/evidence-linked fresh-process recall passes.
+Python 3.14.7, Linux 7.2.5-3-omarchy x86_64, Ryzen 9 9950X3D (32 logical CPUs).
+Simple deterministic wording fix: no specialists needed. No live store, plugin,
+main or service configuration changes. The supposed standalone-forget P1 is not
+reproducible at that nonexistent surface. Next: reproduce archive false success
+through the existing controller/MCP path using invented stores before fixing it.
+
 ## Autonomous maintenance — rejection audit persistence, 2026-10-24
 
 Started clean at `8f1cfb70db9eebbbe08808785e34b3750fa9be0a` on

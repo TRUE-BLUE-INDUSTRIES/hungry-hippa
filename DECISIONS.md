@@ -1,5 +1,17 @@
 # Engineering decisions
 
+## Rejection guidance correction (2026-10-24)
+
+The planned standalone CLI forget investigation had an invalid premise: there is
+no such parser command. The direct rejection handler's purge refusal recommended
+that nonexistent command. Correct the error to state archival-only semantics,
+rather than implementing a destructive command to make an old message true.
+Keep existing controller/MCP APIs and authorization unchanged. Extended existing
+regression failed 14/15 on the original error, then passed 15/15 with unchanged
+row and real parser rejection checks. All 31 gate steps passed with two deliberate
+live-chat environmental skips. Investigate controller/MCP archival persistence
+separately; no false-success fix is claimed for those surfaces in this change.
+
 ## Rejection audit persistence follow-up to ADR-012 (2026-10-24)
 
 A BEFORE INSERT RAISE(IGNORE) on `quarantine_rejected` reproduced exit-zero

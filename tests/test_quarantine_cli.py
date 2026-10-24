@@ -368,7 +368,16 @@ def check_rejected_data_is_archived_not_purged():
     refused, code = _cli(hungry_hippa_command="quarantine", quarantine_command="reject",
                          target_id=ep["episode_id"], mode="purge")
     assert code == 1 and "archival" in str(refused), refused
-    assert _owner_view(db_path).episodic.get_episode(ep["episode_id"]) is not None
+    assert "hungry-hippa forget" not in str(refused), refused
+    assert _owner_view(db_path).episodic.get_episode(ep["episode_id"]) == row
+    # The standalone parser has no forget command. Keep the handler's refusal
+    # honest too (hosts can dispatch directly without argparse validation).
+    missing = subprocess.run(
+        [sys.executable, "-m", "hungry_hippa.cli", "forget", "--help"],
+        env=dict(os.environ, HUNGRY_HIPPA_DB=db_path),
+        capture_output=True, text=True, timeout=30,
+    )
+    assert missing.returncode == 2 and "invalid choice" in missing.stderr, missing.stderr
     return "rejected data stays archived and audited; purge is not offered"
 
 

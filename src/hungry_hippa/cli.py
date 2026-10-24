@@ -933,7 +933,7 @@ def _cmd_quarantine_reject(args) -> None:
         # Deliberate: rejection archives. Purge exists only as an explicit,
         # separate operator action on a row the operator chose to destroy.
         _print_json({"error": "reject supports only --mode archival; "
-                              "use `hungry-hippa forget` for a confirmed purge"})
+                              "quarantine rejection never purges memory"})
         sys.exit(1)
     try:
         with ctrl.db.transaction():
