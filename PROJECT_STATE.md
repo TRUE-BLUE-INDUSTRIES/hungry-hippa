@@ -3,6 +3,31 @@
 Updated 2026-10-23. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
 
+## Autonomous maintenance — operator promotion audit persistence, 2026-10-23
+
+Started clean at `860bcc72a02cf598cc0f5bea37fa69dd24c88be3` on
+`automation/hh-maintenance`; fetched main remains an ancestor. Reproduced P1
+standalone verify success despite ignored audit INSERT. Transactions catch SQL
+errors but IGNORE silently suppresses insertion; the logger returns no proof.
+A CLI-only wrapper now requires exactly one new intact audit under the existing
+writer transaction in verify and quarantine approve; failed verification rolls
+back promotion with exit 1. Standalone logger, authorization and MCP unchanged.
+
+Baseline quarantine 11/11; new regression RED 11/12, initial GREEN 12/12. QA
+independently passed initial 12/12 and provenance 6/6; security static review found
+no blocker. Strengthened historical-row freshness, field mutation and redaction/
+cap coverage from reviews. Final 12/12 includes 27 audit fault cases across both
+memory kinds plus fresh CLI retries; existing cross-process evidence recall passes.
+
+All 31 shared gate steps succeeded through temporary-XDG chat-offline wrapper;
+two live-chat checks intentionally SKIP/ENVIRONMENTAL, both synthetic live embedding
+checks PASS. Configured live chat not retested; prior model-load failure remains
+unresolved. Python 3.14.7, Linux 7.2.5-3-omarchy x86_64, Ryzen 9 9950X3D (32 logical
+CPUs). Gate ran implementation diff over starting SHA before documentation updates.
+Invented scratch stores only; no live memory/plugin/main/config changes. Bounded
+immediate persistence, not tamper-proof logging or historical repair; ADR-012 follow-up.
+Next: reproduce quarantine rejection false success under suppressed archival writes.
+
 ## Autonomous maintenance — standalone verification persistence, 2026-10-23
 
 Started clean at `84475c5fa4a25d5af17d3979290d5cce8d4c66de` on

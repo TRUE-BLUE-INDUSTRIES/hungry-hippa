@@ -435,6 +435,91 @@ def check_unknown_ids_fail_cleanly():
     return "unknown ids and invalid classes exit 1 with a clean error"
 
 
+def check_promotion_audit_persistence():
+    """A suppressed operator audit must roll back the promotion, not report success."""
+    cases = 0
+    for operation, kind in (("verify", "belief"), ("approve", "belief"), ("approve", "episode")):
+        for fault in ("IGNORE", "ABORT", "action", "target_kind", "target_id", "detail",
+                      "session_id", "timestamp", "extra"):
+            ctrl, path = _fresh("hh_promotion_audit_")
+            row = (_untrusted_write(path, "Synthetic indigo valve uses ceramic seals")
+                   if kind == "belief" else
+                   _untrusted_episode(path, "Synthetic indigo valve uses ceramic seals"))
+            target = row[kind + "_id"]
+            action = "verify_provenance" if operation == "verify" else "quarantine_approved"
+            table = "beliefs" if kind == "belief" else "episodes"
+            args = (["verify", target] if operation == "verify" else
+                    ["quarantine", "approve", target]) + ["--source-class", "document"]
+
+            def command():
+                result = subprocess.run([sys.executable, "-m", "hungry_hippa.cli", *args],
+                                        env=dict(os.environ, HUNGRY_HIPPA_DB=path),
+                                        text=True, capture_output=True, timeout=30)
+                assert "Traceback" not in result.stderr, result.stderr
+                return result.returncode, json.loads(result.stdout)
+
+            def snapshot():
+                with sqlite3.connect(path) as conn:
+                    return (conn.execute(f"SELECT * FROM {table}").fetchall(),
+                            conn.execute("SELECT * FROM mutation_log").fetchall())
+
+            # An old matching audit is not proof that this attempt was recorded.
+            detail = (("operator set verified_source_class=document " if operation == "verify"
+                       else "operator released from quarantine; verified_source_class=document ")
+                      + f"(claimed was {row.get('claimed_source_class', '')})")
+            ctrl.db.log_mutation(action, kind, target, detail, "cli")
+            before = snapshot()
+            timing = "BEFORE" if fault in ("IGNORE", "ABORT") else "AFTER"
+            if fault in ("IGNORE", "ABORT"):
+                body = ("SELECT RAISE(IGNORE);" if fault == "IGNORE" else
+                        "SELECT RAISE(ABORT, 'synthetic audit refusal');")
+            elif fault == "extra":
+                body = ("INSERT INTO mutation_log(ts, action, target_kind, target_id, detail, session_id) "
+                        "VALUES ('synthetic', 'extra', '', '', '', '');")
+            else:
+                field = "ts" if fault == "timestamp" else fault
+                value = "''" if fault == "timestamp" else "'synthetic-alteration'"
+                body = f"UPDATE mutation_log SET {field}={value} WHERE id=NEW.id;"
+            with sqlite3.connect(path) as conn:
+                conn.execute(f"CREATE TRIGGER stop_audit {timing} INSERT ON mutation_log "
+                             f"WHEN NEW.action='{action}' BEGIN {body} END")
+            code, out = command()
+            assert code == 1 and out.get("error"), (operation, kind, fault, code, out)
+            assert snapshot() == before, (operation, kind, fault, "partial promotion/audit")
+            with sqlite3.connect(path) as conn:
+                conn.execute("DROP TRIGGER stop_audit")
+            code, out = command()
+            assert code == 0 and out["rows_changed"] == 1, out
+            with sqlite3.connect(path) as conn:
+                audits = conn.execute("SELECT action, target_kind, target_id, detail, session_id, ts "
+                                      "FROM mutation_log WHERE action=? ORDER BY id", (action,)).fetchall()
+                persisted = conn.execute(f"SELECT verified_source_class, quarantined FROM {table} "
+                                         f"WHERE {kind}_id=?", (target,)).fetchone()
+            assert len(audits) == 2 and audits[-1][:3] == (action, kind, target), audits
+            assert "verified_source_class=document" in audits[-1][3] and audits[-1][5], audits
+            assert audits[-1][4] == "cli" and audits[-1][:5] == audits[0][:5], audits
+            assert persisted == ("document", int(operation == "verify")), persisted
+            cases += 1
+        # Imported provenance is untrusted text; preserve logger redaction/capping.
+        from hungry_hippa.limits import redact
+        for claimed in ("Authorization: Bearer synthetic_fixture_token", "synthetic " * 400):
+            with sqlite3.connect(path) as conn:
+                conn.execute(f"UPDATE {table} SET claimed_source_class=? WHERE {kind}_id=?",
+                             (claimed, target))
+            code, out = command()
+            assert code == 0 and out["rows_changed"] == 1, out
+            detail = (("operator set verified_source_class=document " if operation == "verify"
+                       else "operator released from quarantine; verified_source_class=document ")
+                      + f"(claimed was {claimed})")
+            expected = redact(detail)[:2000]
+            assert expected != detail, "fixture must exercise redaction or truncation"
+            with sqlite3.connect(path) as conn:
+                audit = conn.execute("SELECT detail FROM mutation_log WHERE action=? ORDER BY id DESC LIMIT 1",
+                                     (action,)).fetchone()[0]
+            assert audit == expected and len(audit) <= 2000, audit
+    return f"{cases} audit faults roll back promotion; fresh CLI retries and redaction/capping pass"
+
+
 def check_verify_persistence_faults():
     """Standalone verification must not claim a suppressed promotion succeeded."""
     def command(path, *args):
@@ -554,6 +639,7 @@ def run_all() -> List[Dict[str, Any]]:
           check_approve_uses_existing_verification_semantics)
     check("approve_releases_an_episode_too", check_approve_releases_an_episode_too)
     check("approval_persistence_faults", check_approval_persistence_faults)
+    check("promotion_audit_persistence", check_promotion_audit_persistence)
     check("verify_persistence_faults", check_verify_persistence_faults)
     check("reject_removes_from_default_recall", check_reject_removes_from_default_recall)
     check("rejected_data_is_archived_not_purged", check_rejected_data_is_archived_not_purged)

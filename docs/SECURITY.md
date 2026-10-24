@@ -105,8 +105,15 @@ one SQLite writer transaction. It reports success only after one row is updated
 and expected provenance is persisted; suppressed/failed promotion rolls back and
 exits 1 without exposing database exception text. Original claimed provenance,
 quarantine and lifecycle status are preserved: verification alone does not release
-quarantined memory or reactivate archived/superseded memory. Independent silent
-audit INSERT suppression is not verified by this check.
+quarantined memory or reactivate archived/superseded memory.
+
+Both `verify` and `quarantine approve` also require exactly one new audit row with
+expected action, target, redacted/capped detail, session and nonempty timestamp
+inside the same writer transaction. Silent audit INSERT suppression or altered
+fields roll back the promotion and exit 1; an old matching audit is insufficient.
+This is persistence verification, not tamper-proof logging: arbitrary nonempty
+timestamps, later mutations, nested helper audits and `quarantine reject` are not
+covered by this check.
 
 ## Controls implemented
 

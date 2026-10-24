@@ -1,5 +1,32 @@
 # Engineering decisions
 
+## Operator audit persistence follow-up to ADR-012 (2026-10-23)
+
+An ignored `verify_provenance` audit INSERT reproduced exit-zero promotion without
+its audit record. A transaction propagates SQL errors, but SQLite RAISE(IGNORE)
+is not an error and the standalone logger has no persistence return value.
+
+Keep that logger unchanged. A CLI-only checked wrapper, called by `verify` and
+`quarantine approve` within their existing writer transactions, snapshots maximum
+audit ID, calls the logger, and requires exactly one newer row with expected
+redacted/capped fields and nonempty timestamp. Promotion readback remains after
+this check. Refusal rolls back both promotion and audit with the existing generic
+error/exit 1. No schema, MCP, authorization or standalone-helper changes.
+
+Regression failed 11/12 before the fix; final 12/12 includes 27 audit faults across
+verify-belief and approve-belief/episode, exact rollback, matching historical rows,
+fresh CLI retry and redaction/length-cap compatibility. Existing fresh-process
+recall/evidence checks remain green. QA independently ran initial 12/12 and
+provenance 6/6; security review found no blocker. Reviewer coverage gaps were
+addressed before the final gate: all 31 steps succeeded with chat intentionally
+offline (two environmental live-chat skips; both synthetic live embeddings pass).
+
+This checks immediate persistence, not protection against arbitrary SQLite owners,
+nonempty timestamp corruption, later-trigger mutation, older audit tampering or
+historical repair. Reject and nested helper audit effects remain separate. Next:
+reproduce `quarantine reject` false-success behavior under suppressed archival
+writes before changing that operator path.
+
 ## Standalone verification follow-up to ADR-012 (2026-10-23)
 
 Reproduced `verify` exiting zero and reporting requested `document` provenance

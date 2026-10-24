@@ -22,6 +22,7 @@ from .controller import MemoryController
 from . import policy as _policy
 from . import trust as _trust
 from .observability import Observability
+from .limits import redact
 
 
 def _controller() -> MemoryController:
@@ -261,6 +262,26 @@ def _cmd_fix_permissions(args) -> None:
         sys.exit(1)
 
 
+def _log_promotion(ctrl: MemoryController, action: str, kind: str,
+                   target_id: str, detail: str, session_id: str) -> None:
+    """Require a new intact audit under the caller's promotion writer transaction."""
+    previous_id = ctrl.db._run(
+        lambda conn: conn.execute("SELECT COALESCE(MAX(id), 0) FROM mutation_log").fetchone()[0]
+    )
+    ctrl.db.log_mutation(action, kind, target_id, detail, session_id)
+    expected = (action, kind, target_id, redact(detail)[:2000], session_id)
+
+    def verify(conn) -> None:
+        rows = conn.execute(
+            "SELECT action, target_kind, target_id, detail, session_id, ts "
+            "FROM mutation_log WHERE id > ?", (previous_id,),
+        ).fetchall()
+        if len(rows) != 1 or tuple(rows[0])[:5] != expected or not rows[0]["ts"]:
+            raise RuntimeError("promotion audit row was not persisted")
+
+    ctrl.db._run(verify)
+
+
 def _cmd_verify(args) -> None:
     """Operator confirmation: promote a belief's verified provenance.
 
@@ -287,7 +308,7 @@ def _cmd_verify(args) -> None:
                                                        source_actor=ctrl.actor_id)
             if changed != 1:
                 raise RuntimeError("verification did not update one row")
-            ctrl.db.log_mutation("verify_provenance", "belief", args.belief_id,
+            _log_promotion(ctrl, "verify_provenance", "belief", args.belief_id,
                                  f"operator set verified_source_class={source_class} "
                                  f"(claimed was {b.get('claimed_source_class', '')})",
                                  ctrl.session_id)
@@ -871,7 +892,7 @@ def _cmd_quarantine_approve(args) -> None:
                                                            clear_quarantine=True)
             if changed != 1:
                 raise RuntimeError("promotion did not update one row")
-            ctrl.db.log_mutation("quarantine_approved", kind, target_id,
+            _log_promotion(ctrl, "quarantine_approved", kind, target_id,
                                  f"operator released from quarantine; "
                                  f"verified_source_class={verified} "
                                  f"(claimed was {claimed_before})", ctrl.session_id)
