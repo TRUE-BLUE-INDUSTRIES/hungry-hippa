@@ -269,24 +269,42 @@ def _cmd_verify(args) -> None:
     a memory is indeed something they said.
     """
     ctrl = _controller()
-    b = ctrl.semantic.get_belief(args.belief_id)
-    if not b:
-        _print_json({"error": f"unknown belief {args.belief_id}"})
-        sys.exit(1)
     source_class = args.source_class
     if source_class not in ("user_explicit", "document", "tool_result"):
         _print_json({"error": "source_class must be one of user_explicit, document, "
                               "tool_result"})
         sys.exit(1)
 
-    # One implementation of the promotion write: the same call quarantine
-    # approval makes, so the two entry points cannot drift apart.
-    changed = ctrl.semantic.set_verified_class(args.belief_id, source_class,
-                                                source_actor=ctrl.actor_id)
-    ctrl.db.log_mutation("verify_provenance", "belief", args.belief_id,
-                         f"operator set verified_source_class={source_class} "
-                         f"(claimed was {b.get('claimed_source_class', '')})",
-                         ctrl.session_id)
+    # Lock before reading provenance; verify the persisted result after auditing.
+    # Keep the standalone helper and quarantine-release semantics unchanged.
+    try:
+        with ctrl.db.transaction():
+            b = ctrl.semantic.get_belief(args.belief_id)
+            if not b:
+                _print_json({"error": f"unknown belief {args.belief_id}"})
+                sys.exit(1)
+            changed = ctrl.semantic.set_verified_class(args.belief_id, source_class,
+                                                       source_actor=ctrl.actor_id)
+            if changed != 1:
+                raise RuntimeError("verification did not update one row")
+            ctrl.db.log_mutation("verify_provenance", "belief", args.belief_id,
+                                 f"operator set verified_source_class={source_class} "
+                                 f"(claimed was {b.get('claimed_source_class', '')})",
+                                 ctrl.session_id)
+            persisted = ctrl.semantic.get_belief(args.belief_id)
+            expected = {"verified_source_class": source_class,
+                        "source_class": source_class,
+                        "source_actor": ctrl.actor_id,
+                        "ingestion_channel": _trust.CHANNEL_CLI,
+                        "claimed_source_class": b.get("claimed_source_class", ""),
+                        "quarantined": b.get("quarantined"),
+                        "status": b.get("status")}
+            if not persisted or any(persisted.get(k) != v for k, v in expected.items()):
+                raise RuntimeError("verification did not persist expected provenance")
+    except Exception:
+        _print_json({"belief_id": args.belief_id,
+                     "error": "provenance verification failed; transaction rolled back"})
+        sys.exit(1)
     _print_json({
         "belief_id": args.belief_id,
         "claimed_source_class": b.get("claimed_source_class", ""),

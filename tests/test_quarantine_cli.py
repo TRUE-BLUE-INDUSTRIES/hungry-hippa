@@ -435,6 +435,103 @@ def check_unknown_ids_fail_cleanly():
     return "unknown ids and invalid classes exit 1 with a clean error"
 
 
+def check_verify_persistence_faults():
+    """Standalone verification must not claim a suppressed promotion succeeded."""
+    def command(path, *args):
+        result = subprocess.run(
+            [sys.executable, "-m", "hungry_hippa.cli", *args],
+            env=dict(os.environ, HUNGRY_HIPPA_DB=path),
+            text=True, capture_output=True, timeout=30)
+        assert "Traceback" not in result.stderr, result.stderr
+        return result.returncode, json.loads(result.stdout)
+
+    def snapshot(path):
+        with sqlite3.connect(path) as conn:
+            return (conn.execute("SELECT * FROM beliefs").fetchall(),
+                    conn.execute("SELECT * FROM mutation_log").fetchall())
+
+    fields = ("verified_source_class", "source_class", "source_actor",
+              "ingestion_channel", "claimed_source_class", "quarantined", "status")
+    cases = 0
+    for fault in ("IGNORE", "ABORT", "missing_row", "audit_reversal", *fields):
+        ctrl, path = _fresh("hh_verify_fault_")
+        row = _untrusted_write(path, "Synthetic amber valve uses ceramic seals")
+        target = row["belief_id"]
+        evidence = ctrl.db.add_evidence("Synthetic valve specification", kind="document",
+                                         source_ref="fixture:verify-valve")
+        ctrl.db.link_evidence("belief", target, [evidence])
+        before = snapshot(path)
+        event = "UPDATE OF verified_source_class ON beliefs"
+        timing = "AFTER"
+        if fault in ("IGNORE", "ABORT"):
+            timing = "BEFORE"
+            body = ("SELECT RAISE(IGNORE);" if fault == "IGNORE" else
+                    "SELECT RAISE(ABORT, 'synthetic refusal');")
+        elif fault == "missing_row":
+            body = "DELETE FROM beliefs WHERE belief_id=NEW.belief_id;"
+        elif fault == "audit_reversal":
+            event = "INSERT ON mutation_log WHEN NEW.action='verify_provenance'"
+            body = "UPDATE beliefs SET verified_source_class='external_source' WHERE belief_id=NEW.target_id;"
+        else:
+            value = "0" if fault == "quarantined" else "'synthetic-alteration'"
+            body = f"UPDATE beliefs SET {fault}={value} WHERE belief_id=NEW.belief_id;"
+        with sqlite3.connect(path) as conn:
+            conn.execute(f"CREATE TRIGGER stop_verify {timing} {event} BEGIN {body} END")
+        code, out = command(path, "verify", target, "--source-class", "document")
+        assert code == 1 and out.get("error"), (fault, code, out)
+        assert snapshot(path) == before, (fault, "partial promotion or false audit")
+        with sqlite3.connect(path) as conn:
+            conn.execute("DROP TRIGGER stop_verify")
+        code, out = command(path, "verify", target, "--source-class", "document")
+        assert code == 0 and out["rows_changed"] == 1, out
+        persisted = _owner_view(path).semantic.get_belief(target)
+        assert persisted is not None
+        assert persisted["source_actor"] == ctrl.actor_id
+        assert persisted["ingestion_channel"] == trust.CHANNEL_CLI
+        with sqlite3.connect(path) as conn:
+            audits = conn.execute("SELECT target_id, detail FROM mutation_log "
+                                  "WHERE action='verify_provenance'").fetchall()
+        assert len(audits) == 1 and audits[0][0] == target, audits
+        assert "verified_source_class=document" in audits[0][1], audits
+        assert persisted["verified_source_class"] == persisted["source_class"] == "document"
+        assert persisted["claimed_source_class"] == row["claimed_source_class"]
+        assert persisted["quarantined"] and persisted["status"] == "active"
+        code, recalled = command(path, "recall", "amber valve ceramic seals")
+        assert code == 0 and not recalled["items"], recalled
+        code, out = command(path, "verify", target, "--source-class", "document")
+        assert code == 0 and out["rows_changed"] == 1, out
+        code, out = command(path, "quarantine", "approve", target, "--source-class", "document")
+        assert code == 0 and out["approved"], out
+        code, recalled = command(path, "recall", "amber valve ceramic seals")
+        assert code == 0, recalled
+        item = next(i for i in recalled["items"] if i.get("belief_id") == target)
+        assert item["verified_source_class"] == "document" and evidence in item["evidence_ids"]
+        assert evidence in recalled["sources"], recalled
+        with sqlite3.connect(path) as conn:
+            assert conn.execute("SELECT source_ref FROM evidence WHERE evidence_id=?",
+                                (evidence,)).fetchone() == ("fixture:verify-valve",)
+        cases += 1
+    for status in ("active", "archived", "superseded"):
+        for source_class in ("user_explicit", "document", "tool_result"):
+            ctrl, path = _fresh("hh_verify_compat_")
+            row = ctrl.semantic.add_belief("Synthetic cobalt valve specification",
+                                           source_class="document")
+            target = row["belief_id"]
+            with sqlite3.connect(path) as conn:
+                conn.execute("UPDATE beliefs SET status=? WHERE belief_id=?", (status, target))
+            code, out = command(path, "verify", target, "--source-class", source_class)
+            assert code == 0 and out["verified_source_class"] == source_class, out
+            persisted = _owner_view(path).semantic.get_belief(target)
+            assert persisted is not None
+            assert persisted["status"] == status and not persisted["quarantined"], persisted
+            assert persisted["verified_source_class"] == persisted["source_class"] == source_class
+            assert persisted["claimed_source_class"] == row["claimed_source_class"]
+            code, recalled = command(path, "recall", "cobalt valve specification")
+            assert code == 0, recalled
+            assert (target in {i.get("belief_id") for i in recalled["items"]}) == (status == "active")
+    return f"{cases} verification faults roll back; retry and lifecycle/class compatibility pass"
+
+
 # ------------------------------------------------------------------------- runner
 
 def run_all() -> List[Dict[str, Any]]:
@@ -457,6 +554,7 @@ def run_all() -> List[Dict[str, Any]]:
           check_approve_uses_existing_verification_semantics)
     check("approve_releases_an_episode_too", check_approve_releases_an_episode_too)
     check("approval_persistence_faults", check_approval_persistence_faults)
+    check("verify_persistence_faults", check_verify_persistence_faults)
     check("reject_removes_from_default_recall", check_reject_removes_from_default_recall)
     check("rejected_data_is_archived_not_purged", check_rejected_data_is_archived_not_purged)
     check("mcp_cannot_approve_or_reject", check_mcp_cannot_approve_or_reject)

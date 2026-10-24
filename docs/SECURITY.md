@@ -96,9 +96,17 @@ promote a memory from their own terminal:
 hungry-hippa verify B-0007 --source-class user_explicit
 ```
 
-which is the only path that sets `verified_source_class = user_explicit` for a
-memory the model wrote. The model can describe where something came from; it
-cannot promote its own text to the operator's voice.
+Operator `verify` and `quarantine approve` reuse the same provenance-promotion
+helper. The model can describe where something came from; it cannot promote its
+own text to the operator's voice.
+
+Standalone `verify` locks the belief lookup, promotion, audit call and readback in
+one SQLite writer transaction. It reports success only after one row is updated
+and expected provenance is persisted; suppressed/failed promotion rolls back and
+exits 1 without exposing database exception text. Original claimed provenance,
+quarantine and lifecycle status are preserved: verification alone does not release
+quarantined memory or reactivate archived/superseded memory. Independent silent
+audit INSERT suppression is not verified by this check.
 
 ## Controls implemented
 

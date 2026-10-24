@@ -1,5 +1,25 @@
 # Engineering decisions
 
+## Standalone verification follow-up to ADR-012 (2026-10-23)
+
+Reproduced `verify` exiting zero and reporting requested `document` provenance
+with `rows_changed=0` after an ignored UPDATE. The standalone helper swallows SQL
+failures outside transactions; CLI trusted its result and logged success anyway.
+
+Use the existing writer transaction before lookup, preserve the shared promotion
+helper, require one updated row, and read back verified/effective class, actor,
+channel, original claimed class and unchanged quarantine/status after the audit
+call. Commit before success; otherwise roll back and exit 1 with a generic error.
+No new schema, capability, dependency, MCP surface or helper behavior change.
+
+Eleven synthetic faults cover IGNORE/ABORT, field alteration, target disappearance
+and audit-trigger reversal with row/audit snapshots and fresh CLI retry. Successful
+retry audits, operator identity/channel, durable evidence and recall after separate
+approval are checked. Active/archived/superseded nonquarantined beliefs support all
+three allowed classes without changing lifecycle or quarantine. Repeat verify is
+compatible. Independent audit INSERT suppression, arbitrary other metadata, later
+mutations and historical repair remain outside this bounded fix.
+
 ## ADR-012 — Verify operator quarantine promotion before success (2026-10-22)
 
 The CLI previously treated a failed/no-op promotion as a successful command,

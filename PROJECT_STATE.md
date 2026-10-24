@@ -1,7 +1,38 @@
 # Project state
 
-Updated 2026-10-22. Git is authoritative for code; no live store or deployed MCP
+Updated 2026-10-23. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
+
+## Autonomous maintenance — standalone verification persistence, 2026-10-23
+
+Started clean at `84475c5fa4a25d5af17d3979290d5cce8d4c66de` on
+`automation/hh-maintenance`; fetched main remains an ancestor. Reproduced P1
+`verify` falsely reporting requested provenance with exit zero and rows_changed=0
+after an ignored promotion UPDATE. No equivalent fix found in inspected all-ref
+verify history. CLI now locks before lookup, uses the existing helper, checks
+rowcount and persisted promotion fields after audit, and commits before success.
+Failure rolls back with exit 1. Claimed provenance, quarantine and status stay
+unchanged; standalone verification does not release or reactivate memory.
+
+Baseline provenance 6/6, quarantine CLI 10/10 PASS. New regression RED 10/11,
+then GREEN 11/11 with eleven promotion faults, snapshot rollback, fresh CLI retry
+and separate-process recall retaining durable evidence after explicit approval.
+QA independently passed initial 11/11 and provenance 6/6; security source review
+found no blocker. Added their compatibility gaps: all allowed classes against
+active/archived/superseded nonquarantined beliefs, plus successful retry audit and
+actor/channel assertions. Final targeted 11/11 PASS.
+
+All 31 shared gate steps succeeded using existing temporary-XDG chat-offline
+wrapper; two live-chat checks intentionally SKIP/ENVIRONMENTAL, both synthetic
+live embedding checks PASS. Configured live chat not retested; prior model-load
+failure is not claimed resolved. Includes install, MCP/trust/security, ingestion,
+reconciliation, migrations, vectors, backup, Hippo-Pot, demo and eval checks.
+Python 3.14.7; Linux 7.2.5-3-omarchy x86_64; AMD Ryzen 9 9950X3D, 32 logical CPUs.
+Gate measured implementation diff over starting SHA before documentation updates.
+Invented scratch stores only; no live-memory/plugin/main/config changes.
+Next: reproduce independent operator promotion audit INSERT suppression before
+extending the guarantee; see standalone verification follow-up to ADR-012.
+
 
 ## Autonomous maintenance — quarantine approval persistence, 2026-10-22
 
