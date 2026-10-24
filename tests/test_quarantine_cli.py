@@ -617,6 +617,96 @@ def check_verify_persistence_faults():
     return f"{cases} verification faults roll back; retry and lifecycle/class compatibility pass"
 
 
+def check_rejection_denial_audit():
+    from unittest.mock import patch
+    ctrl, path = _fresh("hh_reject_denial_")
+    row = ctrl.semantic.add_belief("Synthetic operator-only valve specification")
+    target = row["belief_id"]
+    before = ctrl.semantic.get_belief(target)
+    restricted = MemoryController(load_config(), db_path=path)
+    restricted.bind_session(session_id="denied-review", platform="test",
+                            trust=trust.external_binding(claimed_actor="web-agent", token=""))
+    with patch("hungry_hippa.cli._controller", return_value=restricted):
+        out, code = _cli(hungry_hippa_command="quarantine", quarantine_command="reject",
+                         target_id=target)
+    assert code == 1 and out.get("rejected") is False, out
+    assert ctrl.semantic.get_belief(target) == before
+    with sqlite3.connect(path) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM mutation_log WHERE action='forget_denied' AND target_id=?", (target,)).fetchone() == (1,)
+        assert conn.execute("SELECT COUNT(*) FROM mutation_log WHERE action='quarantine_rejected' AND target_id=?", (target,)).fetchone() == (0,)
+    return "restricted binding denied without mutation; denial audit remains durable"
+
+
+def check_rejection_persistence_faults():
+    """Archival refusal must fail the real CLI and roll back its audit writes."""
+    def command(path, *args):
+        result = subprocess.run(
+            [sys.executable, "-m", "hungry_hippa.cli", *args],
+            env=dict(os.environ, HUNGRY_HIPPA_DB=path),
+            text=True, capture_output=True, timeout=30)
+        assert "Traceback" not in result.stderr, result.stderr
+        return result.returncode, json.loads(result.stdout)
+
+    def snapshot(path, table):
+        with sqlite3.connect(path) as conn:
+            return (conn.execute(f"SELECT * FROM {table}").fetchall(),
+                    conn.execute("SELECT * FROM mutation_log").fetchall())
+
+    cases = 0
+    for kind, table in (("belief", "beliefs"), ("episode", "episodes")):
+        for fault in ("IGNORE", "ABORT", "reversal", "missing_row", "audit_reversal"):
+            ctrl, path = _fresh("hh_reject_fault_")
+            text = "Synthetic amber valve uses ceramic seals"
+            row = (_untrusted_write(path, text) if kind == "belief"
+                   else _untrusted_episode(path, text))
+            target = row[kind + "_id"]
+            evidence = ctrl.db.add_evidence(text, kind="document",
+                                            source_ref="fixture:reject-valve")
+            ctrl.db.link_evidence(kind, target, [evidence])
+            before = snapshot(path, table)
+            timing = "AFTER"
+            event = f"UPDATE OF status ON {table}"
+            if fault in ("IGNORE", "ABORT"):
+                timing = "BEFORE"
+                body = ("SELECT RAISE(IGNORE);" if fault == "IGNORE" else
+                        "SELECT RAISE(ABORT, 'synthetic refusal');")
+            elif fault == "missing_row":
+                body = f"DELETE FROM {table} WHERE {kind}_id=NEW.{kind}_id;"
+            elif fault == "audit_reversal":
+                event = "INSERT ON mutation_log WHEN NEW.action='quarantine_rejected'"
+                body = f"UPDATE {table} SET status='active' WHERE {kind}_id=NEW.target_id;"
+            else:
+                body = f"UPDATE {table} SET status='active' WHERE {kind}_id=NEW.{kind}_id;"
+            with sqlite3.connect(path) as conn:
+                conn.execute(f"CREATE TRIGGER stop_reject {timing} {event} BEGIN {body} END")
+            code, out = command(path, "quarantine", "reject", target)
+            assert code == 1 and out.get("error") and out.get("rejected") is False, (kind, fault, code, out)
+            assert snapshot(path, table) == before, (kind, fault, "partial archival/audit")
+            with sqlite3.connect(path) as conn:
+                conn.execute("DROP TRIGGER stop_reject")
+            # Show the retained source is recallable after explicit approval,
+            # then ensure successful rejection removes it in a fresh process.
+            code, out = command(path, "quarantine", "approve", target, "--source-class", "document")
+            assert code == 0 and out["approved"], out
+            code, recalled = command(path, "recall", "amber valve ceramic seals")
+            assert code == 0, recalled
+            item = next(i for i in recalled["items"] if i.get(kind + "_id") == target)
+            assert evidence in item["evidence_ids"] and evidence in recalled["sources"], recalled
+            code, out = command(path, "quarantine", "reject", target)
+            assert code == 0 and out["rejected"], out
+            with sqlite3.connect(path) as conn:
+                assert conn.execute(f"SELECT status FROM {table} WHERE {kind}_id=?", (target,)).fetchone() == ("archived",)
+                assert conn.execute("SELECT source_ref FROM evidence WHERE evidence_id=?", (evidence,)).fetchone() == ("fixture:reject-valve",)
+                assert conn.execute("SELECT COUNT(*) FROM mutation_log WHERE action='quarantine_rejected' AND target_id=?", (target,)).fetchone() == (1,)
+            code, recalled = command(path, "recall", "amber valve ceramic seals")
+            assert code == 0 and not recalled["items"], recalled
+            # Already archived rejection remains a supported reversible no-op.
+            code, out = command(path, "quarantine", "reject", target)
+            assert code == 0 and out["rejected"], out
+            cases += 1
+    return f"{cases} archival faults roll back; CLI retry, durable evidence and fresh recall pass"
+
+
 # ------------------------------------------------------------------------- runner
 
 def run_all() -> List[Dict[str, Any]]:
@@ -641,6 +731,8 @@ def run_all() -> List[Dict[str, Any]]:
     check("approval_persistence_faults", check_approval_persistence_faults)
     check("promotion_audit_persistence", check_promotion_audit_persistence)
     check("verify_persistence_faults", check_verify_persistence_faults)
+    check("rejection_denial_audit", check_rejection_denial_audit)
+    check("rejection_persistence_faults", check_rejection_persistence_faults)
     check("reject_removes_from_default_recall", check_reject_removes_from_default_recall)
     check("rejected_data_is_archived_not_purged", check_rejected_data_is_archived_not_purged)
     check("mcp_cannot_approve_or_reject", check_mcp_cannot_approve_or_reject)

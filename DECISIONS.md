@@ -1,5 +1,31 @@
 # Engineering decisions
 
+## Quarantine rejection persistence follow-up to ADR-012 (2026-10-24)
+
+Reproduced ignored archival UPDATE returning exit zero with rejected=false, a
+false archival note and rejection audit. CLI checked only error, not archived.
+An AFTER trigger can also reverse status despite a successful helper return.
+
+Resolve, existing per-record forget authorization, reversible archival, audit and
+status readback now share one writer transaction. Require archived=true plus a
+persisted archived row; emit success after commit. SQL errors, no-op archival,
+missing rows and reversal fail with a generic error and rollback. Standalone
+helpers, MCP, schema and provenance semantics are unchanged. Repeated rejection
+of archived rows remains supported.
+
+Regression RED 12/13 then GREEN 13/13 covers ten faults across beliefs/episodes,
+exact row/audit rollback, fresh CLI retry, durable evidence and second-process
+recall. QA independently repeated 13/13 and security 14/14. Security review found
+conditional denial-audit rollback with restricted controllers: additional test
+reproduced 13/14, then denial handling moved after commit for final 14/14.
+All 31 gate steps succeeded via temporary-XDG chat-offline wrapper; two live-chat
+checks SKIP/ENVIRONMENTAL, both synthetic live-embedding checks PASS.
+
+This is archival-status persistence, not independent audit INSERT verification,
+whole-database trigger integrity or historical repair. Next: reproduce silent
+rejection audit suppression before extending that guarantee.
+
+
 ## Operator audit persistence follow-up to ADR-012 (2026-10-23)
 
 An ignored `verify_provenance` audit INSERT reproduced exit-zero promotion without

@@ -115,6 +115,13 @@ This is persistence verification, not tamper-proof logging: arbitrary nonempty
 timestamps, later mutations, nested helper audits and `quarantine reject` are not
 covered by this check.
 
+`quarantine reject` resolves, authorizes, archives and reads back status after its
+audit call in one writer transaction. Failed/suppressed archival exits 1 and rolls
+back; success prints after commit and requires an archived row at readback.
+Rejection remains reversible and preserves the existing per-record authorization.
+Denial audits commit before the CLI reports denial. Independent silent rejection
+or nested audit INSERT suppression is not verified by this status check.
+
 ## Controls implemented
 
 ### Request shape and size

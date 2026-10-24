@@ -1,7 +1,28 @@
 # Project state
 
-Updated 2026-10-23. Git is authoritative for code; no live store or deployed MCP
+Updated 2026-10-24. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
+
+## Autonomous maintenance — quarantine rejection persistence, 2026-10-24
+
+Started clean at `2c1fe62394ddbf19dfc015294a833343aab2c740` on
+`automation/hh-maintenance`; fetched main remains an ancestor. Reproduced exit-zero
+rejection with false archival note after ignored archival UPDATE. CLI now locks
+resolve/authorize/archive/audit/readback, requires successful helper plus archived
+row and commits before success. Failure rolls back with exit 1. Existing helpers,
+authorization, reversible archival and MCP unchanged; denied actions retain audits.
+
+Baseline 12/12; archival regression RED 12/13, GREEN 13/13, with ten faults across
+both memory kinds, fresh CLI retry/recall and durable evidence. QA repeated 13/13
+and security 14/14. Security review's restricted-controller denial-audit concern
+reproduced 13/14; corrected and final targeted 14/14 PASS. Full 31-step gate PASS
+via temporary-XDG chat-offline wrapper: two live-chat environmental SKIPs, both
+synthetic live-embedding checks PASS. Configured live chat was not retested.
+Python 3.14.7, Linux 7.2.5-3-omarchy x86_64, Ryzen 9 9950X3D (32 logical CPUs).
+Gate measured implementation diff over starting SHA before documentation updates.
+No production memory, plugin, main or live config changes. Independent silent audit
+suppression and historical repair remain outside this bounded fix. Next: reproduce
+rejection audit INSERT suppression; see ADR-012 follow-up.
 
 ## Autonomous maintenance — operator promotion audit persistence, 2026-10-23
 

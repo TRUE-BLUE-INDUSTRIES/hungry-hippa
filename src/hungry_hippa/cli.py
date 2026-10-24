@@ -925,23 +925,38 @@ def _cmd_quarantine_reject(args) -> None:
     ctrl = _controller()
     target_id = getattr(args, "target_id", "") or ""
     mode = (getattr(args, "mode", "archival") or "archival").strip().lower()
-    kind, row = _resolve_quarantined(ctrl, target_id)
-    if not row:
-        _print_json({"error": f"unknown memory {target_id}"})
-        sys.exit(1)
     if mode != "archival":
         # Deliberate: rejection archives. Purge exists only as an explicit,
         # separate operator action on a row the operator chose to destroy.
         _print_json({"error": "reject supports only --mode archival; "
                               "use `hungry-hippa forget` for a confirmed purge"})
         sys.exit(1)
-    outcome = ctrl.forget(kind, target_id, mode="archival",
-                          reason="quarantine rejected by operator")
+    try:
+        with ctrl.db.transaction():
+            kind, row = _resolve_quarantined(ctrl, target_id)
+            if not row:
+                _print_json({"error": f"unknown memory {target_id}"})
+                sys.exit(1)
+            # Keep the existing per-record authorization and reversible archive
+            # helper; neither its return nor UPDATE rowcount proves persistence.
+            outcome = ctrl.forget(kind, target_id, mode="archival",
+                                  reason="quarantine rejected by operator")
+            if not outcome.get("error"):
+                if not outcome.get("archived"):
+                    raise RuntimeError("archival did not update one row")
+                ctrl.db.log_mutation("quarantine_rejected", kind, target_id,
+                                     f"mode={mode}", ctrl.session_id)
+                _, persisted = _resolve_quarantined(ctrl, target_id)
+                if not persisted or persisted.get("status") != "archived":
+                    raise RuntimeError("archival did not persist")
+    except Exception:
+        _print_json({"rejected": False, "id": target_id,
+                     "error": "quarantine rejection failed; transaction rolled back"})
+        sys.exit(1)
     if outcome.get("error"):
+        # Preserve the existing denial audit: exit only after its commit.
         _print_json({"rejected": False, "id": target_id, **outcome})
         sys.exit(1)
-    ctrl.db.log_mutation("quarantine_rejected", kind, target_id,
-                         f"mode={mode}", ctrl.session_id)
     _print_json({
         "rejected": bool(outcome.get("archived")),
         "id": target_id,
