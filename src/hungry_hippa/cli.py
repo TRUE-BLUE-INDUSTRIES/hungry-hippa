@@ -264,7 +264,11 @@ def _cmd_fix_permissions(args) -> None:
 
 def _log_promotion(ctrl: MemoryController, action: str, kind: str,
                    target_id: str, detail: str, session_id: str) -> None:
-    """Require a new intact audit under the caller's promotion writer transaction."""
+    """Require a new intact operator audit within the caller's writer transaction.
+
+    Used for provenance promotion and quarantine rejection; standalone logging
+    and nested helper audits retain their existing behavior.
+    """
     previous_id = ctrl.db._run(
         lambda conn: conn.execute("SELECT COALESCE(MAX(id), 0) FROM mutation_log").fetchone()[0]
     )
@@ -944,8 +948,8 @@ def _cmd_quarantine_reject(args) -> None:
             if not outcome.get("error"):
                 if not outcome.get("archived"):
                     raise RuntimeError("archival did not update one row")
-                ctrl.db.log_mutation("quarantine_rejected", kind, target_id,
-                                     f"mode={mode}", ctrl.session_id)
+                _log_promotion(ctrl, "quarantine_rejected", kind, target_id,
+                               f"mode={mode}", ctrl.session_id)
                 _, persisted = _resolve_quarantined(ctrl, target_id)
                 if not persisted or persisted.get("status") != "archived":
                     raise RuntimeError("archival did not persist")

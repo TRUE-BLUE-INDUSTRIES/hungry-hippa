@@ -707,6 +707,68 @@ def check_rejection_persistence_faults():
     return f"{cases} archival faults roll back; CLI retry, durable evidence and fresh recall pass"
 
 
+def check_rejection_audit_persistence():
+    """A matching historical audit cannot mask a missing new rejection audit."""
+    cases = 0
+    for kind in ("belief", "episode"):
+        for fault in ("IGNORE", "ABORT", "action", "target_kind", "target_id", "detail",
+                      "session_id", "timestamp", "extra"):
+            ctrl, path = _fresh("hh_rejection_audit_")
+            row = (_untrusted_write(path, "Synthetic jade valve uses ceramic seals")
+                   if kind == "belief" else
+                   _untrusted_episode(path, "Synthetic jade valve uses ceramic seals"))
+            target = row[kind + "_id"]
+            table = "beliefs" if kind == "belief" else "episodes"
+            action = "quarantine_rejected"
+            ctrl.db.log_mutation(action, kind, target, "mode=archival", "cli")
+
+            def snapshot():
+                with sqlite3.connect(path) as conn:
+                    return (conn.execute(f"SELECT * FROM {table}").fetchall(),
+                            conn.execute("SELECT * FROM mutation_log").fetchall())
+
+            def command():
+                result = subprocess.run(
+                    [sys.executable, "-m", "hungry_hippa.cli", "quarantine", "reject", target],
+                    env=dict(os.environ, HUNGRY_HIPPA_DB=path),
+                    text=True, capture_output=True, timeout=30)
+                assert "Traceback" not in result.stderr, result.stderr
+                return result.returncode, json.loads(result.stdout)
+
+            before = snapshot()
+            timing = "BEFORE" if fault in ("IGNORE", "ABORT") else "AFTER"
+            if fault in ("IGNORE", "ABORT"):
+                body = ("SELECT RAISE(IGNORE);" if fault == "IGNORE" else
+                        "SELECT RAISE(ABORT, 'synthetic audit refusal');")
+            elif fault == "extra":
+                body = ("INSERT INTO mutation_log(ts, action, target_kind, target_id, detail, session_id) "
+                        "VALUES ('synthetic', 'extra', '', '', '', '');")
+            else:
+                field = "ts" if fault == "timestamp" else fault
+                value = "''" if fault == "timestamp" else "'synthetic-alteration'"
+                body = f"UPDATE mutation_log SET {field}={value} WHERE id=NEW.id;"
+            with sqlite3.connect(path) as conn:
+                conn.execute(f"CREATE TRIGGER stop_audit {timing} INSERT ON mutation_log "
+                             f"WHEN NEW.action='{action}' BEGIN {body} END")
+            code, out = command()
+            assert code == 1 and out.get("error") and out.get("rejected") is False, (kind, fault, code, out)
+            assert snapshot() == before, (kind, fault, "partial archive/audit")
+            with sqlite3.connect(path) as conn:
+                conn.execute("DROP TRIGGER stop_audit")
+            code, out = command()
+            assert code == 0 and out["rejected"] is True, out
+            with sqlite3.connect(path) as conn:
+                audits = conn.execute("SELECT action, target_kind, target_id, detail, session_id, ts "
+                                      "FROM mutation_log WHERE action=? ORDER BY id", (action,)).fetchall()
+                persisted = conn.execute(f"SELECT status FROM {table} WHERE {kind}_id=?",
+                                         (target,)).fetchone()
+            assert persisted == ("archived",), persisted
+            assert len(audits) == 2 and audits[-1][:5] == audits[0][:5], audits
+            assert audits[-1][:5] == (action, kind, target, "mode=archival", "cli") and audits[-1][5], audits
+            cases += 1
+    return f"{cases} rejection audit faults roll back archival and nested audits; fresh CLI retries pass"
+
+
 # ------------------------------------------------------------------------- runner
 
 def run_all() -> List[Dict[str, Any]]:
@@ -731,6 +793,7 @@ def run_all() -> List[Dict[str, Any]]:
     check("approval_persistence_faults", check_approval_persistence_faults)
     check("promotion_audit_persistence", check_promotion_audit_persistence)
     check("verify_persistence_faults", check_verify_persistence_faults)
+    check("rejection_audit_persistence", check_rejection_audit_persistence)
     check("rejection_denial_audit", check_rejection_denial_audit)
     check("rejection_persistence_faults", check_rejection_persistence_faults)
     check("reject_removes_from_default_recall", check_reject_removes_from_default_recall)

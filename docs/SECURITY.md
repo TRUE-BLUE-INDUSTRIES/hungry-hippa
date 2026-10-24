@@ -112,15 +112,17 @@ expected action, target, redacted/capped detail, session and nonempty timestamp
 inside the same writer transaction. Silent audit INSERT suppression or altered
 fields roll back the promotion and exit 1; an old matching audit is insufficient.
 This is persistence verification, not tamper-proof logging: arbitrary nonempty
-timestamps, later mutations, nested helper audits and `quarantine reject` are not
-covered by this check.
+timestamps, later mutations and nested helper audits are not covered by this check.
 
 `quarantine reject` resolves, authorizes, archives and reads back status after its
 audit call in one writer transaction. Failed/suppressed archival exits 1 and rolls
 back; success prints after commit and requires an archived row at readback.
 Rejection remains reversible and preserves the existing per-record authorization.
-Denial audits commit before the CLI reports denial. Independent silent rejection
-or nested audit INSERT suppression is not verified by this status check.
+Denial audits commit before the CLI reports denial. Successful rejection also
+requires exactly one new intact `quarantine_rejected` audit using the same checked
+logger as promotion. Suppression, altered fields or an extra inserted audit roll
+back archival and exit 1; a matching historical audit is insufficient. Nested
+helper audits and later mutations remain outside this immediate verification.
 
 ## Controls implemented
 

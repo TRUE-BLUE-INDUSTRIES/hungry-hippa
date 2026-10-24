@@ -3,6 +3,28 @@
 Updated 2026-10-24. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
 
+## Autonomous maintenance — rejection audit persistence, 2026-10-24
+
+Started clean at `8f1cfb70db9eebbbe08808785e34b3750fa9be0a` on
+`automation/hh-maintenance`; fetched main remains an ancestor. Reproduced exit-zero
+rejection after silently suppressed `quarantine_rejected` audit INSERT. Rejection
+now reuses the checked operator logger inside its existing writer transaction;
+missing/altered/extra new audits roll back archival and exit 1. Standalone logging,
+nested helpers, authorization, schema and MCP are unchanged.
+
+Baseline 14/14; new regression RED 14/15, GREEN 15/15 includes eighteen faults
+across both memory kinds, matching historical audits, exact row/audit rollback and
+fresh CLI retries. Existing evidence-linked cross-process recall tests pass.
+QA independently repeated 15/15 twice; security independently passed 15/15 with
+no blocker. All 31 full-gate steps succeeded through temporary-XDG chat-offline
+wrapper: two live-chat environmental SKIPs, both synthetic live-embedding checks
+PASS. Configured live chat was not retested. Python 3.14.7, Linux 7.2.5-3-omarchy
+x86_64, Ryzen 9 9950X3D (32 logical CPUs). Gate measured implementation diff over
+starting SHA before documentation updates. No production memory/plugin/main/live
+config changes. Immediate explicit audit persistence is not tamper-proof logging
+or nested-audit verification. Next: reproduce standalone CLI forget archival
+false-success behavior under suppressed writes before proposing a fix.
+
 ## Autonomous maintenance — quarantine rejection persistence, 2026-10-24
 
 Started clean at `2c1fe62394ddbf19dfc015294a833343aab2c740` on

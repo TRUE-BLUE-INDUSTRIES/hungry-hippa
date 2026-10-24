@@ -1,5 +1,29 @@
 # Engineering decisions
 
+## Rejection audit persistence follow-up to ADR-012 (2026-10-24)
+
+A BEFORE INSERT RAISE(IGNORE) on `quarantine_rejected` reproduced exit-zero
+rejection without a new audit despite an exactly matching historical row.
+Rejection now reuses the existing checked operator logger inside the archival
+writer transaction. Require exactly one newer audit with expected action, target,
+redacted/capped detail, session and nonempty timestamp. Failure rolls back archival
+and transaction-local audits before returning the existing generic CLI error.
+The helper's historical name is retained; no standalone logger, authorization,
+MCP, schema, nested helper or denial-path changes are needed.
+
+Regression RED 14/15 then GREEN 15/15 includes eighteen faults across both memory
+kinds: IGNORE/ABORT, each checked field, empty timestamp and extra audit insertion.
+Target-table/audit snapshots prove rollback; fresh CLI retries prove persisted
+archival and new audit. Existing evidence recall and repeated rejection remain
+green. QA repeated 15/15 twice and security independently passed 15/15; no blocker.
+All 31 shared gate steps succeeded via temporary-XDG chat-offline wrapper, with two
+intentional live-chat environmental SKIPs and both synthetic live embeddings PASS.
+
+Scope is immediate explicit rejection-audit persistence, not nested-audit
+verification, arbitrary nonempty timestamp corruption, later mutation protection,
+or historical repair. Next: reproduce standalone CLI forget archival false success
+under suppressed writes before extending these guarantees.
+
 ## Quarantine rejection persistence follow-up to ADR-012 (2026-10-24)
 
 Reproduced ignored archival UPDATE returning exit zero with rejected=false, a
