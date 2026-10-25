@@ -1,7 +1,32 @@
 # Project state
 
-Updated 2026-10-24. Git is authoritative for code; no live store or deployed MCP
+Updated 2026-10-25. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
+
+## Autonomous maintenance — immediate archival persistence, 2026-10-25
+
+Started clean at `849b72a63c05a309803cf49da1738ac86756851d` on
+`automation/hh-maintenance`; fetched origin/main remains an ancestor. Invented-store
+MCP probes reproduced both kinds returning ok=true/archived=true while AFTER UPDATE
+triggers restored active status; fresh processes still recalled the evidence-linked
+memories. UPDATE rowcount alone was incorrectly treated as proof of archival.
+
+Both archival writers now read status back on the same connection before commit.
+Missing/reversed rows raise and roll back via existing `_run`; existing outer
+transactions remain supported without nested scopes. No schema or permission changes.
+MCP regression RED 14/15, GREEN 15/15; quarantine 15/15; baseline confused-deputy 6/6.
+Regression covers both kinds with IGNORE/ABORT/reversal/removal, exact row/audit
+rollback, fresh-process provenance/evidence recall and successful retry. QA independently
+passed both 15/15 suites; security static review found no blocker. All 31 gate steps
+succeeded through the unchanged temporary-XDG chat-offline wrapper; two live-chat
+checks SKIP/ENVIRONMENTAL, both synthetic live-embedding checks PASS. Configured live
+chat not tested. Python 3.14.7, Linux 7.2.5-3-omarchy x86_64, Ryzen 9 9950X3D,
+32 logical CPUs. Gate ran implementation/tests over starting SHA before docs updates.
+
+This is immediate UPDATE-status verification, not later audit-trigger integrity,
+audit insertion verification, concurrent authorization or purge correctness. No live
+store/plugin/main/config changes. Next: reproduce later audit-trigger archival reversal
+through MCP on invented stores before considering a wider atomic operation.
 
 ## Autonomous maintenance — MCP archival result honesty, 2026-10-24
 

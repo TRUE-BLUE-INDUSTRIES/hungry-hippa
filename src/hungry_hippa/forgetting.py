@@ -188,6 +188,11 @@ class ForgettingPolicy:
                     "UPDATE beliefs SET status = 'archived', updated_at = ? WHERE belief_id = ?",
                     (_db.now_iso(), target_id),
                 )
+                if cur.rowcount > 0:
+                    row = conn.execute("SELECT status FROM beliefs WHERE belief_id = ?",
+                                       (target_id,)).fetchone()
+                    if row is None or row[0] != "archived":
+                        raise RuntimeError("belief archival did not persist")
                 return cur.rowcount > 0
 
             ok = bool(self.db._run(_upd, write=True))

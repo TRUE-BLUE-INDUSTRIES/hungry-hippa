@@ -1,12 +1,19 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-24",
+  "updated": "2026-10-25",
   "branch": "automation/hh-maintenance",
   "released": {
     "version": "1.0.0",
     "sha": "9b9593f62b76c044470f9bc5684656aadb3f07d9"
   },
   "tasks": [
+    {
+      "id": "ARCHIVAL-STATUS-PERSISTENCE",
+      "status": "done",
+      "evidence": ["tests/test_mcp_integration.py", "tests/test_quarantine_cli.py", "docs/MCP.md"],
+      "result": "Both archival writers verify status inside the existing write callback and roll back AFTER-update reversal/removal. MCP RED 14/15 then GREEN 15/15; quarantine 15/15; QA independently repeated both; security review no blocker. All 31 gate steps succeeded with two intentional live-chat environmental skips.",
+      "next": "Reproduce later audit-trigger archival reversal through MCP; immediate UPDATE readback does not verify later audit effects, concurrent authorization or purge."
+    },
     {
       "id": "MCP-ARCHIVAL-RESULT",
       "status": "done",

@@ -98,8 +98,11 @@ database; without it the resolved default is
 `hippa_forget` returns `ok=false` with an error when the controller reports
 unsuccessful archival (`archived=false`), including refused SQLite updates.
 Successful archival retains `ok=true, archived=true, purged=false`. This checks
-the controller result, not independent durable-write or audit verification; purge
-result handling is unchanged.
+the controller result. Archival writers also read back status within the UPDATE's
+existing write transaction: AFTER-update status reversal or row removal rolls back
+and reports failure. This is immediate status verification, not verification of
+later audit-trigger changes, audit insertion, concurrent authorization, or purge;
+purge result handling is unchanged.
 
 - An untrusted instance cannot read protected rows, purge anything, archive a row
   it may not read, or learn what it was not allowed to see (no ids, no counts, no

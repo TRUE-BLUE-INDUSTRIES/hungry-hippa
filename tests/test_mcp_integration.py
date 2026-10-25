@@ -135,7 +135,7 @@ def check_failed_archival_is_not_success():
     """A refused SQLite UPDATE must not become an ok=true MCP response."""
     for kind, table, key in (("belief", "beliefs", "belief_id"),
                              ("episode", "episodes", "episode_id")):
-        for fault in ("IGNORE", "ABORT"):
+        for fault in ("IGNORE", "ABORT", "REVERSE", "REMOVE"):
             db = H.fresh_db("itc_archive_failure_")
             token_file, token = H.make_token_file()
             auth = dict(token_file=token_file, token=token)
@@ -153,9 +153,15 @@ def check_failed_archival_is_not_success():
             with sqlite3.connect(db) as conn:
                 before = conn.execute(f"SELECT * FROM {table} WHERE {key}=?", (target,)).fetchone()
                 audit = conn.execute("SELECT * FROM mutation_log ORDER BY id").fetchall()
-                raise_expr = "RAISE(IGNORE)" if fault == "IGNORE" else "RAISE(ABORT, 'fixture refusal')"
-                conn.execute(f"CREATE TRIGGER refuse_archive BEFORE UPDATE OF status ON {table} "
-                             f"WHEN NEW.status='archived' BEGIN SELECT {raise_expr}; END")
+                if fault in ("IGNORE", "ABORT"):
+                    raise_expr = "RAISE(IGNORE)" if fault == "IGNORE" else "RAISE(ABORT, 'fixture refusal')"
+                    timing, effect = "BEFORE", f"SELECT {raise_expr}"
+                elif fault == "REVERSE":
+                    timing, effect = "AFTER", f"UPDATE {table} SET status='active' WHERE {key}=NEW.{key}"
+                else:
+                    timing, effect = "AFTER", f"DELETE FROM {table} WHERE {key}=NEW.{key}"
+                conn.execute(f"CREATE TRIGGER refuse_archive {timing} UPDATE OF status ON {table} "
+                             f"WHEN NEW.status='archived' BEGIN {effect}; END")
             failed = H.one_call(db, "hippa_forget", args, **auth)
             with sqlite3.connect(db) as conn:
                 assert conn.execute(f"SELECT * FROM {table} WHERE {key}=?", (target,)).fetchone() == before
@@ -176,7 +182,7 @@ def check_failed_archival_is_not_success():
                 assert conn.execute(f"SELECT status FROM {table} WHERE {key}=?", (target,)).fetchone() == ("archived",)
             after = H.one_call(db, "hippa_recall", {"query": "amber fixture alignment"}, **auth)
             assert after["count"] == 0, after
-    return "both kinds: IGNORE/ABORT report failure, preserve rows/audits, fresh-process recall and retry succeed"
+    return "both kinds: IGNORE/ABORT/reversal/removal report failure, preserve rows/audits, fresh-process recall and retry succeed"
 
 
 def check_unauthorized_purge_denied():

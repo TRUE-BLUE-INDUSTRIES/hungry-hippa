@@ -1,5 +1,23 @@
 # Engineering decisions
 
+## Immediate archival status readback (2026-10-25)
+
+Verify the archival UPDATE on its existing connection before commit instead of
+introducing nested transaction support. Both belief archival and episode archived
+status updates reject a missing/nonarchived result; the existing `_run` rollback
+handles standalone use and poisons an existing outer transaction. Quarantine
+rejection already owns a transaction, so layering another would break that path.
+Nonarchival episode transitions, authorization, audit helpers and purge are unchanged.
+
+Real MCP probes showed ok=true/archived=true with active persisted rows and retained
+evidence-linked recall after AFTER UPDATE reversal. Expanded regression RED 14/15,
+GREEN 15/15 includes reversal/removal plus IGNORE/ABORT for both kinds. Quarantine
+15/15 proves outer-scope compatibility. QA independently repeated both suites;
+security static review found no blocker. All 31 gate steps succeeded with temporary
+chat-offline configuration and two environmental chat SKIPs; live embedding checks pass.
+Immediate status readback is not operation-wide integrity: later audit-trigger mutation,
+independent audit suppression, authorization races and purge require separate work.
+
 ## MCP archival result envelope (2026-10-24)
 
 Treat controller `archived=false` as an MCP application failure, even without an

@@ -242,6 +242,11 @@ class EpisodicMemory:
                 "UPDATE episodes SET status = ?, updated_at = ? WHERE episode_id = ?",
                 (status, _db.now_iso(), episode_id),
             )
+            if status == "archived" and cur.rowcount > 0:
+                row = conn.execute("SELECT status FROM episodes WHERE episode_id = ?",
+                                   (episode_id,)).fetchone()
+                if row is None or row[0] != "archived":
+                    raise RuntimeError("episode archival did not persist")
             return cur.rowcount > 0
 
         ok = self.db._run(_upd, write=True)
