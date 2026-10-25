@@ -231,6 +231,11 @@ class Database:
         except Exception as e:
             logger.warning("fts reindex failed: %s", e)
 
+    @property
+    def in_transaction(self) -> bool:
+        """Whether this thread already owns this Database's writer transaction."""
+        return getattr(self._transaction_state, "connection", None) is not None
+
     @contextmanager
     def transaction(self):
         """Opt-in atomic writes; all _run calls on this thread share one connection.

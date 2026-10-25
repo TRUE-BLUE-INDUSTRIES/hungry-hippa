@@ -100,9 +100,13 @@ unsuccessful archival (`archived=false`), including refused SQLite updates.
 Successful archival retains `ok=true, archived=true, purged=false`. This checks
 the controller result. Archival writers also read back status within the UPDATE's
 existing write transaction: AFTER-update status reversal or row removal rolls back
-and reports failure. This is immediate status verification, not verification of
-later audit-trigger changes, audit insertion, concurrent authorization, or purge;
-purge result handling is unchanged.
+and reports failure. Explicit archival also holds one writer transaction across
+status changes, its audit calls and a final status readback: audit-trigger reversal
+or removal rolls back rather than reporting success. An existing caller transaction
+is reused; otherwise success returns after commit. This assumes helpers share the
+same Database object, as controller construction ensures. Independent silent audit
+suppression, concurrent authorization, automatic retention archival, later effects
+in an outer caller transaction, and purge remain outside this guarantee.
 
 - An untrusted instance cannot read protected rows, purge anything, archive a row
   it may not read, or learn what it was not allowed to see (no ids, no counts, no

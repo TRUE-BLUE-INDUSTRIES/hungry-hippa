@@ -178,7 +178,19 @@ class ForgettingPolicy:
 
     def archive(self, kind: str, target_id: str, reason: str = "",
                 session_id: str = "") -> bool:
-        """Explicit archival: memory leaves active retrieval but stays accessible."""
+        """Archive and verify after audit effects, sharing any caller transaction."""
+        if self.db.in_transaction:
+            # The caller owns commit/rollback (for example quarantine rejection).
+            return self._archive_in_transaction(kind, target_id, reason, session_id)
+        try:
+            with self.db.transaction():
+                return self._archive_in_transaction(kind, target_id, reason, session_id)
+        except Exception:
+            # Preserve the standalone bool API; the transaction already rolled back.
+            return False
+
+    def _archive_in_transaction(self, kind: str, target_id: str, reason: str,
+                                session_id: str) -> bool:
         ok = False
         if kind == "episode" and self.episodic is not None:
             ok = self.episodic.update_status(target_id, "archived", reason, session_id)
@@ -199,4 +211,15 @@ class ForgettingPolicy:
         if ok:
             self.db.log_mutation("forget", kind, target_id,
                                  f"action=archival reason={reason}", session_id)
+
+            def _verify(conn):
+                table, key = (("beliefs", "belief_id") if kind == "belief"
+                              else ("episodes", "episode_id"))
+                row = conn.execute(f"SELECT status FROM {table} WHERE {key}=?",
+                                   (target_id,)).fetchone()
+                if row is None or row[0] != "archived":
+                    raise RuntimeError("archival did not persist after audit")
+
+            # _run poisons an existing outer transaction even if its caller catches.
+            self.db._run(_verify)
         return bool(ok)

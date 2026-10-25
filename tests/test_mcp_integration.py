@@ -135,7 +135,11 @@ def check_failed_archival_is_not_success():
     """A refused SQLite UPDATE must not become an ok=true MCP response."""
     for kind, table, key in (("belief", "beliefs", "belief_id"),
                              ("episode", "episodes", "episode_id")):
-        for fault in ("IGNORE", "ABORT", "REVERSE", "REMOVE"):
+        faults = ["IGNORE", "ABORT", "REVERSE", "REMOVE", "AUDIT_REVERSE",
+                  "AUDIT_REMOVE", "AUDIT_ABORT"]
+        if kind == "episode":
+            faults.append("AUDIT_EPISODE_ABORT")
+        for fault in faults:
             db = H.fresh_db("itc_archive_failure_")
             token_file, token = H.make_token_file()
             auth = dict(token_file=token_file, token=token)
@@ -160,8 +164,19 @@ def check_failed_archival_is_not_success():
                     timing, effect = "AFTER", f"UPDATE {table} SET status='active' WHERE {key}=NEW.{key}"
                 else:
                     timing, effect = "AFTER", f"DELETE FROM {table} WHERE {key}=NEW.{key}"
-                conn.execute(f"CREATE TRIGGER refuse_archive {timing} UPDATE OF status ON {table} "
-                             f"WHEN NEW.status='archived' BEGIN {effect}; END")
+                if fault.startswith("AUDIT_"):
+                    effect = (f"UPDATE {table} SET status='active' WHERE {key}=NEW.target_id"
+                              if fault == "AUDIT_REVERSE" else
+                              f"DELETE FROM {table} WHERE {key}=NEW.target_id")
+                    if fault.endswith("ABORT"):
+                        effect = "SELECT RAISE(ABORT, 'fixture audit refusal')"
+                    action = "episode_archived" if fault == "AUDIT_EPISODE_ABORT" else "forget"
+                    conn.execute("CREATE TRIGGER refuse_archive AFTER INSERT ON mutation_log "
+                                 f"WHEN NEW.action='{action}' AND NEW.target_kind='{kind}' "
+                                 f"AND NEW.target_id='{target}' BEGIN {effect}; END")
+                else:
+                    conn.execute(f"CREATE TRIGGER refuse_archive {timing} UPDATE OF status ON {table} "
+                                 f"WHEN NEW.status='archived' BEGIN {effect}; END")
             failed = H.one_call(db, "hippa_forget", args, **auth)
             with sqlite3.connect(db) as conn:
                 assert conn.execute(f"SELECT * FROM {table} WHERE {key}=?", (target,)).fetchone() == before
@@ -182,7 +197,66 @@ def check_failed_archival_is_not_success():
                 assert conn.execute(f"SELECT status FROM {table} WHERE {key}=?", (target,)).fetchone() == ("archived",)
             after = H.one_call(db, "hippa_recall", {"query": "amber fixture alignment"}, **auth)
             assert after["count"] == 0, after
-    return "both kinds: IGNORE/ABORT/reversal/removal report failure, preserve rows/audits, fresh-process recall and retry succeed"
+    return "both kinds: UPDATE/audit faults roll back rows/audits; fresh-process evidence recall and retry succeed"
+
+
+def check_archival_shares_outer_transaction():
+    for kind, table, key in (("belief", "beliefs", "belief_id"),
+                             ("episode", "episodes", "episode_id")):
+        db = H.fresh_db("itc_archive_outer_")
+        ctrl = H.controller(db)
+        written = H.one_call(db, "hippa_remember", {
+            "memory_type": "semantic" if kind == "belief" else "episodic",
+            "content": "invented outer transaction archival fixture"})
+        target = written[key]
+
+        def snapshot():
+            with sqlite3.connect(db) as conn:
+                return (conn.execute(f"SELECT * FROM {table} ORDER BY {key}").fetchall(),
+                        conn.execute("SELECT * FROM mutation_log ORDER BY id").fetchall())
+
+        before = snapshot()
+        assert not ctrl.db.in_transaction
+        try:
+            with ctrl.db.transaction():
+                assert ctrl.db.in_transaction
+                assert ctrl.forgetting.archive(kind, target, "fixture")
+                raise RuntimeError("fixture caller rollback")
+        except RuntimeError as exc:
+            assert str(exc) == "fixture caller rollback", exc
+        else:
+            raise AssertionError("caller rollback did not propagate")
+        assert not ctrl.db.in_transaction
+        assert snapshot() == before
+
+        with sqlite3.connect(db) as conn:
+            conn.execute("CREATE TRIGGER reverse_archive AFTER INSERT ON mutation_log "
+                         f"WHEN NEW.action='forget' AND NEW.target_id='{target}' "
+                         f"BEGIN UPDATE {table} SET status='active' WHERE {key}=NEW.target_id; END")
+        caught = False
+        try:
+            with ctrl.db.transaction():
+                ctrl.db.log_mutation("fixture_earlier_write", kind, target)
+                try:
+                    ctrl.forgetting.archive(kind, target, "fixture")
+                except RuntimeError as exc:
+                    assert "after audit" in str(exc), exc
+                    caught = True
+        except RuntimeError as exc:
+            assert "failed operation" in str(exc), exc
+        else:
+            raise AssertionError("caught archival failure allowed outer commit")
+        assert caught
+        assert not ctrl.db.in_transaction
+        assert snapshot() == before, kind
+        with sqlite3.connect(db) as conn:
+            conn.execute("DROP TRIGGER reverse_archive")
+        with ctrl.db.transaction():
+            assert ctrl.forgetting.archive(kind, target, "fixture retry")
+        with sqlite3.connect(db) as conn:
+            assert conn.execute(f"SELECT status FROM {table} WHERE {key}=?",
+                                (target,)).fetchone() == ("archived",)
+    return "both kinds share caller rollback; caught verification failures poison outer commit and retry succeeds"
 
 
 def check_unauthorized_purge_denied():
@@ -425,6 +499,7 @@ def run_all() -> List[Dict[str, Any]]:
           check_lifecycle_status_remember_recall_context)
     check("record_outcome_and_archive", check_record_outcome_and_archive)
     check("failed_archival_is_not_success", check_failed_archival_is_not_success)
+    check("archival_shares_outer_transaction", check_archival_shares_outer_transaction)
     check("unauthorized_purge_denied", check_unauthorized_purge_denied)
     check("owner_instance_gets_owner_only_behaviour",
           check_owner_instance_gets_owner_only_behaviour)

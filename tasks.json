@@ -8,6 +8,13 @@
   },
   "tasks": [
     {
+      "id": "ARCHIVAL-AUDIT-EFFECTS",
+      "status": "done",
+      "evidence": ["tests/test_mcp_integration.py", "tests/test_quarantine_cli.py", "docs/MCP.md"],
+      "result": "Explicit archival shares one writer transaction across status/audits/final readback, reusing caller ownership. Both kinds reproduced success after audit-trigger reversal before fix. RED 14/15, initial GREEN 15/15; QA repeated MCP/quarantine and security found no blocker. Review-requested outer rollback/poisoning and audit-ABORT tests pass: final MCP 16/16; all 31 gate steps succeed with two intentional live-chat skips.",
+      "next": "Reproduce silent forget-audit INSERT suppression through MCP; concurrent authorization, automatic archival, later outer-caller effects and purge remain outside scope."
+    },
+    {
       "id": "ARCHIVAL-STATUS-PERSISTENCE",
       "status": "done",
       "evidence": ["tests/test_mcp_integration.py", "tests/test_quarantine_cli.py", "docs/MCP.md"],

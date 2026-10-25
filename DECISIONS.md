@@ -1,5 +1,25 @@
 # Engineering decisions
 
+## Explicit archival transaction ownership (2026-10-25)
+
+The immediate UPDATE check cannot detect later audit-trigger changes. Real MCP
+probes reproduced success with active, evidence-recallable rows after a forget-audit
+trigger reversed status. Explicit ForgettingPolicy.archive now owns a writer
+transaction unless the current thread already owns one on that same Database;
+then it reuses caller ownership without introducing nested transaction semantics.
+Status changes, nested episode audit, forget audit and final readback share that
+connection. Final verification uses _run so a caught failure still poisons outer
+commit. Standalone failures retain the bool API; existing callers own rollback.
+
+Regression RED 14/15 then GREEN; final MCP 16/16 covers audit reversal/removal,
+audit ABORT, caller rollback and caught-error poisoning, plus existing UPDATE faults
+and evidence-linked fresh-process recall/retry. Quarantine 15/15 passes. QA repeated
+initial targeted suites; security static review found no blocker and its coverage
+requests were added before the passing 31-step gate (two intentional chat SKIPs).
+This does not promise atomic authorization, independent silent audit persistence,
+automatic-retention correctness, arbitrary later outer effects or historical repair.
+Helpers must share the same Database object, as the controller already ensures.
+
 ## Immediate archival status readback (2026-10-25)
 
 Verify the archival UPDATE on its existing connection before commit instead of

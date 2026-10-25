@@ -3,6 +3,32 @@
 Updated 2026-10-25. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
 
+## Autonomous maintenance — archival audit effects, 2026-10-25
+
+Started clean at `c95e042e2daf344d48fee5c89d35991be6984b84` on
+`automation/hh-maintenance`; origin/main remains an ancestor. Real SDK probes on
+invented stores reproduced both memory kinds returning archival success after a
+forget-audit trigger restored active status; fresh processes still recalled evidence.
+The prior UPDATE check ran before separately committed audit effects.
+
+Explicit archival now owns one writer transaction or reuses its caller's existing
+transaction, and verifies status after audit calls. Readback failure poisons outer
+transactions even if caught. Standalone bool compatibility and quarantine rejection
+are preserved; no schema, authorization, purge or automatic-retention changes.
+MCP regression RED 14/15, initial GREEN 15/15; QA independently repeated MCP and
+quarantine 15/15. Security static review found no blocker. Added their outer-rollback,
+caught-failure poisoning and audit-ABORT coverage: final MCP 16/16. All 31 shared
+gate steps succeeded using unchanged temporary-XDG chat-offline wrapper; two live-chat
+checks SKIP/ENVIRONMENTAL, both synthetic live-embedding checks PASS. Baseline
+confused-deputy 6/6. Python 3.14.7, Linux 7.2.5-3-omarchy x86_64, Ryzen 9 9950X3D,
+32 logical CPUs. Gate ran implementation/tests over starting SHA before doc updates.
+
+No live store/plugin/main/config changes. This assumes one shared Database object
+(as controller construction ensures); it does not verify silent audit suppression,
+concurrent authorization, later outer-caller effects or historical repair. Next:
+reproduce silently suppressed forget audit insertion through MCP before extending
+explicit archival audit-persistence guarantees.
+
 ## Autonomous maintenance — immediate archival persistence, 2026-10-25
 
 Started clean at `849b72a63c05a309803cf49da1738ac86756851d` on
