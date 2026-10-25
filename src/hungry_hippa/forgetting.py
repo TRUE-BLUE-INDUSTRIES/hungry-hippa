@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from . import db as _db
+from .limits import redact
 
 _FLOOR = 0.05
 
@@ -209,10 +210,22 @@ class ForgettingPolicy:
 
             ok = bool(self.db._run(_upd, write=True))
         if ok:
-            self.db.log_mutation("forget", kind, target_id,
-                                 f"action=archival reason={reason}", session_id)
+            # A successful logger call can still hide a trigger's RAISE(IGNORE).
+            # Snapshot after nested helper audits, under the existing writer lock.
+            previous_id = self.db._run(lambda conn: conn.execute(
+                "SELECT COALESCE(MAX(id), 0) FROM mutation_log").fetchone()[0])
+            detail = f"action=archival reason={reason}"
+            self.db.log_mutation("forget", kind, target_id, detail, session_id)
+            expected = ("forget", kind, target_id, redact(detail)[:2000], session_id)
 
             def _verify(conn):
+                audits = conn.execute(
+                    "SELECT action, target_kind, target_id, detail, session_id, ts "
+                    "FROM mutation_log WHERE id > ?", (previous_id,),
+                ).fetchall()
+                if (len(audits) != 1 or tuple(audits[0])[:5] != expected
+                        or not audits[0]["ts"]):
+                    raise RuntimeError("archival audit row was not persisted")
                 table, key = (("beliefs", "belief_id") if kind == "belief"
                               else ("episodes", "episode_id"))
                 row = conn.execute(f"SELECT status FROM {table} WHERE {key}=?",

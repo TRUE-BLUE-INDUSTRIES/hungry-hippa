@@ -104,9 +104,12 @@ and reports failure. Explicit archival also holds one writer transaction across
 status changes, its audit calls and a final status readback: audit-trigger reversal
 or removal rolls back rather than reporting success. An existing caller transaction
 is reused; otherwise success returns after commit. This assumes helpers share the
-same Database object, as controller construction ensures. Independent silent audit
-suppression, concurrent authorization, automatic retention archival, later effects
-in an outer caller transaction, and purge remain outside this guarantee.
+same Database object, as controller construction ensures. The explicit `forget`
+audit must be one newly inserted row with the expected redacted/capped fields and
+a nonempty timestamp; missing, altered or extra rows roll back archival. Independent
+nested episode-audit suppression, concurrent authorization, automatic retention
+archival, later effects in an outer caller transaction, arbitrary nonempty timestamp
+corruption, and purge remain outside this guarantee.
 
 - An untrusted instance cannot read protected rows, purge anything, archive a row
   it may not read, or learn what it was not allowed to see (no ids, no counts, no

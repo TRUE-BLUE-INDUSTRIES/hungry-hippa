@@ -8,6 +8,13 @@
   },
   "tasks": [
     {
+      "id": "ARCHIVAL-AUDIT-PERSISTENCE",
+      "status": "done",
+      "evidence": ["tests/test_mcp_integration.py", "docs/MCP.md"],
+      "result": "Explicit forget audit requires one fresh intact row inside existing archival transaction. IGNORE reproduced RED 15/16; final MCP 16/16 covers both kinds, fields, extras, historical matching audit, rollback, fresh-process evidence recall/retry, redaction/cap and caught audit failure poisoning. Quarantine 15/15; QA/security no blocker; all 31 gate steps succeeded with two intentional live-chat skips. Strengthened retry fixture initially failed on actual manual-forget default, then corrected.",
+      "next": "Reproduce nested episode_archived audit suppression in explicit archival before extending persistence guarantees."
+    },
+    {
       "id": "ARCHIVAL-AUDIT-EFFECTS",
       "status": "done",
       "evidence": ["tests/test_mcp_integration.py", "tests/test_quarantine_cli.py", "docs/MCP.md"],

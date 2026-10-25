@@ -136,7 +136,9 @@ def check_failed_archival_is_not_success():
     for kind, table, key in (("belief", "beliefs", "belief_id"),
                              ("episode", "episodes", "episode_id")):
         faults = ["IGNORE", "ABORT", "REVERSE", "REMOVE", "AUDIT_REVERSE",
-                  "AUDIT_REMOVE", "AUDIT_ABORT"]
+                  "AUDIT_REMOVE", "AUDIT_ABORT", "AUDIT_IGNORE", "AUDIT_DETAIL",
+                  "AUDIT_SESSION", "AUDIT_ACTION", "AUDIT_KIND", "AUDIT_TARGET",
+                  "AUDIT_TIME", "AUDIT_EXTRA"]
         if kind == "episode":
             faults.append("AUDIT_EPISODE_ABORT")
         for fault in faults:
@@ -154,6 +156,8 @@ def check_failed_archival_is_not_success():
                                             source_ref="fixture:amber-alignment")
             ctrl.db.link_evidence(kind, target, [evidence])
             args = {"target_kind": kind, "target_id": target, "mode": "archival"}
+            # A matching historical audit must not satisfy the new-write check.
+            ctrl.db.log_mutation("forget", kind, target, "action=archival reason=manual forget", "mcp")
             with sqlite3.connect(db) as conn:
                 before = conn.execute(f"SELECT * FROM {table} WHERE {key}=?", (target,)).fetchone()
                 audit = conn.execute("SELECT * FROM mutation_log ORDER BY id").fetchall()
@@ -170,8 +174,19 @@ def check_failed_archival_is_not_success():
                               f"DELETE FROM {table} WHERE {key}=NEW.target_id")
                     if fault.endswith("ABORT"):
                         effect = "SELECT RAISE(ABORT, 'fixture audit refusal')"
+                    if fault == "AUDIT_IGNORE":
+                        effect = "SELECT RAISE(IGNORE)"
+                    fields = {"AUDIT_DETAIL": "detail", "AUDIT_SESSION": "session_id",
+                              "AUDIT_ACTION": "action", "AUDIT_KIND": "target_kind",
+                              "AUDIT_TARGET": "target_id", "AUDIT_TIME": "ts"}
+                    if fault in fields:
+                        effect = f"UPDATE mutation_log SET {fields[fault]}='' WHERE id=NEW.id"
+                    if fault == "AUDIT_EXTRA":
+                        effect = ("INSERT INTO mutation_log(ts,action,target_kind,target_id,detail,session_id) "
+                                  "VALUES ('fixture','fixture_extra','belief','','','')")
                     action = "episode_archived" if fault == "AUDIT_EPISODE_ABORT" else "forget"
-                    conn.execute("CREATE TRIGGER refuse_archive AFTER INSERT ON mutation_log "
+                    audit_timing = "BEFORE" if fault == "AUDIT_IGNORE" else "AFTER"
+                    conn.execute(f"CREATE TRIGGER refuse_archive {audit_timing} INSERT ON mutation_log "
                                  f"WHEN NEW.action='{action}' AND NEW.target_kind='{kind}' "
                                  f"AND NEW.target_id='{target}' BEGIN {effect}; END")
                 else:
@@ -195,6 +210,13 @@ def check_failed_archival_is_not_success():
             assert retried.get("ok") is True and retried.get("archived") is True, retried
             with sqlite3.connect(db) as conn:
                 assert conn.execute(f"SELECT status FROM {table} WHERE {key}=?", (target,)).fetchone() == ("archived",)
+                new_audits = conn.execute(
+                    "SELECT action,target_kind,target_id,detail,session_id,ts FROM mutation_log "
+                    "WHERE id > ? AND action='forget'", (max(row[0] for row in audit),),
+                ).fetchall()
+                assert len(new_audits) == 1 and new_audits[0][:5] == (
+                    "forget", kind, target, "action=archival reason=manual forget", "mcp"), new_audits
+                assert new_audits[0][5]
             after = H.one_call(db, "hippa_recall", {"query": "amber fixture alignment"}, **auth)
             assert after["count"] == 0, after
     return "both kinds: UPDATE/audit faults roll back rows/audits; fresh-process evidence recall and retry succeed"
@@ -251,11 +273,38 @@ def check_archival_shares_outer_transaction():
         assert snapshot() == before, kind
         with sqlite3.connect(db) as conn:
             conn.execute("DROP TRIGGER reverse_archive")
+        with sqlite3.connect(db) as conn:
+            conn.execute("CREATE TRIGGER ignore_archive_audit BEFORE INSERT ON mutation_log "
+                         f"WHEN NEW.action='forget' AND NEW.target_id='{target}' "
+                         "BEGIN SELECT RAISE(IGNORE); END")
+        caught = False
+        try:
+            with ctrl.db.transaction():
+                ctrl.db.log_mutation("fixture_earlier_write", kind, target)
+                try:
+                    ctrl.forgetting.archive(kind, target, "fixture")
+                except RuntimeError as exc:
+                    assert "audit row" in str(exc), exc
+                    caught = True
+        except RuntimeError as exc:
+            assert "failed operation" in str(exc), exc
+        else:
+            raise AssertionError("caught audit suppression allowed outer commit")
+        assert caught and snapshot() == before
+        with sqlite3.connect(db) as conn:
+            conn.execute("DROP TRIGGER ignore_archive_audit")
+        from hungry_hippa.limits import redact
+        reason = "api_key=fixture-only-secret " + "invented note " * 250
+        detail = redact(f"action=archival reason={reason}")[:2000]
+        assert "fixture-only-secret" not in detail and len(detail) == 2000
         with ctrl.db.transaction():
-            assert ctrl.forgetting.archive(kind, target, "fixture retry")
+            assert ctrl.forgetting.archive(kind, target, reason, "fixture-session")
         with sqlite3.connect(db) as conn:
             assert conn.execute(f"SELECT status FROM {table} WHERE {key}=?",
                                 (target,)).fetchone() == ("archived",)
+            rows = conn.execute("SELECT detail,session_id FROM mutation_log "
+                                "WHERE action='forget' AND target_id=?", (target,)).fetchall()
+            assert rows == [(detail, "fixture-session")], rows
     return "both kinds share caller rollback; caught verification failures poison outer commit and retry succeeds"
 
 

@@ -3,6 +3,31 @@
 Updated 2026-10-25. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
 
+## Autonomous maintenance — explicit archival audit persistence, 2026-10-25
+
+Started clean at `48b50813ffc6cc82988791a06d2f9498b561677f` on
+`automation/hh-maintenance`; fetched origin/main remains an ancestor. Real MCP
+regression reproduced committed archival despite silently ignored forget-audit
+INSERT (RED 15/16). The existing transaction caught exceptions but not no-op inserts.
+Explicit archival now verifies one fresh audit with exact redacted/capped fields
+and nonempty timestamp inside its existing final readback; failure rolls back.
+Standalone logger, nested episode audit and authorization remain unchanged.
+
+MCP GREEN 16/16 and quarantine 15/15; QA independently repeated both and security
+repeated MCP with no blocker. Added QA-requested exact retry audit, reason redaction/
+cap and caught audit-failure outer rollback coverage. Initial strengthened assertion
+incorrectly expected an empty reason (15/16); corrected fixture and expectation to
+actual `manual forget` default. Final MCP 16/16 and all 31 full-gate steps succeeded.
+Temporary XDG chat-offline wrapper: two live-chat SKIP/ENVIRONMENTAL checks; both
+synthetic live-embedding checks PASS. Baseline confused-deputy 6/6. Python 3.14.7,
+Linux 7.2.5-3-omarchy x86_64, Ryzen 9 9950X3D, 32 logical CPUs. Gate tested code/tests
+over starting SHA before docs updates. Only invented temporary stores used.
+
+No live memory/plugin/main/config changes. Not tamper-proof logging or validation
+of nested audit suppression, later caller effects, authorization races or historical
+repair. Next: reproduce nested episode_archived audit suppression in explicit
+archival before deciding whether that separately promised audit needs verification.
+
 ## Autonomous maintenance — archival audit effects, 2026-10-25
 
 Started clean at `c95e042e2daf344d48fee5c89d35991be6984b84` on

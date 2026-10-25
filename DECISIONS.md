@@ -1,5 +1,23 @@
 # Engineering decisions
 
+## Explicit archival audit persistence (2026-10-25)
+
+Verify the explicit forget audit in the existing archival final readback instead
+of changing the standalone logger or importing CLI-only checks. Under the writer
+lock, snapshot max audit ID after nested helper effects, then require one new row
+with exact redacted/capped fields and a nonempty timestamp. Route failure through
+_run so caught failures poison caller transactions; standalone bool compatibility
+remains unchanged. Silent IGNORE reproduced committed archival (MCP RED 15/16).
+
+Final MCP 16/16 covers both kinds, missing/altered/extra audits, historical matching
+rows, exact rollback and fresh-process evidence recall/retry. QA's coverage requests
+added exact retry audit, redacted oversized reason and caught audit failure under
+caller ownership. A test assumption about the default reason failed and was corrected
+to the controller's actual manual-forget default. Quarantine 15/15, independent QA
+and security review, and all 31 gate steps passed (two deliberate live-chat SKIPs).
+This does not verify nested episode audit insertion, arbitrary nonempty timestamps,
+later caller effects, concurrent authorization or historical repair.
+
 ## Explicit archival transaction ownership (2026-10-25)
 
 The immediate UPDATE check cannot detect later audit-trigger changes. Real MCP
