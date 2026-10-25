@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -128,6 +129,54 @@ def check_record_outcome_and_archive():
     after = H.controller(db).semantic.get_belief("B-0001")
     assert after["status"] == "archived", after["status"]
     return "record_outcome updated counters; archival succeeded and is reversible"
+
+
+def check_failed_archival_is_not_success():
+    """A refused SQLite UPDATE must not become an ok=true MCP response."""
+    for kind, table, key in (("belief", "beliefs", "belief_id"),
+                             ("episode", "episodes", "episode_id")):
+        for fault in ("IGNORE", "ABORT"):
+            db = H.fresh_db("itc_archive_failure_")
+            token_file, token = H.make_token_file()
+            auth = dict(token_file=token_file, token=token)
+            written = H.one_call(db, "hippa_remember", {
+                "memory_type": "semantic" if kind == "belief" else "episodic",
+                "content": "invented amber fixture alignment note",
+                "source_class": "document",
+            }, **auth)
+            target = written[key]
+            ctrl = H.controller(db)
+            evidence = ctrl.db.add_evidence("invented alignment specification", kind="document",
+                                            source_ref="fixture:amber-alignment")
+            ctrl.db.link_evidence(kind, target, [evidence])
+            args = {"target_kind": kind, "target_id": target, "mode": "archival"}
+            with sqlite3.connect(db) as conn:
+                before = conn.execute(f"SELECT * FROM {table} WHERE {key}=?", (target,)).fetchone()
+                audit = conn.execute("SELECT * FROM mutation_log ORDER BY id").fetchall()
+                raise_expr = "RAISE(IGNORE)" if fault == "IGNORE" else "RAISE(ABORT, 'fixture refusal')"
+                conn.execute(f"CREATE TRIGGER refuse_archive BEFORE UPDATE OF status ON {table} "
+                             f"WHEN NEW.status='archived' BEGIN SELECT {raise_expr}; END")
+            failed = H.one_call(db, "hippa_forget", args, **auth)
+            with sqlite3.connect(db) as conn:
+                assert conn.execute(f"SELECT * FROM {table} WHERE {key}=?", (target,)).fetchone() == before
+                assert conn.execute("SELECT * FROM mutation_log ORDER BY id").fetchall() == audit
+            assert failed.get("ok") is False, (kind, fault, failed)
+            assert failed.get("error"), failed
+            recalled = H.one_call(db, "hippa_recall", {"query": "amber fixture alignment"}, **auth)
+            assert "amber fixture alignment" in recalled["context"], recalled
+            assert evidence in recalled.get("sources", []), recalled
+            assert any(item["id"] == target
+                       and item["verified_source_class"] == written["verified_source_class"]
+                       for item in recalled["items"]), recalled
+            with sqlite3.connect(db) as conn:
+                conn.execute("DROP TRIGGER refuse_archive")
+            retried = H.one_call(db, "hippa_forget", args, **auth)
+            assert retried.get("ok") is True and retried.get("archived") is True, retried
+            with sqlite3.connect(db) as conn:
+                assert conn.execute(f"SELECT status FROM {table} WHERE {key}=?", (target,)).fetchone() == ("archived",)
+            after = H.one_call(db, "hippa_recall", {"query": "amber fixture alignment"}, **auth)
+            assert after["count"] == 0, after
+    return "both kinds: IGNORE/ABORT report failure, preserve rows/audits, fresh-process recall and retry succeed"
 
 
 def check_unauthorized_purge_denied():
@@ -369,6 +418,7 @@ def run_all() -> List[Dict[str, Any]]:
     check("lifecycle_status_remember_recall_context",
           check_lifecycle_status_remember_recall_context)
     check("record_outcome_and_archive", check_record_outcome_and_archive)
+    check("failed_archival_is_not_success", check_failed_archival_is_not_success)
     check("unauthorized_purge_denied", check_unauthorized_purge_denied)
     check("owner_instance_gets_owner_only_behaviour",
           check_owner_instance_gets_owner_only_behaviour)

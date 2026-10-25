@@ -95,6 +95,12 @@ database; without it the resolved default is
 
 ## Security posture
 
+`hippa_forget` returns `ok=false` with an error when the controller reports
+unsuccessful archival (`archived=false`), including refused SQLite updates.
+Successful archival retains `ok=true, archived=true, purged=false`. This checks
+the controller result, not independent durable-write or audit verification; purge
+result handling is unchanged.
+
 - An untrusted instance cannot read protected rows, purge anything, archive a row
   it may not read, or learn what it was not allowed to see (no ids, no counts, no
   graph entities — see `docs/SECURITY.md`).

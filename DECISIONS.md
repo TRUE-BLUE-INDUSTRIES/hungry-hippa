@@ -1,5 +1,21 @@
 # Engineering decisions
 
+## MCP archival result envelope (2026-10-24)
+
+Treat controller `archived=false` as an MCP application failure, even without an
+error key. Keep the existing error/authorization branch first; do not conflate a
+successful tool invocation with successful archival. Limit this change to archival
+result translation, retaining purge behavior and standalone persistence helpers.
+Regression uses real SDK subprocesses and SQLite IGNORE/ABORT for both kinds,
+unchanged row/audit snapshots, evidence-linked recall and successful retry.
+RED 14/15 demonstrated `ok=true, archived=false`; final 31-step gate passes with
+two deliberate live-chat environmental skips. QA repeated the initial GREEN suite;
+security reviewed denial ordering. Later exact-source assertions pass the final gate.
+This is not a claim that a helper's true result proves durable archival: AFTER-trigger
+reversal, independent audit suppression, races and purge reporting require separate
+reproduction. Avoid nested transactions in any follow-up: quarantine rejection already
+calls controller.forget inside a Database.transaction scope.
+
 ## Rejection guidance correction (2026-10-24)
 
 The planned standalone CLI forget investigation had an invalid premise: there is

@@ -3,6 +3,32 @@
 Updated 2026-10-24. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
 
+## Autonomous maintenance — MCP archival result honesty, 2026-10-24
+
+Started clean at `14f3d87a1caac83c92c7f01522cb3d23bd70cf06` on
+`automation/hh-maintenance`; fetched origin/main is an ancestor. Reproduced
+`hippa_forget` returning `ok=true, archived=false` when SQLite ignored an archival
+UPDATE. The controller correctly reports false, but MCP checked only error keys.
+A three-line archival-only guard now returns the existing failure envelope.
+No persistence, authorization, purge, schema, tool surface or live-install changes.
+
+Baseline confused-deputy 6/6; regression RED 14/15; GREEN 15/15 with belief/episode
+IGNORE/ABORT cases, unchanged target rows/audits, fresh MCP processes for remember,
+recall with evidence and provenance, and retry. QA repeated 15/15 twice; security
+static review found no blocker. Strengthened exact evidence/provenance assertions
+after QA. Initial gate failed because that test assumed episode provenance was
+`document`; corrected to compare with the actual remembered provenance (episodes
+currently default to agent_inference). Final all 31 gate steps succeeded via
+unchanged temporary-XDG chat-offline wrapper; two intentional live-chat environmental
+SKIPs, both live embedding checks PASS. An earlier targeted run also exposed missing
+fixture evidence, corrected by explicitly seeding/linking invented evidence.
+Python 3.14.7; Linux 7.2.5-3-omarchy x86_64; Ryzen 9 9950X3D, 32 logical CPUs.
+Gate tested implementation/tests over starting SHA before documentation updates.
+
+This fixes the response envelope, not durable archival verification, audit integrity
+or concurrent authorization. Next: reproduce AFTER-trigger status reversal through
+the controller/MCP path before designing a transaction-compatible persistence fix.
+
 ## Autonomous maintenance — invalid rejection guidance, 2026-10-24
 
 Started clean at `9cbe1c5340b1d82107086678ad5f212e5db58ac6` on

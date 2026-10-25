@@ -393,6 +393,9 @@ def build_server(*, controller: Optional[MemoryController] = None,
         if r.get("error"):
             return _denied(r["error"], actor_id=binding.actor_id, target=target,
                            policy_reason=r.get("reason", ""))
+        if chosen_mode == "archival" and not r.get("archived"):
+            return _denied("archival did not complete", actor_id=binding.actor_id,
+                           target=target)
         return _ok(mode=chosen_mode, target=target, archived=bool(r.get("archived")),
                    purged=bool(r.get("purged")), identity=binding.identity,
                    actor_id=binding.actor_id)

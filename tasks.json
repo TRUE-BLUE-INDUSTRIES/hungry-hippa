@@ -8,6 +8,13 @@
   },
   "tasks": [
     {
+      "id": "MCP-ARCHIVAL-RESULT",
+      "status": "done",
+      "evidence": ["tests/test_mcp_integration.py", "docs/MCP.md"],
+      "result": "MCP now returns ok=false when controller reports archived=false. Both kinds tested with IGNORE/ABORT, unchanged rows/audits, fresh-process evidence-linked recall and successful retry. Final 31-step gate succeeded with two intentional live-chat environmental skips.",
+      "next": "Reproduce controller archival success after AFTER-trigger status reversal before designing persistence verification; purge result handling remains separate."
+    },
+    {
       "id": "BASELINE",
       "status": "done",
       "evidence": "docs/baseline-2026-09-18.md",
