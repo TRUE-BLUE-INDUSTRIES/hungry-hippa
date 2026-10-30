@@ -1,5 +1,22 @@
 # Engineering decisions
 
+## Retention eligibility serialization (2026-10-30)
+
+Keep the initial unused-episode selection as an advisory filter. Acquire the existing
+writer transaction for each candidate (or reuse caller ownership), reread active
+status, importance and last access, then archive while retaining that same lock.
+This prevents independently committed high-value/recent-access/status changes from
+being overwritten using the stale selection. Standalone failures remain isolated;
+caller-owned failures propagate. No new transaction abstraction or policy rule.
+
+RED 14/15 reproduced promotion loss; final memory architecture 16/16 includes a
+second-process writer blocked after the fresh read under both ownership modes and
+successful writer recovery after commit. QA independently repeated that and MCP
+16/16; security static review found no blocker; 31-step gate succeeded with two
+intentional live-chat environmental skips. Writer contention begins one read earlier.
+Scope excludes importance decay/compression races, later caller or trigger mutations,
+and historical repair. Reproduce stale importance-decay selection next.
+
 ## Automatic retention archival transactions (2026-10-30)
 
 Reuse ForgettingPolicy.archive for eligible retention episodes instead of separately

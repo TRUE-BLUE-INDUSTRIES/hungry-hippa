@@ -587,6 +587,90 @@ def check_retention_transaction_ownership():
     return "independent archives survive later failure; caught caller-owned failure poisons whole pass"
 
 
+def check_retention_rechecks_eligibility():
+    from hungry_hippa.forgetting import ForgettingPolicy
+
+    for column, value in (("importance", 0.9), ("last_accessed", "2999-01-01T00:00:00"),
+                          ("status", "compressed")):
+        c, path = _fresh("hh_retention_race_")
+        eid = c.remember_episode(context="invented retention eligibility fixture",
+                                 embed=False)["episode_id"]
+        with sqlite3.connect(path) as conn:
+            conn.execute("UPDATE episodes SET importance=0.2, last_accessed='2000-01-01T00:00:00'")
+        policy = ForgettingPolicy(c.db, {"forgetting": {
+            "auto_archival_after_unused_days": 1, "importance_decay_enabled": False,
+            "compression_enabled": False}}, episodic=c.episodic)
+        original = c.db._run
+        changed = []
+        def change_after_selection(fn, *args, **kwargs):
+            result = original(fn, *args, **kwargs)
+            if fn.__name__ == "_q" and not changed:
+                # Independent SQLite connection commits after the selection snapshot.
+                with sqlite3.connect(path, timeout=0) as conn:
+                    conn.execute(f"UPDATE episodes SET {column}=? WHERE episode_id=?", (value, eid))
+                    changed.append(conn.execute("SELECT * FROM episodes").fetchall())
+            return result
+        c.db._run = change_after_selection
+        assert policy.pass_("retention-race") == (0, []), column
+        c.db._run = original
+        assert changed, "selection barrier was not exercised"
+        with sqlite3.connect(path) as conn:
+            assert conn.execute("SELECT * FROM episodes").fetchall() == changed[0], column
+            assert conn.execute("SELECT COUNT(*) FROM mutation_log WHERE action IN "
+                                "('forget','episode_archived')").fetchone()[0] == 0
+            conn.execute("UPDATE episodes SET importance=0.2, status='active', "
+                         "last_accessed='2000-01-01T00:00:00'")
+        assert policy.pass_("retention-retry") == (1, ["forgetting: archived 1 unused episodes"])
+        assert policy.pass_("retention-repeat") == (0, [])
+    return "retention rechecks importance, access time and status after stale selection"
+
+
+def check_retention_eligibility_lock():
+    import subprocess
+    from hungry_hippa.forgetting import ForgettingPolicy
+
+    writer = """
+import sqlite3, sys
+try:
+    with sqlite3.connect(sys.argv[1], timeout=0) as conn:
+        conn.execute("UPDATE episodes SET importance=0.9")
+except sqlite3.OperationalError as exc:
+    assert 'locked' in str(exc), str(exc)
+    print('locked')
+else:
+    print('updated')
+"""
+    for outer in (False, True):
+        c, path = _fresh("hh_retention_lock_")
+        c.remember_episode(context="invented retention lock fixture", embed=False)
+        with sqlite3.connect(path) as conn:
+            conn.execute("UPDATE episodes SET importance=0.2, last_accessed='2000-01-01T00:00:00'")
+        policy = ForgettingPolicy(c.db, {"forgetting": {
+            "auto_archival_after_unused_days": 1, "importance_decay_enabled": False,
+            "compression_enabled": False}}, episodic=c.episodic)
+        def attempt():
+            return subprocess.run([sys.executable, "-c", writer, path], check=True,
+                                  capture_output=True, text=True, timeout=15).stdout.strip()
+        original = c.db._run
+        attempts = []
+        def after_read(fn, *args, **kwargs):
+            result = original(fn, *args, **kwargs)
+            if fn.__name__ == "_eligible":
+                attempts.append(attempt())
+            return result
+        c.db._run = after_read
+        if outer:
+            with c.db.transaction():
+                result = policy.pass_("retention-lock")
+        else:
+            result = policy.pass_("retention-lock")
+        c.db._run = original
+        assert attempts == ["locked"], attempts
+        assert result == (1, ["forgetting: archived 1 unused episodes"]), result
+        assert attempt() == "updated", "writer failed after commit"
+    return "independent process blocked after eligibility read in owned/reused transactions; recovers after commit"
+
+
 def run_all() -> List[Dict[str, Any]]:
     results: List[Dict[str, Any]] = []
 
@@ -614,6 +698,8 @@ def run_all() -> List[Dict[str, Any]]:
     check("retention_counts_only_success", check_retention_counts_only_success)
     check("retention_audit_effects", check_retention_audit_effects)
     check("retention_transaction_ownership", check_retention_transaction_ownership)
+    check("retention_rechecks_eligibility", check_retention_rechecks_eligibility)
+    check("retention_eligibility_lock", check_retention_eligibility_lock)
     return results
 
 

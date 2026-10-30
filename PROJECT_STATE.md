@@ -3,6 +3,29 @@
 Updated 2026-10-30. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
 
+## Autonomous maintenance — retention eligibility serialization, 2026-10-30
+
+Started clean at `4bb9ffe2d09fb62e1053e42757d5ce83f538561f` on
+`automation/hh-maintenance`; origin/main remains an ancestor. A committed importance
+promotion after candidate selection was ignored and the high-value episode archived
+(RED 14/15). Recheck active status, importance and last access under the existing
+writer transaction before verified archival; preserve per-episode ownership and
+caller-owned transaction reuse. No schema, trust-rule or live configuration change.
+
+Final memory architecture 16/16 and MCP 16/16 pass in the full gate; QA independently
+repeated both. Security static review found no blocker. All 31 gate steps succeeded
+using the unchanged temporary-XDG chat-offline wrapper; two live-chat checks are
+SKIP/ENVIRONMENTAL. Includes durable cross-process evidence recall, CLI, ingestion,
+backup and wheel install. Python 3.14.7; Linux 7.2.5-3-omarchy x86_64; Ryzen 9 9950X3D,
+32 logical CPUs. Gate ran implementation/tests over starting SHA, two files dirty.
+
+Regression covers committed importance/access/status changes, no false audits,
+retry/repeat, and second-process writer exclusion after the locked read in owned
+and reused transactions, with recovery after commit. Lock starts one read earlier.
+This is automatic archival eligibility, not whole-pass concurrency, later trigger
+or outer-caller integrity, or historical repair. Next: reproduce importance decay
+using stale eligibility after concurrent importance promotion on invented stores.
+
 ## Autonomous maintenance — automatic retention transactions, 2026-10-30
 
 Started clean at `8df941fd7e39c3b287cb75a338ef5292ad88f67e` on

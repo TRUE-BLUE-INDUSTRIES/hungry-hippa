@@ -20,6 +20,7 @@ High-value items are never automatically destroyed (§10 rule).
 from __future__ import annotations
 
 import time
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -54,9 +55,8 @@ class ForgettingPolicy:
 
         Automatic archival verifies status and both audits in one transaction per
         episode, or shares the caller's transaction (failures then propagate).
-        Refused standalone archives remain eligible and are not counted. Selection
-        occurs before locking: concurrent retention-eligibility changes are not
-        protected by this write transaction.
+        Refused standalone archives remain eligible and are not counted. Candidate
+        selection is advisory; eligibility is rechecked under the writer lock.
         """
         actions = 0
         msgs: List[str] = []
@@ -100,10 +100,28 @@ class ForgettingPolicy:
             if float(r["importance"]) >= 0.7:
                 continue
             if _age_days(r["last_accessed"]) > unused_days:
-                # Reuse verified archival so status and both audits commit together.
-                # Each episode remains independent when this pass owns transactions.
-                if self.archive("episode", r["episode_id"], "unused", session_id):
-                    archived += 1
+                caller_owned = self.db.in_transaction
+                try:
+                    with nullcontext() if caller_owned else self.db.transaction():
+                        def _eligible(conn):
+                            return conn.execute(
+                                "SELECT status, importance, last_accessed FROM episodes "
+                                "WHERE episode_id=?", (r["episode_id"],)).fetchone()
+
+                        current = self.db._run(_eligible)
+                        if (current is None or current["status"] != "active"
+                                or float(current["importance"]) >= 0.7
+                                or _age_days(current["last_accessed"]) <= unused_days):
+                            continue
+                        # The eligibility read and verified archive share one lock.
+                        ok = self.archive("episode", r["episode_id"], "unused", session_id)
+                    if ok:
+                        archived += 1
+                except Exception:
+                    if caller_owned:
+                        raise
+                    # Standalone failure rolled back; preserve independent progress.
+                    continue
         return archived
 
     def _decay_importance(self, session_id: str) -> int:

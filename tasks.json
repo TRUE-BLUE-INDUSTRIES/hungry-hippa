@@ -8,6 +8,13 @@
   },
   "tasks": [
     {
+      "id": "RETENTION-ELIGIBILITY-SERIALIZATION",
+      "status": "done",
+      "evidence": ["tests/test_memory_architecture.py", "PROJECT_STATE.md", "DECISIONS.md"],
+      "result": "Committed importance promotion after retention selection reproduced high-value archival (RED 14/15). Fresh active/importance/access eligibility now shares the archival writer lock. Memory architecture 16/16 and MCP 16/16 independently repeated by QA; security static review found no blocker. All 31 gate steps succeeded with two intentional live-chat environmental skips. Owned/reused second-process lock checks and stale eligibility/retry coverage pass. Not whole-pass concurrency or historical repair.",
+      "next": "Reproduce importance decay using stale eligibility after concurrent importance promotion on invented stores."
+    },
+    {
       "id": "RETENTION-ARCHIVAL-TRANSACTIONS",
       "status": "done",
       "evidence": ["tests/test_memory_architecture.py", "PROJECT_STATE.md", "DECISIONS.md"],
