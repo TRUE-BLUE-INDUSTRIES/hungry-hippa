@@ -1,12 +1,19 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-29",
+  "updated": "2026-10-30",
   "branch": "automation/hh-maintenance",
   "released": {
     "version": "1.0.0",
     "sha": "9b9593f62b76c044470f9bc5684656aadb3f07d9"
   },
   "tasks": [
+    {
+      "id": "RETENTION-ARCHIVAL-COUNTS",
+      "status": "done",
+      "evidence": ["tests/test_memory_architecture.py", "PROJECT_STATE.md"],
+      "result": "Automatic retention ignored failed status updates and falsely counted/audited them. RED 11/12; return-value guard GREEN 12/12 covers IGNORE/ABORT, mixed success, high-value protection, retry and repeat. All 31 gate steps succeeded with two intentional live-chat environmental skips. No audit atomicity or selection-race claims.",
+      "next": "Reproduce automatic-retention audit-trigger status reversal using invented stores before deciding whether to reuse explicit archival transactions."
+    },
     {
       "id": "ARCHIVAL-AUTHORIZATION-SERIALIZATION",
       "status": "done",

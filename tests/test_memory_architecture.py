@@ -470,6 +470,36 @@ print(json.dumps(c.recall(sys.argv[2], explain=True)))
     return "best FTS fact survives 100 episodes and second-process recall with provenance"
 
 
+def check_retention_counts_only_success():
+    from hungry_hippa.forgetting import ForgettingPolicy
+
+    for fault in ("IGNORE", "ABORT"):
+        c, path = _fresh("hh_retention_")
+        ids = [c.remember_episode(context=f"invented retention fixture {i}",
+                                  embed=False)["episode_id"] for i in range(3)]
+        with sqlite3.connect(path) as conn:
+            conn.execute("UPDATE episodes SET importance=0.2, last_accessed='2000-01-01T00:00:00'")
+            conn.execute("UPDATE episodes SET importance=0.9 WHERE episode_id=?", (ids[2],))
+            conn.execute(f"CREATE TRIGGER refuse_retention BEFORE UPDATE OF status ON episodes "
+                         f"WHEN OLD.episode_id='{ids[0]}' BEGIN SELECT RAISE({fault}"
+                         + (", 'invented refusal'" if fault == "ABORT" else "") + "); END")
+        policy = ForgettingPolicy(c.db, {"forgetting": {
+            "auto_archival_after_unused_days": 1, "importance_decay_enabled": False,
+            "compression_enabled": False}}, episodic=c.episodic)
+        actions, messages = policy.pass_("retention-test")
+        assert actions == 1, (fault, actions, messages)
+        assert messages == ["forgetting: archived 1 unused episodes"], messages
+        with sqlite3.connect(path) as conn:
+            statuses = dict(conn.execute("SELECT episode_id,status FROM episodes"))
+            assert statuses == {ids[0]: "active", ids[1]: "archived", ids[2]: "active"}, statuses
+            audits = conn.execute("SELECT target_id FROM mutation_log WHERE action='forget'").fetchall()
+            assert audits == [(ids[1],)], audits
+            conn.execute("DROP TRIGGER refuse_retention")
+        assert policy.pass_("retention-retry") == (1, ["forgetting: archived 1 unused episodes"])
+        assert policy.pass_("retention-repeat") == (0, [])
+    return "IGNORE/ABORT failures excluded from counts and success audits; retry and high-value protection preserved"
+
+
 def run_all() -> List[Dict[str, Any]]:
     results: List[Dict[str, Any]] = []
 
@@ -494,6 +524,7 @@ def run_all() -> List[Dict[str, Any]]:
     check("v4_migrates_populated_v3_database", check_v4_migrates_populated_v3_database)
     check("untrusted_actor_policy", check_untrusted_actor_policy)
     check("growth_recall_across_process", check_growth_recall_across_process)
+    check("retention_counts_only_success", check_retention_counts_only_success)
     return results
 
 

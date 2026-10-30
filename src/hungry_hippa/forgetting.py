@@ -50,7 +50,11 @@ class ForgettingPolicy:
     # ------------------------------------------------------------ policy
 
     def pass_(self, session_id: str = "") -> tuple:
-        """One forgetting pass. Returns (actions_taken, messages)."""
+        """One forgetting pass. Returns (actions_taken, messages).
+
+        Automatic archival counts only successful status updates; refused writes
+        remain eligible for a later pass and receive no success audit here.
+        """
         actions = 0
         msgs: List[str] = []
 
@@ -93,8 +97,10 @@ class ForgettingPolicy:
             if float(r["importance"]) >= 0.7:
                 continue
             if _age_days(r["last_accessed"]) > unused_days:
-                self.episodic.update_status(r["episode_id"], "archived",
-                                            "unused beyond retention policy", session_id)
+                if not self.episodic.update_status(
+                        r["episode_id"], "archived",
+                        "unused beyond retention policy", session_id):
+                    continue
                 self.db.log_mutation("forget", "episode", r["episode_id"],
                                      "action=archival reason=unused", session_id)
                 archived += 1

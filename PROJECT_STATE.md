@@ -1,7 +1,31 @@
 # Project state
 
-Updated 2026-10-29. Git is authoritative for code; no live store or deployed MCP
+Updated 2026-10-30. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
+
+## Autonomous maintenance — automatic retention result counts, 2026-10-30
+
+Started clean at `afd2eb30e8d93d96e371a5549166069c02582569` on
+`automation/hh-maintenance`; fetched origin/main remains an ancestor. Automatic
+retention ignored update_status's false return: SQLite IGNORE left an episode
+active while the pass counted it and wrote a successful forget audit. Regression
+RED 11/12 reproduced two claimed archives where only one persisted.
+
+The retention loop now skips the success audit/count when the existing status
+helper returns false. GREEN 12/12 covers IGNORE and ABORT, mixed success/failure,
+unchanged high-value protection, retry and no-op repeat. All 31 gate steps succeeded
+via the existing temporary-XDG chat-offline wrapper; two live-chat checks are
+intentional SKIP/ENVIRONMENTAL, not live-chat passes. Gate includes real MCP and
+fresh-process evidence recall, CLI, ingestion, backup and wheel-install checks.
+Python 3.14.7; Linux 7.2.5-3-omarchy x86_64; Ryzen 9 9950X3D, 32 logical CPUs.
+Gate ran code/tests over the starting SHA with those two files dirty, before this
+bookkeeping. No specialist needed for this deterministic return-value guard.
+
+Automatic archival remains opt-in and is not newly transactional with its audits.
+This fix does not verify audit persistence, later-trigger integrity, retention
+selection races or historical repair. No live store/plugin/main/config changes.
+Next: reproduce automatic-retention audit-trigger status reversal before deciding
+whether retention needs the explicit archival transaction path.
 
 ## Autonomous maintenance — archival authorization serialization, 2026-10-29
 
