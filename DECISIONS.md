@@ -1,5 +1,23 @@
 # Engineering decisions
 
+## Automatic retention archival transactions (2026-10-30)
+
+Reuse ForgettingPolicy.archive for eligible retention episodes instead of separately
+committing update_status and forget audit. Audit-trigger status reversal reproduced
+false success; the existing helper already checks both audits and final status in
+one transaction. Standalone episodes remain independently committed; caller-owned
+transactions are reused and verification failures propagate/poison the whole scope.
+No new transaction abstraction, schema, dependency or authorization rule is needed.
+
+Use reason `unused`: the explicit forget detail stays identical, while the nested
+episode audit detail changes from `unused beyond retention policy` to `unused`.
+Automatic retention remains opt-in. Selection still occurs before locking and does
+not gain concurrency protection for importance/access/status changes. Later caller
+mutations, later mutations of previously verified audits and historical repair are
+not solved. Two regression checks plus existing count coverage pass 14/14; QA's
+ownership coverage request is included. Full 31-step gate succeeded with two
+intentional live-chat environmental skips; security source review found no blocker.
+
 ## Archival authorization serialization (2026-10-29)
 
 Own BEGIN IMMEDIATE at each controller archival entry point before _may_forget,

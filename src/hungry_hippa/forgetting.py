@@ -52,8 +52,11 @@ class ForgettingPolicy:
     def pass_(self, session_id: str = "") -> tuple:
         """One forgetting pass. Returns (actions_taken, messages).
 
-        Automatic archival counts only successful status updates; refused writes
-        remain eligible for a later pass and receive no success audit here.
+        Automatic archival verifies status and both audits in one transaction per
+        episode, or shares the caller's transaction (failures then propagate).
+        Refused standalone archives remain eligible and are not counted. Selection
+        occurs before locking: concurrent retention-eligibility changes are not
+        protected by this write transaction.
         """
         actions = 0
         msgs: List[str] = []
@@ -97,13 +100,10 @@ class ForgettingPolicy:
             if float(r["importance"]) >= 0.7:
                 continue
             if _age_days(r["last_accessed"]) > unused_days:
-                if not self.episodic.update_status(
-                        r["episode_id"], "archived",
-                        "unused beyond retention policy", session_id):
-                    continue
-                self.db.log_mutation("forget", "episode", r["episode_id"],
-                                     "action=archival reason=unused", session_id)
-                archived += 1
+                # Reuse verified archival so status and both audits commit together.
+                # Each episode remains independent when this pass owns transactions.
+                if self.archive("episode", r["episode_id"], "unused", session_id):
+                    archived += 1
         return archived
 
     def _decay_importance(self, session_id: str) -> int:

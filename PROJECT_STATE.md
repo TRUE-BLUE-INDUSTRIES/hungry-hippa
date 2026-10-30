@@ -3,6 +3,32 @@
 Updated 2026-10-30. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
 
+## Autonomous maintenance — automatic retention transactions, 2026-10-30
+
+Started clean at `8df941fd7e39c3b287cb75a338ef5292ad88f67e` on
+`automation/hh-maintenance`; origin/main remains an ancestor. Automatic retention
+reported success after an audit trigger restored active status (RED 12/13).
+Status and audit operations were separately committed. Retention now reuses the
+existing verified archival transaction, with no new schema or permission path.
+
+Targeted GREEN 14/14 covers both audit-trigger reversals, exact rollback, retry,
+independent-item partial success and caller-owned caught-error rollback. QA repeated
+initial 13/13 and MCP 16/16; its requested ownership regressions were added and
+passed. Security source review found no blocker. All 31 gate steps succeeded via
+unchanged temporary-XDG chat-offline wrapper: two live-chat checks intentionally
+SKIP/ENVIRONMENTAL. Gate includes CLI, real MCP, cross-process durable evidence
+recall, ingestion, backup and wheel installation. Python 3.14.7; Linux
+7.2.5-3-omarchy x86_64; Ryzen 9 9950X3D, 32 logical CPUs. Gate ran code/tests over
+starting SHA with two files dirty, before this bookkeeping.
+
+Automatic archival remains opt-in. Each standalone episode commits independently;
+caller-owned transactions propagate failure and roll back together. Nested audit
+reason is now `unused` rather than `unused beyond retention policy`; explicit
+forget audit detail is unchanged. No live store/plugin/main/config changes.
+Selection still precedes locking; later caller effects, later mutations of earlier
+verified audit rows and historical repair remain outside scope. Next: reproduce
+retention eligibility changes between selection and archival using invented stores.
+
 ## Autonomous maintenance — automatic retention result counts, 2026-10-30
 
 Started clean at `afd2eb30e8d93d96e371a5549166069c02582569` on

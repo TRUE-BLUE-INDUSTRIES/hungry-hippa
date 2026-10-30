@@ -500,6 +500,93 @@ def check_retention_counts_only_success():
     return "IGNORE/ABORT failures excluded from counts and success audits; retry and high-value protection preserved"
 
 
+def check_retention_audit_effects():
+    from hungry_hippa.forgetting import ForgettingPolicy
+
+    for action in ("episode_archived", "forget"):
+        c, path = _fresh("hh_retention_audit_")
+        eid = c.remember_episode(context="invented amber retention log",
+                                 source_refs=["invented-retention-source"],
+                                 claimed_source_class="document", embed=False)["episode_id"]
+        with sqlite3.connect(path) as conn:
+            conn.execute("UPDATE episodes SET importance=0.2, last_accessed='2000-01-01T00:00:00'")
+            conn.execute(f"CREATE TRIGGER reverse_retention AFTER INSERT ON mutation_log "
+                         f"WHEN NEW.action='{action}' AND NEW.target_id='{eid}' BEGIN "
+                         f"UPDATE episodes SET status='active' WHERE episode_id='{eid}'; END")
+        def snapshot():
+            with sqlite3.connect(path) as conn:
+                return {table: conn.execute(f"SELECT * FROM {table} ORDER BY 1").fetchall()
+                        for table in ("episodes", "mutation_log")}
+        before = snapshot()
+        policy = ForgettingPolicy(c.db, {"forgetting": {
+            "auto_archival_after_unused_days": 1, "importance_decay_enabled": False,
+            "compression_enabled": False}}, episodic=c.episodic)
+        result = policy.pass_("retention-audit-test")
+        assert result == (0, []), (action, result)
+        assert snapshot() == before, action
+        with sqlite3.connect(path) as conn:
+            conn.execute("DROP TRIGGER reverse_retention")
+        assert policy.pass_("retention-audit-retry") == (1, ["forgetting: archived 1 unused episodes"])
+        assert policy.pass_("retention-audit-repeat") == (0, [])
+        with sqlite3.connect(path) as conn:
+            assert conn.execute("SELECT status FROM episodes WHERE episode_id=?", (eid,)).fetchone() == ("archived",)
+            audits = conn.execute("SELECT action,detail,session_id FROM mutation_log "
+                                  "WHERE action IN ('episode_archived','forget') ORDER BY id").fetchall()
+            assert audits == [("episode_archived", "unused", "retention-audit-retry"),
+                              ("forget", "action=archival reason=unused", "retention-audit-retry")], audits
+    return "nested/forget audit reversals roll back retention; retry persists status and both audits"
+
+
+def check_retention_transaction_ownership():
+    from hungry_hippa.forgetting import ForgettingPolicy
+
+    for outer in (False, True):
+        c, path = _fresh("hh_retention_ownership_")
+        ids = [c.remember_episode(context=f"invented retention transaction {i}",
+                                  embed=False)["episode_id"] for i in range(2)]
+        with sqlite3.connect(path) as conn:
+            conn.execute("UPDATE episodes SET importance=0.2, last_accessed='2000-01-01T00:00:00'")
+            conn.execute(f"CREATE TRIGGER reverse_second AFTER INSERT ON mutation_log "
+                         f"WHEN NEW.action='forget' AND NEW.target_id='{ids[1]}' BEGIN "
+                         f"UPDATE episodes SET status='active' WHERE episode_id='{ids[1]}'; END")
+            before = {table: conn.execute(f"SELECT * FROM {table} ORDER BY 1").fetchall()
+                      for table in ("episodes", "mutation_log")}
+        policy = ForgettingPolicy(c.db, {"forgetting": {
+            "auto_archival_after_unused_days": 1, "importance_decay_enabled": False,
+            "compression_enabled": False}}, episodic=c.episodic)
+        if outer:
+            caught = False
+            rolled_back = False
+            try:
+                with c.db.transaction():
+                    try:
+                        policy.pass_("retention-outer")
+                    except RuntimeError:
+                        caught = True
+            except RuntimeError:
+                rolled_back = True
+            assert caught and rolled_back, (caught, rolled_back)
+            with sqlite3.connect(path) as conn:
+                after = {table: conn.execute(f"SELECT * FROM {table} ORDER BY 1").fetchall()
+                         for table in before}
+            assert after == before
+        else:
+            assert policy.pass_("retention-owned") == (1, ["forgetting: archived 1 unused episodes"])
+            with sqlite3.connect(path) as conn:
+                assert dict(conn.execute("SELECT episode_id,status FROM episodes")) == {
+                    ids[0]: "archived", ids[1]: "active"}
+                audits = conn.execute("SELECT target_id FROM mutation_log WHERE action IN "
+                                      "('forget','episode_archived') ORDER BY id").fetchall()
+                assert audits == [(ids[0],), (ids[0],)], audits
+        with sqlite3.connect(path) as conn:
+            conn.execute("DROP TRIGGER reverse_second")
+        expected = 2 if outer else 1
+        assert policy.pass_("retention-recovery") == (
+            expected, [f"forgetting: archived {expected} unused episodes"])
+        assert policy.pass_("retention-repeat") == (0, [])
+    return "independent archives survive later failure; caught caller-owned failure poisons whole pass"
+
+
 def run_all() -> List[Dict[str, Any]]:
     results: List[Dict[str, Any]] = []
 
@@ -525,6 +612,8 @@ def run_all() -> List[Dict[str, Any]]:
     check("untrusted_actor_policy", check_untrusted_actor_policy)
     check("growth_recall_across_process", check_growth_recall_across_process)
     check("retention_counts_only_success", check_retention_counts_only_success)
+    check("retention_audit_effects", check_retention_audit_effects)
+    check("retention_transaction_ownership", check_retention_transaction_ownership)
     return results
 
 

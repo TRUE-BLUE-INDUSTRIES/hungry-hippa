@@ -8,6 +8,13 @@
   },
   "tasks": [
     {
+      "id": "RETENTION-ARCHIVAL-TRANSACTIONS",
+      "status": "done",
+      "evidence": ["tests/test_memory_architecture.py", "PROJECT_STATE.md", "DECISIONS.md"],
+      "result": "Audit-trigger status reversal reproduced false retention success (RED 12/13). Reuse existing verified archival transaction; GREEN 14/14 covers both audit paths, exact rollback/retry and independent versus caller-owned transactions. QA repeated initial 13/13 and MCP 16/16; lead added requested ownership coverage. Security found no blocker; 31-step gate succeeded with two intentional live-chat environmental skips. Selection races and later caller effects remain out of scope.",
+      "next": "Reproduce retention eligibility changes between selection and archival using invented stores."
+    },
+    {
       "id": "RETENTION-ARCHIVAL-COUNTS",
       "status": "done",
       "evidence": ["tests/test_memory_architecture.py", "PROJECT_STATE.md"],
