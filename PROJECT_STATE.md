@@ -1,7 +1,32 @@
 # Project state
 
-Updated 2026-10-25. Git is authoritative for code; no live store or deployed MCP
+Updated 2026-10-29. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
+
+## Autonomous maintenance — nested episode archival audit, 2026-10-29
+
+Started clean at `55b8c573cc6c2c114c4b20db46a07aa057818eb9` on
+`automation/hh-maintenance`; fetched origin/main remains an ancestor. Native flock
+resolved the prior lock-launch blocker without changing unattended approval policy.
+Real MCP regression reproduced committed episode archival when its nested audit
+INSERT was silently ignored (RED 15/16). The transaction caught exceptions but
+only verified the later explicit forget audit, not the episode helper's audit.
+
+Explicit episode archival now checks one fresh intact nested audit inside the same
+writer transaction. Standalone status helpers, automatic retention and authorization
+are unchanged. MCP GREEN 16/16 and quarantine 15/15; independent QA repeated both,
+security found no blocker. Added their requested nested caught-error transaction
+poisoning, CLI rejection rollback and redacted/capped nested-reason readback checks.
+Final 31-step gate succeeded through unchanged temporary-XDG chat-offline wrapper;
+two optional live-chat checks SKIP/ENVIRONMENTAL. Gate includes cross-process durable
+SQLite/evidence recall and retry, ingestion, install, security and backup suites.
+Python 3.14.7, Linux 7.2.5-3-omarchy x86_64, Ryzen 9 9950X3D, 32 logical CPUs.
+Gate ran code/tests/docs over starting SHA before state/decision bookkeeping.
+
+No live memory/plugin/main/config changes. Immediate audit readback is not later
+trigger integrity, timestamp authenticity, historical repair or an authorization
+race fix. Next: reproduce concurrent authorization changes between archival policy
+check and writer transaction using invented stores before selecting another fix.
 
 ## Autonomous maintenance — explicit archival audit persistence, 2026-10-25
 

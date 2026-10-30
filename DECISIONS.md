@@ -1,5 +1,22 @@
 # Engineering decisions
 
+## Nested episode archival audit persistence (2026-10-29)
+
+Verify the episode helper's audit immediately after update_status within explicit
+archival's existing transaction rather than altering all standalone status writes.
+Snapshot max audit ID before calling the helper, require one fresh row with exact
+redacted/capped fields and nonempty timestamp, and route failures through _run to
+poison caller transactions. This keeps bool compatibility and quarantine rejection's
+transaction ownership; no logger, schema or authorization changes are needed.
+
+Real MCP silent IGNORE reproduced RED 15/16; final MCP 16/16, quarantine 15/15,
+independent QA/security review and 31-step gate success (two deliberate live-chat
+SKIPs). Regression covers malformed/extra/missing audits, historic matching rows,
+rollback, fresh-process evidence recall/retry, outer caught-error poisoning, CLI
+rejection and nested reason redaction/capping. This is immediate persistence, not
+validation after later audit triggers, protection from privileged SQLite tampering,
+authorization race safety, standalone retention guarantees or historical repair.
+
 ## Explicit archival audit persistence (2026-10-25)
 
 Verify the explicit forget audit in the existing archival final readback instead

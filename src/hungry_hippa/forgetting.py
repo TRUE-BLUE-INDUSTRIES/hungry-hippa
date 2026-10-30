@@ -194,7 +194,24 @@ class ForgettingPolicy:
                                 session_id: str) -> bool:
         ok = False
         if kind == "episode" and self.episodic is not None:
+            previous_episode_audit = self.db._run(lambda conn: conn.execute(
+                "SELECT COALESCE(MAX(id), 0) FROM mutation_log").fetchone()[0])
             ok = self.episodic.update_status(target_id, "archived", reason, session_id)
+            if ok:
+                def _verify_episode_audit(conn):
+                    audits = conn.execute(
+                        "SELECT action, target_kind, target_id, detail, session_id, ts "
+                        "FROM mutation_log WHERE id > ?", (previous_episode_audit,),
+                    ).fetchall()
+                    expected = ("episode_archived", "episode", target_id,
+                                redact(reason)[:2000], session_id)
+                    if (len(audits) != 1 or tuple(audits[0])[:5] != expected
+                            or not audits[0]["ts"]):
+                        raise RuntimeError("episode archival audit row was not persisted")
+
+                # Keep standalone status helpers unchanged; poison caller transactions
+                # on verification failure just like the explicit forget audit below.
+                self.db._run(_verify_episode_audit)
         elif kind == "belief" and self.semantic is not None:
             def _upd(conn) -> bool:
                 cur = conn.execute(

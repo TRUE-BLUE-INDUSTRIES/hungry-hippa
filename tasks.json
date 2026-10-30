@@ -1,12 +1,19 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-25",
+  "updated": "2026-10-29",
   "branch": "automation/hh-maintenance",
   "released": {
     "version": "1.0.0",
     "sha": "9b9593f62b76c044470f9bc5684656aadb3f07d9"
   },
   "tasks": [
+    {
+      "id": "NESTED-EPISODE-ARCHIVAL-AUDIT",
+      "status": "done",
+      "evidence": ["tests/test_mcp_integration.py", "tests/test_quarantine_cli.py", "docs/MCP.md"],
+      "result": "Explicit episode archival verifies one fresh intact nested episode_archived audit inside the existing writer transaction. IGNORE reproduced RED 15/16; MCP GREEN 16/16 and quarantine 15/15, independently repeated by QA. Security review found no blocker. Added requested caught-error outer rollback, CLI rejection suppression and nested redaction/cap readback coverage. Final 31-step gate succeeded with two intentional live-chat environmental skips. Standalone helpers and later-trigger integrity remain outside scope.",
+      "next": "Reproduce concurrent authorization changes between archival policy check and writer transaction on invented stores."
+    },
     {
       "id": "ARCHIVAL-AUDIT-PERSISTENCE",
       "status": "done",

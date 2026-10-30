@@ -663,7 +663,10 @@ def check_rejection_persistence_faults():
 
     cases = 0
     for kind, table in (("belief", "beliefs"), ("episode", "episodes")):
-        for fault in ("IGNORE", "ABORT", "reversal", "missing_row", "audit_reversal"):
+        faults = ["IGNORE", "ABORT", "reversal", "missing_row", "audit_reversal"]
+        if kind == "episode":
+            faults.append("nested_audit_ignore")
+        for fault in faults:
             ctrl, path = _fresh("hh_reject_fault_")
             text = "Synthetic amber valve uses ceramic seals"
             row = (_untrusted_write(path, text) if kind == "belief"
@@ -681,6 +684,10 @@ def check_rejection_persistence_faults():
                         "SELECT RAISE(ABORT, 'synthetic refusal');")
             elif fault == "missing_row":
                 body = f"DELETE FROM {table} WHERE {kind}_id=NEW.{kind}_id;"
+            elif fault == "nested_audit_ignore":
+                timing = "BEFORE"
+                event = "INSERT ON mutation_log WHEN NEW.action='episode_archived'"
+                body = "SELECT RAISE(IGNORE);"
             elif fault == "audit_reversal":
                 event = "INSERT ON mutation_log WHEN NEW.action='quarantine_rejected'"
                 body = f"UPDATE {table} SET status='active' WHERE {kind}_id=NEW.target_id;"

@@ -106,9 +106,12 @@ or removal rolls back rather than reporting success. An existing caller transact
 is reused; otherwise success returns after commit. This assumes helpers share the
 same Database object, as controller construction ensures. The explicit `forget`
 audit must be one newly inserted row with the expected redacted/capped fields and
-a nonempty timestamp; missing, altered or extra rows roll back archival. Independent
-nested episode-audit suppression, concurrent authorization, automatic retention
-archival, later effects in an outer caller transaction, arbitrary nonempty timestamp
+a nonempty timestamp; missing, altered or extra rows roll back archival. Explicit
+episode archival also verifies its nested `episode_archived` audit immediately
+after the status helper returns, using the same fresh-row and field checks.
+Standalone status helpers, concurrent authorization, automatic retention archival,
+later changes to already-verified audits (including by subsequent audit triggers),
+later effects in an outer caller transaction, arbitrary nonempty timestamp
 corruption, and purge remain outside this guarantee.
 
 - An untrusted instance cannot read protected rows, purge anything, archive a row
