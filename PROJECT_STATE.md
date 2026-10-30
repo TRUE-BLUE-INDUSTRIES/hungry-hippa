@@ -3,6 +3,31 @@
 Updated 2026-10-29. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
 
+## Autonomous maintenance — archival authorization serialization, 2026-10-29
+
+Started clean at `40e787b4c3aa813f7598bf6a8c66c27fb1f7ae89` on
+`automation/hh-maintenance`; fetched origin/main remains an ancestor. A second
+process promoted a belief after the agent's policy snapshot but before archival:
+the protected belief was still archived (confused-deputy RED 6/7). Both controller
+archival entry points now acquire BEGIN IMMEDIATE before authorization or reuse
+an existing caller transaction. Purge and policy rules are unchanged.
+
+GREEN 7/7 covers both APIs, owned/reused transactions, blocked competing promotion,
+post-commit writer recovery and denial of prior promotion with unchanged row/audit.
+MCP 16/16 and quarantine 15/15 include cross-process durable evidence recall and
+fault rollback. Independent QA repeated all three; security source review found
+no blocker. Added QA-requested outer-transaction denial coverage. All 31 gate steps
+succeeded via unchanged temporary-XDG chat-offline wrapper: two intentional live-chat
+SKIP/ENVIRONMENTAL checks; both live synthetic-embedding checks passed.
+Python 3.14.7; Linux 7.2.5-3-omarchy x86_64; Ryzen 9 9950X3D, 32 logical CPUs.
+Gate ran implementation/tests/docs over starting SHA before this bookkeeping.
+
+No production store/plugin/main/config changes. Writer lock is held slightly earlier;
+contention has the existing generic failure shape. This is not exhaustive policy-field
+race coverage, later-trigger/outer-caller integrity, retention or historical repair.
+Next: reproduce automatic-retention archival success counting under refused SQLite
+updates on invented stores before selecting a follow-up fix.
+
 ## Autonomous maintenance — nested episode archival audit, 2026-10-29
 
 Started clean at `55b8c573cc6c2c114c4b20db46a07aa057818eb9` on

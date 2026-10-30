@@ -360,6 +360,13 @@ class MemoryController:
         return False
 
     def archive(self, kind: str, target_id: str, reason: str = "") -> bool:
+        if not self.db.in_transaction:
+            try:
+                with self.db.transaction():
+                    return self.archive(kind, target_id, reason)
+            except Exception:
+                return False
+        # Lock before reading policy state, not merely before the status write.
         allowed, _reason = self._may_forget(kind, target_id)
         if not allowed:
             return False
@@ -427,6 +434,14 @@ class MemoryController:
             else:
                 return {"error": f"purge unsupported for {kind}"}
             return {"purged": bool(ok), "target": target_id}
+        if not self.db.in_transaction:
+            try:
+                with self.db.transaction():
+                    return self.forget(kind, target_id, mode=mode, reason=reason)
+            except Exception:
+                return {"archived": False, "target": target_id}
+        # Reuse caller ownership (quarantine rejection already holds this lock).
+        # Denial is a normal return so its audit commits without a memory mutation.
         allowed, why = self._may_forget(kind, target_id)
         if not allowed:
             self.db.log_mutation("forget_denied", kind, target_id,

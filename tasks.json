@@ -8,6 +8,13 @@
   },
   "tasks": [
     {
+      "id": "ARCHIVAL-AUTHORIZATION-SERIALIZATION",
+      "status": "done",
+      "evidence": ["tests/test_confused_deputy.py", "docs/MCP.md"],
+      "result": "Concurrent operator promotion after an agent policy snapshot reproduced protected archival (RED 6/7). Both controller entry points now lock before policy reads and reuse caller transactions. GREEN 7/7, MCP 16/16, quarantine 15/15; QA repeated all three and security found no blocker. Added outer-denial coverage and final 31-step gate succeeded with two intentional live-chat environmental skips. No purge/policy-rule changes; later triggers, arbitrary policy-field races and automatic retention are outside regression claims.",
+      "next": "Reproduce automatic-retention archival success counting under refused SQLite updates using invented stores."
+    },
+    {
       "id": "NESTED-EPISODE-ARCHIVAL-AUDIT",
       "status": "done",
       "evidence": ["tests/test_mcp_integration.py", "tests/test_quarantine_cli.py", "docs/MCP.md"],

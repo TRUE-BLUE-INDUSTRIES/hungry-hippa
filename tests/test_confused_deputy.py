@@ -23,8 +23,10 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import subprocess
 import sys
 import tempfile
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -152,6 +154,75 @@ def check_model_can_still_forget_its_own_candidates():
     return "agent can still archive its own unprotected candidates"
 
 
+def check_archival_authorization_serializes_operator_promotion():
+    """A second writer cannot promote a target between policy read and archive."""
+    writer = """
+import sqlite3, sys
+conn = sqlite3.connect(sys.argv[1], timeout=0)
+try:
+    conn.execute("UPDATE beliefs SET verified_source_class='user_explicit', "
+                 "source_class='user_explicit' WHERE belief_id=?", (sys.argv[2],))
+    conn.commit()
+    print('promoted')
+except sqlite3.OperationalError as exc:
+    if 'locked' not in str(exc):
+        raise
+    print('locked')
+finally:
+    conn.close()
+"""
+    for operation in ("archive", "forget"):
+        for outer in (False, True):
+            ctrl, obs, path = _agent()
+            row = _tool(ctrl, obs, "add_belief", claim="fixture cobalt permit",
+                        source_class="document", confidence=0.4)
+            target = row["belief_id"]
+            original = ctrl.semantic.get_belief
+            attempts = []
+
+            def promote():
+                result = subprocess.run([sys.executable, "-c", writer, path, target],
+                                        capture_output=True, text=True, timeout=10)
+                assert result.returncode == 0, result.stderr
+                return result.stdout.strip()
+
+            def read_then_promote(belief_id):
+                snapshot = original(belief_id)
+                attempts.append(promote())
+                return snapshot
+
+            ctrl.semantic.get_belief = read_then_promote
+            def archive():
+                result = getattr(ctrl, operation)("belief", target)
+                assert (result if operation == "archive" else result.get("archived")), result
+
+            if outer:
+                with ctrl.db.transaction():
+                    archive()
+            else:
+                archive()
+            ctrl.semantic.get_belief = original
+            persisted = original(target)
+            assert persisted is not None
+            assert attempts == ["locked"], (operation, outer, attempts, persisted)
+            assert persisted["status"] == "archived", persisted
+            # The other writer works after commit; an already-promoted active
+            # row must then be refused by either entry point.
+            assert promote() == "promoted"
+            with sqlite3.connect(path) as conn:
+                conn.execute("UPDATE beliefs SET status='active' WHERE belief_id=?", (target,))
+            before = original(target)
+            with ctrl.db.transaction() if outer else nullcontext():
+                denied = getattr(ctrl, operation)("belief", target)
+                assert (denied is False if operation == "archive" else denied.get("error")), denied
+            assert original(target) == before
+            if operation == "forget":
+                with sqlite3.connect(path) as conn:
+                    assert conn.execute("SELECT COUNT(*) FROM mutation_log WHERE "
+                                        "action='forget_denied' AND target_id=?", (target,)).fetchone()[0] == 1
+    return "both archival APIs lock before policy snapshots, reuse outer transactions, and deny prior promotion"
+
+
 def check_model_cannot_purge_or_approve():
     """Purge and provenance promotion are not available to the tool."""
     ctrl, obs, db = _agent()
@@ -213,6 +284,8 @@ def run_all() -> List[Dict[str, Any]]:
           check_model_cannot_forget_what_the_operator_relies_on)
     check("model_can_still_forget_its_own_candidates",
           check_model_can_still_forget_its_own_candidates)
+    check("archival_authorization_serializes_operator_promotion",
+          check_archival_authorization_serializes_operator_promotion)
     check("model_cannot_purge_or_approve", check_model_cannot_purge_or_approve)
     check("recalled_content_is_not_an_instruction_to_the_tool",
           check_recalled_content_is_not_an_instruction_to_the_tool)

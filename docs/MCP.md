@@ -109,7 +109,13 @@ audit must be one newly inserted row with the expected redacted/capped fields an
 a nonempty timestamp; missing, altered or extra rows roll back archival. Explicit
 episode archival also verifies its nested `episode_archived` audit immediately
 after the status helper returns, using the same fresh-row and field checks.
-Standalone status helpers, concurrent authorization, automatic retention archival,
+Controller archival acquires the SQLite writer lock before its per-record
+read/capability checks, or reuses its caller's existing writer transaction. An
+operator promotion committed first is respected; a competing writer cannot promote
+between that authorization snapshot and archival commit. Regression coverage uses
+second-process belief promotion for both controller entry points. This takes the
+writer lock slightly earlier; contention still reports ordinary archival failure.
+Standalone status helpers, automatic retention archival,
 later changes to already-verified audits (including by subsequent audit triggers),
 later effects in an outer caller transaction, arbitrary nonempty timestamp
 corruption, and purge remain outside this guarantee.

@@ -1,5 +1,25 @@
 # Engineering decisions
 
+## Archival authorization serialization (2026-10-29)
+
+Own BEGIN IMMEDIATE at each controller archival entry point before _may_forget,
+or reuse the caller's existing transaction. The old forgetting-helper lock started
+after authorization, allowing a second process to promote an agent candidate to
+operator-attested memory and still have it archived using the stale snapshot.
+Reuse the existing Database transaction/poisoning implementation and recursive
+single-entry delegation; do not add another permission path or change purge.
+Denials return normally so their audit commits; owned failures return the existing
+bool/envelope failure after rollback, while caller-owned failures propagate.
+
+A deterministic post-read subprocess writer reproduced RED 6/7. Both entry points,
+owned/reused transactions, writer recovery and prior-promotion denial pass 7/7;
+MCP 16/16 and quarantine 15/15 preserve existing fault and evidence-recall behavior.
+QA/security review found no blocker; added outer-denial coverage. Final 31-step
+gate succeeded with two deliberate live-chat environmental SKIPs. The earlier
+writer lock modestly expands contention; generic failure results do not distinguish
+lock timeout. No claim of exhaustive policy-field race testing, later-trigger or
+outer-caller integrity, automatic retention correctness or historical repair.
+
 ## Nested episode archival audit persistence (2026-10-29)
 
 Verify the episode helper's audit immediately after update_status within explicit
