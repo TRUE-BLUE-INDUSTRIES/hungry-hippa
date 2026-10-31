@@ -262,17 +262,48 @@ class EpisodicMemory:
 
         Originals are kept with status='compressed'; the new episode links them
         via derived_from-style source_refs. Original evidence is never altered.
+        Summary creation and source status changes share one writer transaction.
+        A failed standalone compression returns an error without partial progress;
+        failures under caller ownership propagate and poison that transaction.
         """
+        if self.db.in_transaction:
+            return self._compress_in_transaction(episode_ids, summary_episode, session_id)
+        try:
+            with self.db.transaction():
+                return self._compress_in_transaction(episode_ids, summary_episode, session_id)
+        except Exception:
+            return {"error": "compression failed", "episode_id": ""}
+
+    def _compress_in_transaction(self, episode_ids: List[str],
+                                 summary_episode: Dict[str, Any],
+                                 session_id: str) -> Dict[str, Any]:
         merged = self.remember_episode(
             source_refs=[f"episode:{e}" for e in episode_ids],
             session_id=session_id,
             **summary_episode,
         )
-        if "episode_id" not in merged or not merged["episode_id"]:
-            return merged
-        for eid in episode_ids:
-            self.update_status(eid, "compressed",
-                               f"compressed into {merged['episode_id']}", session_id)
+        updated = []
+        if merged.get("episode_id"):
+            for eid in episode_ids:
+                updated.append(self.update_status(
+                    eid, "compressed", f"compressed into {merged['episode_id']}", session_id))
+
+        def _verify(conn):
+            summary = conn.execute("SELECT status FROM episodes WHERE episode_id=?",
+                                   (merged.get("episode_id", ""),)).fetchone()
+            if summary is None or summary[0] != "active":
+                raise RuntimeError("compression summary did not persist")
+            if not all(updated):
+                raise RuntimeError("compression source update refused")
+            for eid in episode_ids:
+                row = conn.execute("SELECT status FROM episodes WHERE episode_id=?",
+                                   (eid,)).fetchone()
+                if row is None or row[0] != "compressed":
+                    raise RuntimeError("compression source status did not persist")
+
+        # Verify after all helper/audit effects; _run also poisons caller-owned
+        # transactions if the caller catches a verification failure.
+        self.db._run(_verify)
         merged["compressed_from"] = episode_ids
         return merged
 

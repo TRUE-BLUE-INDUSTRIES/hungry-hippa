@@ -3,6 +3,33 @@
 Updated 2026-10-31. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
 
+## Autonomous maintenance — atomic compression status, 2026-10-31
+
+Started clean at `b8054b48fc025bae490f1a61dc6b807c12904a9a` on
+`automation/hh-maintenance`; origin/main remains an ancestor. A refused second
+source-status UPDATE reproduced false compression success (RED 19/20). Compression
+now creates its summary and retires sources under one owned/reused writer transaction,
+then checks summary existence/active status and all source updates/statuses after
+audits. Standalone failure rolls back the group; caller-owned failures propagate
+and poison commit. No schema or grouping-policy changes.
+
+Final memory architecture 21/21; QA independently ran initial 20/20 and MCP 16/16.
+Added QA-requested evidence fixtures, summary faults, post-audit mutations, caller
+rollback/poisoning and independent-group progress. Security static review found no
+introduced blocker. All 31 full-gate steps succeeded using the unchanged temporary-XDG
+chat-offline wrapper; two live-chat checks SKIP/ENVIRONMENTAL. Gate covers CLI,
+second-process durable evidence recall, MCP, ingestion, trust/security, backups,
+vectors and wheel installation. Python 3.14.7; Linux 7.2.5-3-omarchy x86_64;
+Ryzen 9 9950X3D, 32 logical CPUs. Gate ran the two code/test changes over starting SHA.
+No live memory, plugin, server/config, cron or main changes.
+
+This verifies group status persistence, not silent audit INSERT persistence,
+eligibility races, later caller mutations or historical repair. Existing automatic
+compression grouping ignores actor/quarantine/sensitivity metadata; security review
+flagged a possible trust-boundary promotion. Highest-priority next action: reproduce
+quarantined/restricted source content becoming a default-readable compression summary
+on invented stores before designing a narrowly scoped isolation fix.
+
 ## Autonomous maintenance — decay ownership coverage, 2026-10-31
 
 Started clean at `9afac72dde9429f86a05ab9e1fa47589afc0c4a9` on

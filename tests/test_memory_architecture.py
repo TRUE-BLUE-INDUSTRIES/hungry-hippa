@@ -784,6 +784,128 @@ def check_decay_transaction_ownership():
     return "caught decay failure poisons caller transaction; standalone earlier success survives; retry works"
 
 
+def check_compression_source_status_failure():
+    from hungry_hippa.forgetting import ForgettingPolicy
+
+    faults = [
+        ("BEFORE", "SELECT RAISE(IGNORE);"),
+        ("BEFORE", "SELECT RAISE(ABORT, 'invented compression refusal');"),
+        ("AFTER", "UPDATE episodes SET status=OLD.status WHERE episode_id=NEW.episode_id;"),
+        ("AFTER", "DELETE FROM episodes WHERE episode_id=NEW.episode_id;"),
+    ]
+    for timing, body in faults:
+        c, path = _fresh("hh_compression_status_")
+        ids = [c.remember_episode(context="invented shared compression task",
+                                 outcome="success", embed=False)["episode_id"]
+               for _ in range(3)]
+        evidence = c.db.add_evidence("invented compression specification", kind="document",
+                                     source_ref="fixture:compression-spec")
+        for eid in ids:
+            c.db.link_evidence("episode", eid, [evidence])
+        tables = ("episodes", "evidence", "episode_evidence", "mutation_log", "counters", "memory_fts")
+
+        def snapshot():
+            with sqlite3.connect(path) as conn:
+                return {table: conn.execute(f"SELECT * FROM {table} ORDER BY rowid").fetchall()
+                        for table in tables}
+
+        before = snapshot()
+        with sqlite3.connect(path) as conn:
+            conn.execute(f"CREATE TRIGGER compress_fault {timing} UPDATE OF status ON episodes "
+                         f"WHEN NEW.episode_id='{ids[1]}' AND NEW.status='compressed' "
+                         f"BEGIN {body} END")
+        policy = ForgettingPolicy(c.db, {"forgetting": {
+            "importance_decay_enabled": False, "compression_enabled": True}}, episodic=c.episodic)
+        assert policy.pass_("compression-fault") == (0, []), (timing, body)
+        assert snapshot() == before, (timing, body, "partial compression persisted")
+        with sqlite3.connect(path) as conn:
+            conn.execute("DROP TRIGGER compress_fault")
+        assert policy.pass_("compression-retry") == (1, ["forgetting: compressed 1 episode groups"])
+        assert policy.pass_("compression-repeat") == (0, [])
+        with sqlite3.connect(path) as conn:
+            rows = conn.execute("SELECT episode_id,status,source_refs FROM episodes ORDER BY episode_id").fetchall()
+        assert len(rows) == 4 and all(row[1] == "compressed" for row in rows[:3]), rows
+        assert rows[3][1] == "active" and json.loads(rows[3][2]) == [f"episode:{eid}" for eid in ids], rows
+    return "source refusal/reversal/removal rolls back entire compression; retry and repeat preserve source references"
+
+
+def check_compression_transaction_ownership():
+    from hungry_hippa.forgetting import ForgettingPolicy
+
+    for outer in (False, True):
+        for fault in ("source", "audit_source", "audit_summary", "summary_ignore",
+                      "summary_abort", "summary_remove"):
+            c, path = _fresh("hh_compression_ownership_")
+            groups = [[c.remember_episode(context=f"invented compression group {group}",
+                                         outcome="success", embed=False)["episode_id"]
+                       for _ in range(3)] for group in range(2)]
+            first, last = groups[1][0], groups[1][-1]
+            if fault == "source":
+                trigger = (f"BEFORE UPDATE OF status ON episodes WHEN NEW.episode_id='{last}' "
+                           "AND NEW.status='compressed' BEGIN SELECT RAISE(IGNORE); END")
+            elif fault.startswith("audit"):
+                target = f"episode_id='{first}'" if fault == "audit_source" else "context LIKE 'Generalized: invented compression group 1%'"
+                trigger = (f"AFTER INSERT ON mutation_log WHEN NEW.action='episode_compressed' "
+                           f"AND NEW.target_id='{last}' BEGIN UPDATE episodes SET status='archived' "
+                           f"WHERE {target}; END")
+            else:
+                timing = "AFTER" if fault == "summary_remove" else "BEFORE"
+                body = {"summary_ignore": "SELECT RAISE(IGNORE);",
+                        "summary_abort": "SELECT RAISE(ABORT, 'invented summary refusal');",
+                        "summary_remove": "DELETE FROM episodes WHERE episode_id=NEW.episode_id;"}[fault]
+                trigger = (f"{timing} INSERT ON episodes WHEN NEW.context LIKE "
+                           f"'Generalized: invented compression group 1%' BEGIN {body} END")
+            tables = ("episodes", "episode_evidence", "mutation_log", "counters", "memory_fts")
+
+            def snapshot():
+                with sqlite3.connect(path) as conn:
+                    return {table: conn.execute(f"SELECT * FROM {table} ORDER BY rowid").fetchall()
+                            for table in tables}
+
+            before = snapshot()
+            with sqlite3.connect(path) as conn:
+                conn.execute("CREATE TRIGGER compression_fault " + trigger)
+            policy = ForgettingPolicy(c.db, {"forgetting": {
+                "importance_decay_enabled": False, "compression_enabled": True}}, episodic=c.episodic)
+            if outer:
+                caught = rolled_back = False
+                try:
+                    with c.db.transaction():
+                        try:
+                            policy.pass_("compression-outer")
+                        except Exception:
+                            caught = True
+                except RuntimeError:
+                    rolled_back = True
+                assert caught and rolled_back, (fault, caught, rolled_back)
+                assert snapshot() == before, fault
+            else:
+                assert policy.pass_("compression-owned") == (1, ["forgetting: compressed 1 episode groups"]), fault
+                with sqlite3.connect(path) as conn:
+                    rows = dict(conn.execute("SELECT episode_id,status FROM episodes"))
+                assert len(rows) == 7 and all(rows[eid] == "compressed" for eid in groups[0]), (fault, rows)
+                assert all(rows[eid] == "active" for eid in groups[1]), (fault, rows)
+            with sqlite3.connect(path) as conn:
+                conn.execute("DROP TRIGGER compression_fault")
+            expected = 2 if outer else 1
+            assert policy.pass_("compression-recovery") == (expected, [f"forgetting: compressed {expected} episode groups"])
+            assert policy.pass_("compression-repeat") == (0, [])
+
+    c, path = _fresh("hh_compression_caller_rollback_")
+    ids = [c.remember_episode(context="invented caller rollback", embed=False)["episode_id"] for _ in range(3)]
+    with sqlite3.connect(path) as conn:
+        before = conn.execute("SELECT * FROM episodes ORDER BY episode_id").fetchall()
+    try:
+        with c.db.transaction():
+            assert c.episodic.compress(ids, {"context": "invented summary"}).get("episode_id")
+            raise ValueError("invented caller rollback")
+    except ValueError:
+        pass
+    with sqlite3.connect(path) as conn:
+        assert conn.execute("SELECT * FROM episodes ORDER BY episode_id").fetchall() == before
+    return "summary/audit faults roll back group; caught failures poison outer ownership; independent progress and retry preserved"
+
+
 def run_all() -> List[Dict[str, Any]]:
     results: List[Dict[str, Any]] = []
 
@@ -815,6 +937,8 @@ def run_all() -> List[Dict[str, Any]]:
     check("decay_rejects_stale_selection", check_decay_rejects_stale_selection)
     check("decay_persistence", check_decay_persistence)
     check("decay_transaction_ownership", check_decay_transaction_ownership)
+    check("compression_source_status_failure", check_compression_source_status_failure)
+    check("compression_transaction_ownership", check_compression_transaction_ownership)
     check("retention_eligibility_lock", check_retention_eligibility_lock)
     return results
 

@@ -1,5 +1,25 @@
 # Engineering decisions
 
+## Compression source-status atomicity (2026-10-31)
+
+Reuse Database.transaction per compressed group, retaining caller ownership when
+present. Create summary, update sources, then verify the summary is active and all
+source updates succeeded with compressed status after helper/audit effects. Put
+readback failures through _run so caught errors poison caller-owned transactions.
+Standalone failure returns an empty-ID error only after rollback; automatic counts
+therefore exclude failure while earlier independent groups remain committed.
+The writer lock now spans summary creation through source verification; it does
+not encompass the automatic grouping selection. No schema/policy expansion.
+
+RED 19/20 on source IGNORE; final architecture 21/21 covers IGNORE/ABORT, source
+reversal/removal, summary insertion failures/removal, post-audit mutation, populated
+evidence preservation, caller rollback/poisoning, independent progress and retry.
+QA repeated initial 20/20 and MCP16/16; its requested coverage was added. Security
+found no introduced issue. Full31-step gate succeeded with two intentional live-chat
+skips. Not proof of silent audit persistence, grouping eligibility/authorization,
+later caller integrity or historical repair. Next reproduce the separately flagged
+preexisting actor/quarantine/sensitivity grouping concern on invented stores.
+
 ## Importance decay persistence (2026-10-31)
 
 Keep the conditional eligibility UPDATE, but verify its intended importance,

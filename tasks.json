@@ -8,6 +8,13 @@
   },
   "tasks": [
     {
+      "id": "COMPRESSION-STATUS-ATOMICITY",
+      "status": "done",
+      "evidence": ["tests/test_memory_architecture.py", "PROJECT_STATE.md", "DECISIONS.md"],
+      "result": "Refused second source UPDATE reproduced false compression success (RED 19/20). Summary and source transitions now share owned/reused transaction with final status readback. Final architecture21/21; QA initial20/20 and MCP16/16; security no introduced blocker. All31 gate steps succeeded with two intentional live-chat skips. Covers summary/source/audit faults, populated evidence rollback, caller poisoning, independent progress, retry/repeat. No grouping-policy or silent audit-persistence claim.",
+      "next": "Reproduce quarantined/restricted source content becoming default-readable via automatic compression; security review flagged preexisting grouping metadata isolation concern."
+    },
+    {
       "id": "DECAY-OWNERSHIP-COVERAGE",
       "status": "done",
       "evidence": ["tests/test_memory_architecture.py", "PROJECT_STATE.md"],
