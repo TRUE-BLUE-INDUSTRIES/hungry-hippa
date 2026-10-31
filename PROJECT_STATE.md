@@ -3,6 +3,34 @@
 Updated 2026-10-31. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
 
+## Autonomous maintenance — compression trust isolation, 2026-10-31
+
+Started clean at `519910914b7979e233799dfa5e21959600f533d9`; fetched origin/main
+remains an ancestor. Automatic compression reproduced quarantined source text in a
+default-readable summary via second-process recall (RED 21/22). Summary creation
+uses default trust metadata while grouping ignored source scope. Compression now
+refuses a whole group unless every fresh source is active, primary, unclassified
+and nonquarantined, checked under the existing writer transaction. Unsupported
+sources remain intact; ordinary independent groups still compress with source refs.
+This deliberately disables compression of restricted/non-primary groups rather
+than inventing a scope-preserving summarization design. No schema changes.
+
+Final architecture 23/23; QA independently repeated initial 22/22 and MCP16/16;
+security found no blocking implementation issue. Added requested mixed groups,
+after-selection scope/status changes, owned/reused transaction refusal and full
+tracked-table snapshots. Initial post-fix fixture failed because owner recall updates
+last_accessed; moved no-mutation snapshot before that read, without weakening it.
+All31 full-gate steps succeeded using the unchanged temporary-XDG offline-chat
+wrapper; two live-chat checks SKIP/ENVIRONMENTAL. Includes CLI, durable second-process
+recall/evidence, ingestion, MCP, security, migrations, vectors and wheel installation.
+Gate ran code/test changes over starting SHA, Python3.14.7, Linux7.2.5-3-omarchy,
+Ryzen9 9950X3D /32 logical CPUs. No live memory/plugin/config/main changes.
+
+No historical summary repair or protection against malicious later triggers/trusted
+summary payloads claimed. Reader disclosure regression specifically covers quarantine;
+other scopes have exact preservation checks. Next: compression-specific independent
+writer contention/recovery and restricted-reader coverage before stronger race claims.
+
 ## Autonomous maintenance — atomic compression status, 2026-10-31
 
 Started clean at `b8054b48fc025bae490f1a61dc6b807c12904a9a` on

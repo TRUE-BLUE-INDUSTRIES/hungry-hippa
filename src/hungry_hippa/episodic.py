@@ -262,6 +262,8 @@ class EpisodicMemory:
 
         Originals are kept with status='compressed'; the new episode links them
         via derived_from-style source_refs. Original evidence is never altered.
+        Only active primary/unclassified/nonquarantined sources are supported;
+        other scopes are left intact rather than widened into default summaries.
         Summary creation and source status changes share one writer transaction.
         A failed standalone compression returns an error without partial progress;
         failures under caller ownership propagate and poison that transaction.
@@ -277,6 +279,26 @@ class EpisodicMemory:
     def _compress_in_transaction(self, episode_ids: List[str],
                                  summary_episode: Dict[str, Any],
                                  session_id: str) -> Dict[str, Any]:
+        # Summaries currently use default primary/unclassified/nonquarantined
+        # metadata. Do not promote restricted sources into that wider read scope.
+        # Read under the writer lock, not the automatic pass's advisory snapshot.
+        def _eligible(conn):
+            if not episode_ids:
+                return False
+            for eid in episode_ids:
+                row = conn.execute(
+                    "SELECT status, actor_id, sensitivity, quarantined FROM episodes "
+                    "WHERE episode_id=?", (eid,),
+                ).fetchone()
+                if (row is None or row["status"] != "active"
+                        or row["actor_id"] != "primary"
+                        or row["sensitivity"] != "unclassified"
+                        or row["quarantined"] != 0):
+                    return False
+            return True
+
+        if not self.db._run(_eligible):
+            return {"error": "compression source scope is not supported", "episode_id": ""}
         merged = self.remember_episode(
             source_refs=[f"episode:{e}" for e in episode_ids],
             session_id=session_id,

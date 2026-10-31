@@ -8,6 +8,13 @@
   },
   "tasks": [
     {
+      "id": "COMPRESSION-TRUST-ISOLATION",
+      "status": "done",
+      "evidence": ["tests/test_memory_architecture.py", "PROJECT_STATE.md", "DECISIONS.md"],
+      "result": "Second-process recall reproduced quarantined source disclosure via default-trust compression summary (RED21/22). Fresh writer-locked source validation now refuses whole groups outside active/primary/unclassified/nonquarantined scope, preserving originals. Architecture23/23; QA22/22 and MCP16/16; security no blocker. All31 gate steps succeeded, two intentional live-chat skips. Mixed groups and after-selection mutations covered under owned/reused transactions. No historical repair or malicious later-trigger claim.",
+      "next": "Add compression-specific competing-process lock/recovery and restricted-reader recall regressions before stronger concurrency claims."
+    },
+    {
       "id": "COMPRESSION-STATUS-ATOMICITY",
       "status": "done",
       "evidence": ["tests/test_memory_architecture.py", "PROJECT_STATE.md", "DECISIONS.md"],

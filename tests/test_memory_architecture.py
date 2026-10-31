@@ -906,6 +906,88 @@ def check_compression_transaction_ownership():
     return "summary/audit faults roll back group; caught failures poison outer ownership; independent progress and retry preserved"
 
 
+def check_compression_trust_isolation():
+    from hungry_hippa.forgetting import ForgettingPolicy
+    import subprocess
+
+    for field, value in (("quarantined", 1), ("sensitivity", "internal"),
+                         ("sensitivity", "private"), ("sensitivity", "restricted"),
+                         ("actor_id", "fixture-other")):
+        c, path = _fresh("hh_compression_trust_")
+        secret = "invented ambervault confidential fixture"
+        ids = [c.remember_episode(context=secret, embed=False)["episode_id"] for _ in range(3)]
+        with sqlite3.connect(path) as conn:
+            conn.execute(f"UPDATE episodes SET {field}=?", (value,))
+            before = conn.execute("SELECT * FROM episodes ORDER BY episode_id").fetchall()
+        policy = ForgettingPolicy(c.db, {"forgetting": {
+            "importance_decay_enabled": False, "compression_enabled": True}}, episodic=c.episodic)
+        result = policy.pass_("trust-compression")
+        with sqlite3.connect(path) as conn:
+            assert conn.execute("SELECT * FROM episodes ORDER BY episode_id").fetchall() == before, (field, value)
+        # Independent reader proves durable disclosure, not just returned metadata.
+        script = '''import json, sys
+from hungry_hippa.config import load_config
+from hungry_hippa.controller import MemoryController
+cfg=load_config(); cfg['retrieval']['vectors_enabled']=False
+c=MemoryController(cfg, db_path=sys.argv[1]); c.bind_session(session_id='reader', platform='cli')
+r=c.recall('ambervault')
+print(json.dumps([r.get('items', []), r.get('context', '')]))
+'''
+        out = subprocess.run([sys.executable, "-c", script, path], capture_output=True, text=True, check=True)
+        if field == "quarantined":
+            assert secret not in out.stdout, (field, value, result, out.stdout)
+        assert result == (0, []), (field, value, result)
+        # Ordinary independent groups remain eligible; refused originals stay intact.
+        good = [c.remember_episode(context="invented public cobalt task", embed=False)["episode_id"] for _ in range(3)]
+        assert policy.pass_("trust-control") == (1, ["forgetting: compressed 1 episode groups"])
+        with sqlite3.connect(path) as conn:
+            summary = conn.execute("SELECT source_refs FROM episodes WHERE context LIKE 'Generalized:%'").fetchone()
+        assert json.loads(summary[0]) == [f"episode:{eid}" for eid in good]
+        assert policy.pass_("trust-repeat") == (0, [])
+    return "quarantined/restricted/other-actor sources remain intact; ordinary compression retains source references"
+
+
+def check_compression_fresh_mixed_scope():
+    from hungry_hippa.forgetting import ForgettingPolicy
+
+    tables = ("episodes", "episode_evidence", "evidence", "counters", "memory_fts", "mutation_log")
+    for field, value in (("quarantined", 1), ("actor_id", "fixture-other"),
+                         ("sensitivity", "private"), ("status", "archived")):
+        for outer in (False, True):
+            c, path = _fresh("hh_compression_mixed_")
+            ids = [c.remember_episode(context="invented mixed scope task", embed=False)["episode_id"] for _ in range(3)]
+            original = c.episodic.compress
+            snapshots = []
+
+            def snapshot():
+                return c.db._run(lambda conn: {
+                    table: [tuple(r) for r in conn.execute(f"SELECT * FROM {table} ORDER BY rowid")]
+                    for table in tables})
+
+            def change_after_selection(episode_ids, summary, session_id=""):
+                # Automatic grouping has already read the old all-eligible rows.
+                c.db._run(lambda conn: conn.execute(
+                    f"UPDATE episodes SET {field}=? WHERE episode_id=?", (value, ids[-1])), write=True)
+                snapshots.append(snapshot())
+                return original(episode_ids, summary, session_id)
+
+            c.episodic.compress = change_after_selection
+            policy = ForgettingPolicy(c.db, {"forgetting": {
+                "importance_decay_enabled": False, "compression_enabled": True}}, episodic=c.episodic)
+            if outer:
+                with c.db.transaction():
+                    assert policy.pass_("mixed-outer") == (0, [])
+                    assert snapshot() == snapshots[-1], (field, outer)
+            else:
+                assert policy.pass_("mixed-owned") == (0, [])
+            assert snapshot() == snapshots[-1], (field, outer)
+            c.episodic.compress = original
+            assert original([], {"context": "invented empty"}).get("error")
+            assert original(["E-missing"] + ids, {"context": "invented missing"}).get("error")
+            assert snapshot() == snapshots[-1]
+    return "mixed groups revalidated after selection in owned/reused transactions; refusal leaves all tracked tables unchanged"
+
+
 def run_all() -> List[Dict[str, Any]]:
     results: List[Dict[str, Any]] = []
 
@@ -937,6 +1019,8 @@ def run_all() -> List[Dict[str, Any]]:
     check("decay_rejects_stale_selection", check_decay_rejects_stale_selection)
     check("decay_persistence", check_decay_persistence)
     check("decay_transaction_ownership", check_decay_transaction_ownership)
+    check("compression_fresh_mixed_scope", check_compression_fresh_mixed_scope)
+    check("compression_trust_isolation", check_compression_trust_isolation)
     check("compression_source_status_failure", check_compression_source_status_failure)
     check("compression_transaction_ownership", check_compression_transaction_ownership)
     check("retention_eligibility_lock", check_retention_eligibility_lock)

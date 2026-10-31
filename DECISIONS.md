@@ -1,5 +1,28 @@
 # Engineering decisions
 
+## Conservative compression source scope (2026-10-31)
+
+Compression's summary currently defaults to primary/unclassified/nonquarantined.
+Do not silently widen restricted sources into that default: refuse the whole group
+unless every source is active and has exactly that canonical scope. Validate fresh
+rows under the existing writer lock before allocating IDs or writing summaries.
+Apply at the common compression entry point, not only automatic grouping, so a
+stale automatic snapshot cannot bypass refusal. Missing/empty sources also refuse.
+Canonical exact checks deliberately decline noncanonical labels rather than silently
+normalizing/migrating identities. Restricted and non-primary compression is now
+unsupported even for direct trusted callers; preserve originals rather than add
+new policy-aware summarization architecture. Mixed groups are skipped as a whole.
+
+Regression reproduces durable quarantined disclosure, ordinary-group compatibility,
+source refs, mixed scope/status changes after selection, owned/reused refusal and
+unchanged episode/evidence/counter/FTS/audit snapshots. Architecture23/23 and full31
+steps succeeded (two intentional live-chat environmental skips). Independent QA and
+security review found no blocker. Historical summaries are not repaired. Concurrent
+writer contention after compression validation, restricted-reader disclosure tests,
+malicious later triggers and arbitrary trusted summary payloads are not established
+by these tests; schedule the first two as the next bounded verification shift.
+
+
 ## Compression source-status atomicity (2026-10-31)
 
 Reuse Database.transaction per compressed group, retaining caller ownership when
