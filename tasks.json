@@ -8,6 +8,13 @@
   },
   "tasks": [
     {
+      "id": "DECAY-STALE-SELECTION",
+      "status": "done",
+      "evidence": ["tests/test_memory_architecture.py", "PROJECT_STATE.md", "DECISIONS.md"],
+      "result": "Committed high-value promotion after selection reproduced overwrite (RED 16/17). Conditional UPDATE checks active status and unchanged importance/update time; counts matched updates only. GREEN 17/17 and MCP 16/16 independently repeated by QA. All 31 gate steps succeeded with two intentional live-chat environmental skips. Independent-connection stale snapshots, retry and repeat covered; not AFTER-trigger persistence or whole-pass concurrency.",
+      "next": "Reproduce decay success after an AFTER-update importance reversal on an invented store."
+    },
+    {
       "id": "RETENTION-ELIGIBILITY-SERIALIZATION",
       "status": "done",
       "evidence": ["tests/test_memory_architecture.py", "PROJECT_STATE.md", "DECISIONS.md"],

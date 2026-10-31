@@ -3,6 +3,30 @@
 Updated 2026-10-30. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
 
+## Autonomous maintenance — importance decay stale selection, 2026-10-30
+
+Started clean at `8cd184975f86e777ef01e876415f10cf1e5f1665` on
+`automation/hh-maintenance`; fetched origin/main remains an ancestor. Importance
+decay overwrote a committed high-value promotion using its earlier selection
+(RED 16/17). A conditional UPDATE now requires active status and unchanged
+importance/update timestamp; unmatched updates are not counted. No schema,
+authorization, decay-factor or live configuration change.
+
+Memory architecture GREEN 17/17 and MCP 16/16 independently repeated by QA; no
+in-scope blocker. All 31 gate steps succeeded through the unchanged temporary-XDG
+chat-offline wrapper, with two live-chat checks SKIP/ENVIRONMENTAL. Gate includes
+CLI, durable cross-process evidence recall, ingestion, trust/security, vectors,
+backup/integrity and wheel installation. Python 3.14.7; Linux 7.2.5-3-omarchy x86_64;
+Ryzen 9 9950X3D, 32 logical CPUs. Gate ran the two changed code/test files over
+starting SHA before bookkeeping.
+
+Regression uses independent committed SQLite connections to change high/medium
+importance, timestamp and status after selection, verifies exact row preservation,
+then retries and repeats. It is not a two-process competing-decay test or proof
+of AFTER-trigger persistence, caller-owned rollback, compression safety or historical
+repair. Next: reproduce decay success after an AFTER-update importance reversal
+on an invented store before extending persistence guarantees.
+
 ## Autonomous maintenance — retention eligibility serialization, 2026-10-30
 
 Started clean at `4bb9ffe2d09fb62e1053e42757d5ce83f538561f` on

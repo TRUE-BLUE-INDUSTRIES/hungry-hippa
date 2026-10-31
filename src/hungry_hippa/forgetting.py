@@ -148,14 +148,19 @@ class ForgettingPolicy:
             if new_imp >= imp:
                 continue
 
-            def _upd(conn, eid=r["episode_id"], v=new_imp) -> None:
-                conn.execute(
-                    "UPDATE episodes SET importance = ?, updated_at = ? WHERE episode_id = ?",
-                    (v, _db.now_iso(), eid),
+            def _upd(conn, eid=r["episode_id"], v=new_imp,
+                     old_imp=imp, old_updated=r["updated_at"]) -> bool:
+                # Selection is advisory: atomically reject a changed eligibility
+                # snapshot rather than overwriting a concurrent promotion/decay.
+                cur = conn.execute(
+                    "UPDATE episodes SET importance = ?, updated_at = ? WHERE episode_id = ?"
+                    " AND status = 'active' AND importance = ? AND updated_at IS ?",
+                    (v, _db.now_iso(), eid, old_imp, old_updated),
                 )
+                return cur.rowcount == 1
 
-            self.db._run(_upd, write=True)
-            decayed += 1
+            if self.db._run(_upd, write=True):
+                decayed += 1
         return decayed
 
     def _compress_duplicates(self, session_id: str) -> int:

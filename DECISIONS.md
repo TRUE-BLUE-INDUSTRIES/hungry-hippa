@@ -1,5 +1,20 @@
 # Engineering decisions
 
+## Importance decay stale selection (2026-10-30)
+
+Use a conditional UPDATE rather than a new read/transaction layer for importance
+decay: require the selected importance and updated_at plus active status in the
+same statement that writes the new value. A changed snapshot skips this pass and
+can be reconsidered next time. Count matched updates only. This preserves the
+existing per-item write scope and decay factors without holding a whole-pass lock.
+
+Independent committed connection promotion reproduced RED 16/17; GREEN 17/17
+covers high/medium importance, timestamp and status changes plus retry/repeat.
+QA repeated memory architecture and MCP 16/16; full 31-step gate succeeded with
+two intentional live-chat environmental skips. This is stale-snapshot prevention,
+not AFTER-trigger persistence or whole-pass concurrency safety. Reproduce an
+AFTER-update importance reversal next; do not claim historical repair.
+
 ## Retention eligibility serialization (2026-10-30)
 
 Keep the initial unused-episode selection as an advisory filter. Acquire the existing

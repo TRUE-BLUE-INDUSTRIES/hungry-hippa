@@ -671,6 +671,43 @@ else:
     return "independent process blocked after eligibility read in owned/reused transactions; recovers after commit"
 
 
+def check_decay_rejects_stale_selection():
+    from hungry_hippa.forgetting import ForgettingPolicy
+
+    for column, value in (("importance", 0.9), ("importance", 0.4),
+                          ("updated_at", "2999-01-01T00:00:00"),
+                          ("status", "archived")):
+        c, path = _fresh("hh_decay_race_")
+        eid = c.remember_episode(context="invented decay eligibility fixture",
+                                 embed=False)["episode_id"]
+        with sqlite3.connect(path) as conn:
+            conn.execute("UPDATE episodes SET importance=0.2, updated_at='2000-01-01T00:00:00'")
+        policy = ForgettingPolicy(c.db, {"forgetting": {
+            "importance_decay_enabled": True, "compression_enabled": False}}, episodic=c.episodic)
+        original = c.db._run
+        changed = []
+        def change_after_selection(fn, *args, **kwargs):
+            result = original(fn, *args, **kwargs)
+            if fn.__name__ == "_q" and not changed:
+                with sqlite3.connect(path, timeout=0) as conn:
+                    conn.execute(f"UPDATE episodes SET {column}=? WHERE episode_id=?", (value, eid))
+                    changed.append(conn.execute("SELECT * FROM episodes").fetchall())
+            return result
+        c.db._run = change_after_selection
+        assert policy.pass_("decay-race") == (0, []), (column, value)
+        c.db._run = original
+        assert changed, "selection barrier was not exercised"
+        with sqlite3.connect(path) as conn:
+            assert conn.execute("SELECT * FROM episodes").fetchall() == changed[0]
+            conn.execute("UPDATE episodes SET importance=0.2, status='active', "
+                         "updated_at='2000-01-01T00:00:00'")
+        assert policy.pass_("decay-retry") == (1, ["forgetting: importance decay applied to 1 episodes"])
+        assert policy.pass_("decay-repeat") == (0, [])
+        with sqlite3.connect(path) as conn:
+            assert abs(conn.execute("SELECT importance FROM episodes").fetchone()[0] - 0.14) < 1e-9
+    return "stale importance/status/update time skips decay without overwriting committed changes; retry works"
+
+
 def run_all() -> List[Dict[str, Any]]:
     results: List[Dict[str, Any]] = []
 
@@ -699,6 +736,7 @@ def run_all() -> List[Dict[str, Any]]:
     check("retention_audit_effects", check_retention_audit_effects)
     check("retention_transaction_ownership", check_retention_transaction_ownership)
     check("retention_rechecks_eligibility", check_retention_rechecks_eligibility)
+    check("decay_rejects_stale_selection", check_decay_rejects_stale_selection)
     check("retention_eligibility_lock", check_retention_eligibility_lock)
     return results
 
