@@ -8,6 +8,13 @@
   },
   "tasks": [
     {
+      "id": "DECAY-OWNERSHIP-COVERAGE",
+      "status": "done",
+      "evidence": ["tests/test_memory_architecture.py", "PROJECT_STATE.md"],
+      "result": "Previously blocked ownership probe now permanently exercised: caught persistence exception poisons caller transaction and rolls back earlier decay; standalone earlier success survives. No new runtime defect reproduced or code fix needed. Baseline 18/18, expanded 19/19; 31-step gate succeeded with two intentional live-chat environmental skips. Retry/repeat pass in both ownership modes.",
+      "next": "Reproduce automatic compression under refused source-status updates using invented stores."
+    },
+    {
       "id": "DECAY-PERSISTENCE",
       "status": "done",
       "evidence": ["tests/test_memory_architecture.py", "PROJECT_STATE.md", "DECISIONS.md"],

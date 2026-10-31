@@ -741,6 +741,49 @@ def check_decay_persistence():
     return "decay refusal/reversal/removal rolls back without success counts; retry persists and repeat skips"
 
 
+def check_decay_transaction_ownership():
+    from hungry_hippa.forgetting import ForgettingPolicy
+
+    for outer in (False, True):
+        c, path = _fresh("hh_decay_ownership_")
+        ids = [c.remember_episode(context=f"invented decay ownership {i}",
+                                  embed=False)["episode_id"] for i in range(2)]
+        with sqlite3.connect(path) as conn:
+            conn.execute("UPDATE episodes SET importance=0.2, updated_at='2000-01-01T00:00:00'")
+            conn.execute(f"CREATE TRIGGER reverse_decay AFTER UPDATE OF importance ON episodes "
+                         f"WHEN NEW.episode_id='{ids[1]}' AND NEW.importance < OLD.importance BEGIN "
+                         "UPDATE episodes SET importance=OLD.importance WHERE episode_id=NEW.episode_id; END")
+            before = conn.execute("SELECT * FROM episodes ORDER BY episode_id").fetchall()
+        policy = ForgettingPolicy(c.db, {"forgetting": {
+            "importance_decay_enabled": True, "compression_enabled": False}}, episodic=c.episodic)
+        if outer:
+            caught = rolled_back = False
+            try:
+                with c.db.transaction():
+                    try:
+                        policy.pass_("decay-outer")
+                    except RuntimeError as exc:
+                        assert "importance decay did not persist" in str(exc), str(exc)
+                        caught = True
+            except RuntimeError:
+                rolled_back = True
+            assert caught and rolled_back, (caught, rolled_back)
+            with sqlite3.connect(path) as conn:
+                assert conn.execute("SELECT * FROM episodes ORDER BY episode_id").fetchall() == before
+        else:
+            assert policy.pass_("decay-owned") == (1, ["forgetting: importance decay applied to 1 episodes"])
+            with sqlite3.connect(path) as conn:
+                rows = dict(conn.execute("SELECT episode_id,importance FROM episodes"))
+                assert abs(rows[ids[0]] - 0.14) < 1e-9 and rows[ids[1]] == 0.2, rows
+        with sqlite3.connect(path) as conn:
+            conn.execute("DROP TRIGGER reverse_decay")
+        expected = 2 if outer else 1
+        assert policy.pass_("decay-recovery") == (
+            expected, [f"forgetting: importance decay applied to {expected} episodes"])
+        assert policy.pass_("decay-repeat") == (0, [])
+    return "caught decay failure poisons caller transaction; standalone earlier success survives; retry works"
+
+
 def run_all() -> List[Dict[str, Any]]:
     results: List[Dict[str, Any]] = []
 
@@ -771,6 +814,7 @@ def run_all() -> List[Dict[str, Any]]:
     check("retention_rechecks_eligibility", check_retention_rechecks_eligibility)
     check("decay_rejects_stale_selection", check_decay_rejects_stale_selection)
     check("decay_persistence", check_decay_persistence)
+    check("decay_transaction_ownership", check_decay_transaction_ownership)
     check("retention_eligibility_lock", check_retention_eligibility_lock)
     return results
 

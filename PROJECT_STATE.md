@@ -3,6 +3,30 @@
 Updated 2026-10-31. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
 
+## Autonomous maintenance — decay ownership coverage, 2026-10-31
+
+Started clean at `9afac72dde9429f86a05ab9e1fa47589afc0c4a9` on
+`automation/hh-maintenance`; fetched origin/main remains an ancestor. Closed the
+previous shift's unexecuted ownership probe with a permanent regression. No new
+runtime failure reproduced: the existing transaction poisoning correctly rolls
+back earlier decay when a caller catches a later persistence exception. Without
+an outer transaction, the earlier independent decay remains committed. Retry and
+repeat checks pass in both modes. No runtime or schema changes were needed.
+
+Memory architecture baseline 18/18, expanded 19/19. All 31 broad-gate steps
+succeeded via the unchanged temporary-XDG chat-offline wrapper, including MCP
+16/16, cross-process durable evidence recall, CLI, ingestion and wheel installation.
+Two live-chat checks SKIP/ENVIRONMENTAL, not PASS. Python 3.14.7; Linux
+7.2.5-3-omarchy x86_64; Ryzen 9 9950X3D, 32 logical CPUs. Gate ran with only the
+test file dirty over starting SHA. No production memory, live config or plugin
+changes. Inline Python and execute_code were policy-blocked before execution;
+ordinary script execution and all tests succeeded without changing approval policy.
+
+This covers an AFTER-trigger importance reversal on the second episode, not
+whole-pass atomicity without caller ownership or later caller mutation. Next:
+reproduce automatic episode compression under a refused source-status update on
+invented stores before deciding whether a runtime change is warranted.
+
 ## Autonomous maintenance — importance decay persistence, 2026-10-31
 
 Started clean at `ee9f8c504fb99ed293ed0614fc547b5365f70950` on
