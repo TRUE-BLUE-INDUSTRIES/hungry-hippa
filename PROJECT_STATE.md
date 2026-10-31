@@ -1,7 +1,31 @@
 # Project state
 
-Updated 2026-10-30. Git is authoritative for code; no live store or deployed MCP
+Updated 2026-10-31. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
+
+## Autonomous maintenance — importance decay persistence, 2026-10-31
+
+Started clean at `ee9f8c504fb99ed293ed0614fc547b5365f70950` on
+`automation/hh-maintenance`; origin/main remains an ancestor. An AFTER UPDATE
+importance reversal reproduced false decay success (RED 17/18). Rowcount alone
+proved a matched UPDATE, not its persisted result. Read back importance, exact
+update timestamp and active status inside the same write callback; mismatch raises
+and rolls back instead of counting success. No schema or decay-factor change.
+
+Memory architecture GREEN 18/18 and MCP 16/16 independently repeated by QA; no
+in-scope blocker. All 31 gate steps succeeded with the unchanged temporary-XDG
+chat-offline wrapper; two live-chat checks SKIP/ENVIRONMENTAL. Includes CLI,
+cross-process durable evidence recall, ingestion, trust/security, backup/integrity,
+vectors and clean wheel installation. Python 3.14.7; Linux 7.2.5-3-omarchy x86_64;
+Ryzen 9 9950X3D, 32 logical CPUs. Gate ran code/tests over starting SHA with two
+files dirty before bookkeeping; no live store/plugin/config or main modifications.
+
+Regression covers IGNORE/ABORT, AFTER importance/timestamp/status reversal and row
+removal, exact episode rollback, retry and repeat. QA's separate ownership probe
+was policy-blocked; ownership propagation was inspected, not independently tested
+for decay. Immediate readback is not protection against later trigger/caller
+mutations, whole-pass atomicity or historical repair. Next: add a focused decay
+caller-owned caught-error rollback regression before extending ownership claims.
 
 ## Autonomous maintenance — importance decay stale selection, 2026-10-30
 

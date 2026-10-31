@@ -1,12 +1,19 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-30",
+  "updated": "2026-10-31",
   "branch": "automation/hh-maintenance",
   "released": {
     "version": "1.0.0",
     "sha": "9b9593f62b76c044470f9bc5684656aadb3f07d9"
   },
   "tasks": [
+    {
+      "id": "DECAY-PERSISTENCE",
+      "status": "done",
+      "evidence": ["tests/test_memory_architecture.py", "PROJECT_STATE.md", "DECISIONS.md"],
+      "result": "AFTER importance reversal reproduced false decay success (RED 17/18). Same-write readback verifies importance, exact timestamp and active status before commit. GREEN 18/18 and MCP 16/16 independently repeated by QA; all 31 gate steps succeeded with two intentional live-chat environmental skips. IGNORE/ABORT, AFTER field reversal/removal, exact rollback, retry/repeat covered. Decay ownership probe policy-blocked; no later-trigger or whole-pass claim.",
+      "next": "Add focused decay caller-owned caught-error rollback regression before extending ownership claims."
+    },
     {
       "id": "DECAY-STALE-SELECTION",
       "status": "done",

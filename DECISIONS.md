@@ -1,5 +1,22 @@
 # Engineering decisions
 
+## Importance decay persistence (2026-10-31)
+
+Keep the conditional eligibility UPDATE, but verify its intended importance,
+exact timestamp and active status on the same `_run` write connection before
+returning success. Rowcount survives AFTER-trigger reversal/removal; a mismatch
+must raise so standalone writes roll back and caller-owned transactions use the
+existing failure-poisoning mechanism. No new transaction abstraction or whole-pass
+lock, no changes to decay factors, and no historical repair.
+
+RED 17/18 reproduced importance reversal; GREEN 18/18 covers IGNORE/ABORT,
+AFTER importance/time/status reversal and removal, exact episode rollback,
+retry and repeat. QA repeated memory architecture and MCP 16/16. All 31 gate
+steps succeeded with two intentionally offline live-chat checks. QA's separate
+decay ownership probe was policy-blocked; the propagation path was inspected only.
+Immediate verification cannot detect later trigger/caller changes. Follow up with
+focused caller-owned caught-error rollback coverage before stronger claims.
+
 ## Importance decay stale selection (2026-10-30)
 
 Use a conditional UPDATE rather than a new read/transaction layer for importance

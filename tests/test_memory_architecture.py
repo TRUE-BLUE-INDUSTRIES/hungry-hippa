@@ -708,6 +708,39 @@ def check_decay_rejects_stale_selection():
     return "stale importance/status/update time skips decay without overwriting committed changes; retry works"
 
 
+def check_decay_persistence():
+    from hungry_hippa.forgetting import ForgettingPolicy
+
+    faults = (
+        ("AFTER", "UPDATE episodes SET importance=OLD.importance WHERE episode_id=NEW.episode_id;"),
+        ("AFTER", "UPDATE episodes SET updated_at=OLD.updated_at WHERE episode_id=NEW.episode_id;"),
+        ("AFTER", "UPDATE episodes SET status='archived' WHERE episode_id=NEW.episode_id;"),
+        ("AFTER", "DELETE FROM episodes WHERE episode_id=NEW.episode_id;"),
+        ("BEFORE", "SELECT RAISE(IGNORE);"),
+        ("BEFORE", "SELECT RAISE(ABORT, 'invented decay refusal');"),
+    )
+    for timing, body in faults:
+        c, path = _fresh("hh_decay_persistence_")
+        eid = c.remember_episode(context="invented decay persistence fixture", embed=False)["episode_id"]
+        with sqlite3.connect(path) as conn:
+            conn.execute("UPDATE episodes SET importance=0.2, updated_at='2000-01-01T00:00:00'")
+            before = conn.execute("SELECT * FROM episodes").fetchall()
+            conn.execute(f"CREATE TRIGGER decay_fault {timing} UPDATE OF importance ON episodes "
+                         f"WHEN NEW.importance < OLD.importance BEGIN {body} END")
+        policy = ForgettingPolicy(c.db, {"forgetting": {
+            "importance_decay_enabled": True, "compression_enabled": False}}, episodic=c.episodic)
+        assert policy.pass_("decay-fault") == (0, []), (timing, body)
+        with sqlite3.connect(path) as conn:
+            assert conn.execute("SELECT * FROM episodes").fetchall() == before, body
+            conn.execute("DROP TRIGGER decay_fault")
+        assert policy.pass_("decay-retry") == (1, ["forgetting: importance decay applied to 1 episodes"])
+        assert policy.pass_("decay-repeat") == (0, [])
+        with sqlite3.connect(path) as conn:
+            row = conn.execute("SELECT importance, status, updated_at FROM episodes WHERE episode_id=?", (eid,)).fetchone()
+            assert abs(row[0] - 0.14) < 1e-9 and row[1] == "active" and row[2] != '2000-01-01T00:00:00', row
+    return "decay refusal/reversal/removal rolls back without success counts; retry persists and repeat skips"
+
+
 def run_all() -> List[Dict[str, Any]]:
     results: List[Dict[str, Any]] = []
 
@@ -737,6 +770,7 @@ def run_all() -> List[Dict[str, Any]]:
     check("retention_transaction_ownership", check_retention_transaction_ownership)
     check("retention_rechecks_eligibility", check_retention_rechecks_eligibility)
     check("decay_rejects_stale_selection", check_decay_rejects_stale_selection)
+    check("decay_persistence", check_decay_persistence)
     check("retention_eligibility_lock", check_retention_eligibility_lock)
     return results
 

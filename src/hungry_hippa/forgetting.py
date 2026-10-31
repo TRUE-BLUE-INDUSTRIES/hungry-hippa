@@ -152,12 +152,22 @@ class ForgettingPolicy:
                      old_imp=imp, old_updated=r["updated_at"]) -> bool:
                 # Selection is advisory: atomically reject a changed eligibility
                 # snapshot rather than overwriting a concurrent promotion/decay.
+                stamp = _db.now_iso()
                 cur = conn.execute(
                     "UPDATE episodes SET importance = ?, updated_at = ? WHERE episode_id = ?"
                     " AND status = 'active' AND importance = ? AND updated_at IS ?",
-                    (v, _db.now_iso(), eid, old_imp, old_updated),
+                    (v, stamp, eid, old_imp, old_updated),
                 )
-                return cur.rowcount == 1
+                if cur.rowcount != 1:
+                    return False
+                current = conn.execute(
+                    "SELECT importance, updated_at, status FROM episodes WHERE episode_id=?",
+                    (eid,),
+                ).fetchone()
+                if (current is None or current["importance"] != v
+                        or current["updated_at"] != stamp or current["status"] != "active"):
+                    raise RuntimeError("importance decay did not persist")
+                return True
 
             if self.db._run(_upd, write=True):
                 decayed += 1
