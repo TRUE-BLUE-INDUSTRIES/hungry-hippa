@@ -134,12 +134,17 @@ def reset_database(db_path: str) -> Dict[str, Any]:
     os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
 
     ctrl = fresh_controller(db_path, session_id="seed", actor="primary")
+    # Background fixtures share one event time. Per-insert wall-clock seconds
+    # otherwise change their relative recency and intermittently flip E1/E2.
+    from hungry_hippa.db import now_iso
+    background_time = now_iso()
     for item in seed.get("background", []):
         if item.get("type") == "episode":
             ctrl.remember_episode(context=item["context"], result=item.get("result", ""),
                                   outcome=item.get("outcome", "unknown"),
                                   project=item.get("project", ""),
-                                  importance=item.get("importance", 0.6), embed=False)
+                                  importance=item.get("importance", 0.6), embed=False,
+                                  ts_start=background_time, ts_end=background_time)
         elif item.get("type") == "belief":
             ctrl.semantic.add_belief(item["claim"], kind=item.get("kind", "fact"),
                                      confidence=item.get("confidence"),

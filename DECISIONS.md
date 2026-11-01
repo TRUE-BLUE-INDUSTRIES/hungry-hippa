@@ -1,5 +1,23 @@
 # Engineering decisions
 
+## Shared demo background event time (2026-11-01)
+
+Keep real recency ranking unchanged. The demo's background episodes have equal
+salience/relevance but previously inherited independent whole-second event times;
+crossing a second during seeding makes E2 newer and flips golden ordering. Assign
+one captured event time to those fixture episodes only. Do not sort rendered output,
+ignore ordering differences, freeze the runtime clock or regenerate the golden file.
+Created-at/audit timestamps still reflect each actual write.
+
+A forced one-second boundary reproduced the exact three transcript differences
+(RED1/2); shared timestamps restore full transcript including separate-process MCP
+recall. Final test also reads persisted event/creation times. Initial full gate
+rejected the test's demo-directory sys.path insertion; normal import from a subprocess
+with demo/ as cwd preserves the existing package-resolution rule. Final2/2, hygiene9/9
+and31-step gate pass with two intentional live-chat environmental skips. QA repeated
+initial2/2 and CLI independently. Scope is the demonstrated fixture-time defect,
+not arbitrary retrieval ties or every possible nondeterministic demo input.
+
 ## Compression summary-audit batch verification (2026-11-01)
 
 Move the existing compression audit watermark before summary remember_episode,

@@ -3,6 +3,31 @@
 Updated 2026-11-01. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
 
+## Autonomous maintenance — deterministic demo seed times, 2026-11-01
+
+Started clean at `834f49f4975c0d0a1101ca98da8faf5d2b292b28`; fetched origin/main
+remains an ancestor. All-ref demo history showed no existing clock-boundary fix.
+Reproduced the intermittent E1/E2 reversal deterministically by advancing the clock
+between background episode writes: full transcript differed in steps 5, 7 (fresh
+MCP process), and 8 (RED1/2). Per-insert event timestamps made E2 newer and therefore
+higher ranked. Demo seeding now supplies one shared ts_start/ts_end for background
+episodes; runtime ranking and golden output are unchanged.
+
+Targeted GREEN2/2; QA independently repeated2/2 twice and the CLI golden check.
+First full gate failed import hygiene because the new test added demo/ to sys.path.
+Moved the clock probe into a subprocess launched from demo/, retaining the shared
+package resolver; no hygiene assertion was weakened. Added exact persisted event-time
+and distinct created_at checks. Final targeted2/2, hygiene9/9 and all31 gate steps
+passed, including architecture27/27, MCP16/16, ingestion/E2E, CLI, fresh-process recall
+with evidence, trust/security, migrations, backup/integrity and wheel installation.
+Two live-chat checks SKIP/ENVIRONMENTAL via temporary XDG_CONFIG_HOME offline-chat
+configuration; no live service/configuration/store changes. Gate ran code/test diff
+over the starting SHA before documentation-only updates. Python3.14.7,
+Linux7.2.5-3-omarchy x86_64, Ryzen9 9950X3D /32 logical CPUs. This fixes the demonstrated
+seed-second boundary, not arbitrary ranking ties or all possible demo nondeterminism.
+Next: audit existing backup/restore destination preservation using invented stores,
+starting from the open RESTORE-UX task; change code only for a demonstrated failure.
+
 ## Autonomous maintenance — compression summary audit, 2026-11-01
 
 Started clean at `31a7a21b50a88017d462c97cd3afb3ce461d9b14`; origin/main remains

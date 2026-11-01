@@ -8,6 +8,13 @@
   },
   "tasks": [
     {
+      "id": "DEMO-SEED-CLOCK-BOUNDARY",
+      "status": "done",
+      "evidence": ["tests/test_demo_normalise.py", "demo/demo.py", "PROJECT_STATE.md", "DECISIONS.md"],
+      "result": "Advancing seed writes across a second deterministically reproduced E1/E2 reversal (RED1/2). Shared background event time fixes the fixture without changing ranking/golden. GREEN2/2, QA repeated2/2 twice plus CLI. Initial full gate caught test import-path hygiene; subprocess probe corrected it without weakening checks. Final2/2, hygiene9/9 and all31 gate steps pass with two intentional live-chat environmental skips. Persisted timestamps and full fresh-MCP transcript checked.",
+      "next": "Audit existing backup/restore destination preservation using invented stores (RESTORE-UX); fix only demonstrated failures."
+    },
+    {
       "id": "COMPRESSION-SUMMARY-AUDIT-PERSISTENCE",
       "status": "done",
       "evidence": ["tests/test_memory_architecture.py", "PROJECT_STATE.md", "DECISIONS.md"],
