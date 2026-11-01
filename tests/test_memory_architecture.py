@@ -900,6 +900,105 @@ def check_compression_audit_persistence():
     return "suppressed/altered/extra compression audits roll back groups and poison outer ownership; retry verifies fresh audits"
 
 
+def check_compression_summary_audit_persistence():
+    from hungry_hippa.forgetting import ForgettingPolicy
+
+    faults = [("BEFORE", "SELECT RAISE(IGNORE);"),
+              ("BEFORE", "SELECT RAISE(ABORT, 'invented summary audit refusal');")]
+    for field, value in (("action", "'changed'"), ("target_kind", "'belief'"),
+                         ("target_id", "'missing'"), ("detail", "'changed'"),
+                         ("session_id", "'changed'"), ("ts", "''")):
+        faults.append(("AFTER", f"UPDATE mutation_log SET {field}={value} WHERE id=NEW.id;"))
+    faults.append(("AFTER", "INSERT INTO mutation_log(ts,action,target_kind,target_id,detail,session_id) "
+                   "VALUES ('fixture','extra','episode','missing','','');"))
+    faults.append(("LATER", "DELETE FROM mutation_log WHERE action='remember_episode' AND target_id='E-0004';"))
+    for outer in (False, True):
+        for timing, body in faults:
+            c, path = _fresh("hh_summary_audit_")
+            ids = [c.remember_episode(context="invented summary audit compression", outcome="success",
+                                      importance=0.7, embed=False)["episode_id"] for _ in range(3)]
+            evidence = c.db.add_evidence("invented source", kind="document",
+                                         source_ref="fixture:summary-audit")
+            for eid in ids:
+                c.db.link_evidence("episode", eid, [evidence])
+            session = "summary-audit"
+            # A matching old summary audit cannot substitute for a fresh row.
+            c.db.log_mutation("remember_episode", "episode", "E-0004",
+                              "importance=0.70 outcome=success project= actor=primary sensitivity=unclassified",
+                              session)
+            tables = ("episodes", "evidence", "episode_evidence", "mutation_log", "counters", "memory_fts")
+
+            def snapshot():
+                with sqlite3.connect(path) as conn:
+                    return {table: conn.execute(f"SELECT * FROM {table} ORDER BY rowid").fetchall()
+                            for table in tables}
+
+            before = snapshot()
+            with sqlite3.connect(path) as conn:
+                when = (f"NEW.action='episode_compressed' AND NEW.target_id='{ids[-1]}'"
+                        if timing == "LATER" else "NEW.action='remember_episode' AND NEW.target_id='E-0004'")
+                trigger_timing = "AFTER" if timing == "LATER" else timing
+                conn.execute(f"CREATE TRIGGER summary_audit_fault {trigger_timing} INSERT ON mutation_log "
+                             f"WHEN {when} BEGIN {body} END")
+            policy = ForgettingPolicy(c.db, {"forgetting": {
+                "importance_decay_enabled": False, "compression_enabled": True}}, episodic=c.episodic)
+            if outer:
+                caught = rolled_back = False
+                try:
+                    with c.db.transaction():
+                        try:
+                            policy.pass_(session)
+                        except Exception:
+                            caught = True
+                except RuntimeError:
+                    rolled_back = True
+                assert caught and rolled_back, (timing, body, caught, rolled_back)
+            else:
+                assert policy.pass_(session) == (0, []), (timing, body)
+            assert snapshot() == before, (timing, body, "partial compression persisted")
+            with sqlite3.connect(path) as conn:
+                conn.execute("DROP TRIGGER summary_audit_fault")
+            assert policy.pass_(session) == (1, ["forgetting: compressed 1 episode groups"])
+            assert policy.pass_(session) == (0, [])
+            with sqlite3.connect(path) as conn:
+                audits = conn.execute("SELECT action,target_kind,target_id,detail,session_id,ts "
+                                      "FROM mutation_log WHERE id > ? ORDER BY id",
+                                      (before["mutation_log"][-1][0],)).fetchall()
+                summary = conn.execute("SELECT * FROM episodes WHERE episode_id='E-0004'")
+                columns = [col[0] for col in summary.description]
+                row = dict(zip(columns, summary.fetchone()))
+            expected_detail = (f"importance={row['importance']:.2f} outcome={row['outcome']} project={row['project']}"
+                               " actor=primary sensitivity=unclassified")
+            assert len(audits) == 4, audits
+            assert audits[0][:5] == ("remember_episode", "episode", "E-0004", expected_detail, session), audits
+            assert all(audit[5] for audit in audits), audits
+            assert row['status'] == 'active' and json.loads(row['source_refs']) == [f"episode:{eid}" for eid in ids]
+    # Preserve the standalone writer's redaction, cap, defaults and evidence input.
+    from hungry_hippa.limits import redact
+    for project in ("api_key=fixture-secret-abcdefghijklmnopqrstuvwxyz", "invented-" * 400):
+        c, path = _fresh("hh_summary_audit_compat_")
+        ids = [c.remember_episode(context="invented compatibility source", embed=False)["episode_id"]
+               for _ in range(3)]
+        evidence = c.db.add_evidence("invented summary evidence", kind="document",
+                                     source_ref="fixture:summary-compat")
+        result = c.episodic.compress(ids, {"context": "invented compatible summary",
+                                          "project": project, "evidence_ids": [evidence],
+                                          "outcome": "invalid"}, "summary-compat")
+        assert result.get("episode_id"), result
+        expected = redact(f"importance={result['importance']:.2f} outcome=unknown project={project}"
+                          " actor=primary sensitivity=unclassified")[:2000]
+        with sqlite3.connect(path) as conn:
+            audit = conn.execute("SELECT detail FROM mutation_log WHERE action='remember_episode' "
+                                 "AND target_id=?", (result['episode_id'],)).fetchone()
+            links = conn.execute("SELECT evidence_id FROM episode_evidence WHERE episode_id=?",
+                                 (result['episode_id'],)).fetchall()
+        assert audit == (expected,) and links == [(evidence,)], (audit, links)
+        assert len(expected) <= 2000
+        if project.startswith("api_key="):
+            assert "fixture-secret" not in expected, expected
+    return "summary audit suppression/corruption rolls back compression under both ownership modes; retry persists fresh audit"
+
+
 def check_compression_transaction_ownership():
     from hungry_hippa.forgetting import ForgettingPolicy
 
@@ -1200,6 +1299,7 @@ def run_all() -> List[Dict[str, Any]]:
     check("decay_rejects_stale_selection", check_decay_rejects_stale_selection)
     check("decay_persistence", check_decay_persistence)
     check("decay_transaction_ownership", check_decay_transaction_ownership)
+    check("compression_summary_audit_persistence", check_compression_summary_audit_persistence)
     check("compression_audit_persistence", check_compression_audit_persistence)
     check("compression_scope_lock", check_compression_scope_lock)
     check("compression_restricted_reader", check_compression_restricted_reader)

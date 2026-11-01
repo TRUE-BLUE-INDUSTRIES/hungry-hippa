@@ -3,6 +3,31 @@
 Updated 2026-11-01. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
 
+## Autonomous maintenance — compression summary audit, 2026-11-01
+
+Started clean at `31a7a21b50a88017d462c97cd3afb3ce461d9b14`; origin/main remains
+an ancestor and all-ref episodic history contained no existing fix. Summary
+remember_episode audit INSERT suppression reproduced false compression success
+(RED26/27). The audit watermark now precedes summary creation; final writer-locked
+verification requires the exact fresh summary plus source audit batch. Failure
+rolls back the group and poisons caught caller-owned transactions. Standalone
+remember_episode logging and trust policy are unchanged.
+
+Architecture baseline26/26, RED26/27, GREEN27/27; QA independently repeated27/27
+and MCP16/16. Added QA-requested historical matching summary audit, later-source
+deletion and redaction/cap/evidence compatibility coverage. Final full gate passed
+all31 steps, architecture27/27 and MCP16/16, with two intentional live-chat
+SKIP/ENVIRONMENTAL checks via temporary XDG offline-chat configuration. Security
+static review found no introduced boundary issue. Gate exercised CLI, second-process
+durable recall/evidence, ingestion, trust/security, limits, migrations, vectors,
+Hippo-Pot, backup/integrity and clean wheel installation. Python3.14.7,
+Linux7.2.5-3-omarchy x86_64, Ryzen9 9950X3D /32 logical CPUs; gate ran code/test
+diff over starting SHA before documentation-only changes. No live store/plugin/
+configuration/main changes. Nonempty timestamp corruption, later caller mutation
+and historical repair are not covered. Previous intermittent demo ordering failure
+did not recur in this gate but remains unresolved. Next: reproduce that ordering
+failure deterministically before changing ranking or golden output.
+
 ## Autonomous maintenance — compression source audits, 2026-11-01
 
 Started clean at `64a4353d8e973f8dc4698d6883028fcb56a3b576`; origin/main remains

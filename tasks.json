@@ -8,6 +8,13 @@
   },
   "tasks": [
     {
+      "id": "COMPRESSION-SUMMARY-AUDIT-PERSISTENCE",
+      "status": "done",
+      "evidence": ["tests/test_memory_architecture.py", "PROJECT_STATE.md", "DECISIONS.md"],
+      "result": "Summary remember_episode INSERT suppression reproduced false compression success (RED26/27). Moved watermark before summary and verify exact summary/source audit batch at final writer-transaction check. GREEN27/27, QA independently27/27 and MCP16/16; security no introduced issue. Final31-step gate passed with two intentional live-chat environmental skips, including expanded historical-match/later-deletion/redaction/cap/evidence tests. Standalone logging unchanged; no later caller or historical repair claim.",
+      "next": "Reproduce unresolved intermittent demo E1/E2 ordering failure deterministically before changing ranking or golden output."
+    },
+    {
       "id": "COMPRESSION-SOURCE-AUDIT-PERSISTENCE",
       "status": "done",
       "evidence": ["tests/test_memory_architecture.py", "PROJECT_STATE.md", "DECISIONS.md"],

@@ -1,5 +1,24 @@
 # Engineering decisions
 
+## Compression summary-audit batch verification (2026-11-01)
+
+Move the existing compression audit watermark before summary remember_episode,
+rather than adding another transaction or changing standalone logging. Verify the
+whole ordered fresh batch after all source transitions: summary creation followed
+by source compression audits, with exact redacted/capped fields and nonempty
+timestamps. Reconstruct the summary detail from normalized helper return fields
+plus requested project; preserve default importance, normalized outcome and evidence
+inputs. This duplicates the existing audit format deliberately to keep the change
+scoped; future formatting edits must keep the expectation aligned.
+
+Summary audit IGNORE reproduced RED26/27. GREEN27/27 covers both ownership modes,
+full rollback, exact historical matches, corruption/extra rows, later-source deletion,
+retry/repeat and redaction/cap/evidence compatibility. QA27/27 and MCP16/16;
+security static review found no introduced issue. Final31-step gate passed with two
+intentional live-chat environmental skips. No change to standalone remember logging,
+trust policy, schema or architecture. Nonempty timestamp corruption, later caller
+effects and historical repair remain outside scope.
+
 ## Compression source-audit batch verification (2026-11-01)
 
 After summary creation, snapshot max mutation_log ID under the existing writer

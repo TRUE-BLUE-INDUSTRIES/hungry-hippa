@@ -265,9 +265,9 @@ class EpisodicMemory:
         via derived_from-style source_refs. Original evidence is never altered.
         Only active primary/unclassified/nonquarantined sources are supported;
         other scopes are left intact rather than widened into default summaries.
-        Summary creation, source status changes and verified source audit rows
-        share one writer transaction. Summary-creation audit persistence is not
-        checked here; source audits are verified after all source transitions.
+        Summary creation, source status changes and verified summary/source audits
+        share one writer transaction. Audit rows are verified after all source
+        transitions so later source effects cannot erase the summary audit unseen.
         A failed standalone compression returns an error without partial progress;
         failures under caller ownership propagate and poison that transaction.
         """
@@ -302,16 +302,16 @@ class EpisodicMemory:
 
         if not self.db._run(_eligible):
             return {"error": "compression source scope is not supported", "episode_id": ""}
+        # Verify the whole fresh audit batch, including summary creation, under
+        # this writer lock. Historical matching rows cannot prove a new insertion.
+        previous_audit = self.db._run(lambda conn: conn.execute(
+            "SELECT COALESCE(MAX(id), 0) FROM mutation_log").fetchone()[0])
         merged = self.remember_episode(
             source_refs=[f"episode:{e}" for e in episode_ids],
             session_id=session_id,
             **summary_episode,
         )
         updated = []
-        # Summary creation has its own audit; verify the subsequent source audits
-        # as a fresh batch under this same writer lock, never via historical matches.
-        previous_audit = self.db._run(lambda conn: conn.execute(
-            "SELECT COALESCE(MAX(id), 0) FROM mutation_log").fetchone()[0])
         if merged.get("episode_id"):
             for eid in episode_ids:
                 updated.append(self.update_status(
@@ -328,12 +328,19 @@ class EpisodicMemory:
                 "SELECT action,target_kind,target_id,detail,session_id,ts "
                 "FROM mutation_log WHERE id > ? ORDER BY id", (previous_audit,),
             ).fetchall()
+            summary_detail = (
+                f"importance={merged['importance']:.2f} outcome={merged['outcome']}"
+                f" project={summary_episode.get('project', '')}"
+                f" actor={merged['actor_id']} sensitivity={merged['sensitivity']}"
+                f"{' quarantined' if merged['quarantined'] else ''}")
+            expected = [("remember_episode", "episode", merged["episode_id"],
+                         redact(summary_detail)[:2000], session_id)]
             detail = redact(f"compressed into {merged['episode_id']}")[:2000]
-            expected = [("episode_compressed", "episode", eid, detail, session_id)
-                        for eid in episode_ids]
+            expected.extend(("episode_compressed", "episode", eid, detail, session_id)
+                            for eid in episode_ids)
             if ([tuple(row)[:5] for row in audits] != expected
                     or any(not row["ts"] for row in audits)):
-                raise RuntimeError("compression source audits did not persist")
+                raise RuntimeError("compression audits did not persist")
             for eid in episode_ids:
                 row = conn.execute("SELECT status FROM episodes WHERE episode_id=?",
                                    (eid,)).fetchone()
