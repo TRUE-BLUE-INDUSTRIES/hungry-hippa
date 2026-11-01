@@ -988,6 +988,116 @@ def check_compression_fresh_mixed_scope():
     return "mixed groups revalidated after selection in owned/reused transactions; refusal leaves all tracked tables unchanged"
 
 
+def check_compression_scope_lock():
+    import subprocess
+    from hungry_hippa.forgetting import ForgettingPolicy
+
+    writer = '''import sqlite3, sys
+try:
+    with sqlite3.connect(sys.argv[1], timeout=0) as conn:
+        assert conn.execute("UPDATE episodes SET quarantined=1 WHERE episode_id=?",
+                            (sys.argv[2],)).rowcount == 1
+except sqlite3.OperationalError as exc:
+    assert 'locked' in str(exc), str(exc)
+    print('locked')
+else:
+    print('updated')
+'''
+    for outer in (False, True):
+        c, path = _fresh("hh_compression_lock_")
+        ids = [c.remember_episode(context="invented compression lock task", embed=False)["episode_id"]
+               for _ in range(3)]
+        policy = ForgettingPolicy(c.db, {"forgetting": {
+            "importance_decay_enabled": False, "compression_enabled": True}}, episodic=c.episodic)
+
+        def attempt():
+            return subprocess.run([sys.executable, "-c", writer, path, ids[-1]],
+                                  capture_output=True, text=True, check=True, timeout=15).stdout.strip()
+
+        original = c.db._run
+        attempts = []
+
+        def after_read(fn, *args, **kwargs):
+            result = original(fn, *args, **kwargs)
+            if fn.__name__ == "_eligible":
+                assert result is True, result
+                attempts.append(attempt())
+            return result
+
+        c.db._run = after_read
+        try:
+            if outer:
+                with c.db.transaction():
+                    result = policy.pass_("compression-lock")
+                    assert attempt() == "locked", "caller lost writer ownership"
+            else:
+                result = policy.pass_("compression-lock")
+        finally:
+            c.db._run = original
+        assert attempts == ["locked"], attempts
+        assert result == (1, ["forgetting: compressed 1 episode groups"]), result
+        with sqlite3.connect(path) as conn:
+            rows = conn.execute("SELECT episode_id,status,quarantined,source_refs FROM episodes ORDER BY episode_id").fetchall()
+        assert len(rows) == 4 and all(row[1:3] == ("compressed", 0) for row in rows[:3]), rows
+        assert rows[-1][1:3] == ("active", 0), rows
+        assert json.loads(rows[-1][3]) == [f"episode:{eid}" for eid in ids], rows
+        assert attempt() == "updated", "writer did not recover after commit"
+        with sqlite3.connect(path) as conn:
+            assert conn.execute("SELECT quarantined FROM episodes WHERE episode_id=?", (ids[-1],)).fetchone() == (1,)
+    return "compression scope read blocks competing process through owned/reused commit; writer recovery and source refs verified"
+
+
+def check_compression_restricted_reader():
+    import subprocess
+    from hungry_hippa.forgetting import ForgettingPolicy
+
+    reader = '''import json, sys
+from hungry_hippa.config import load_config
+from hungry_hippa.controller import MemoryController
+from hungry_hippa import trust
+cfg=load_config(); cfg['retrieval']['vectors_enabled']=False
+c=MemoryController(cfg, db_path=sys.argv[1])
+c.bind_session(session_id='restricted-reader', platform='mcp', trust=trust.external_binding('fixture-reader'))
+assert not c.is_owner
+print(json.dumps(c.recall('ambervault', include_quarantined=sys.argv[2]=='review')))
+'''
+    for field, value in (("quarantined", 1), ("sensitivity", "internal"),
+                         ("sensitivity", "private"), ("sensitivity", "restricted"),
+                         ("actor_id", "fixture-other")):
+        c, path = _fresh("hh_compression_reader_")
+        secret = "ambervault invented confidential payload"
+        ids = [c.remember_episode(context=secret, embed=False)["episode_id"] for _ in range(3)]
+        with sqlite3.connect(path) as conn:
+            # Sensitivity cases use the reader's actor, so actor denial cannot
+            # substitute for sensitivity enforcement. Quarantine is third-party.
+            if field == "sensitivity":
+                conn.execute("UPDATE episodes SET actor_id='fixture-reader'")
+            conn.execute(f"UPDATE episodes SET {field}=?", (value,))
+            before = conn.execute("SELECT * FROM episodes ORDER BY episode_id").fetchall()
+        policy = ForgettingPolicy(c.db, {"forgetting": {
+            "importance_decay_enabled": False, "compression_enabled": True}}, episodic=c.episodic)
+        assert policy.pass_("restricted-compression") == (0, [])
+        with sqlite3.connect(path) as conn:
+            assert conn.execute("SELECT * FROM episodes ORDER BY episode_id").fetchall() == before
+        public = c.remember_episode(context="ambervault invented readable control", embed=False)["episode_id"]
+        ev = c.db.add_evidence("invented readable source", kind="document", source_ref="fixture:compression-reader")
+        c.db.link_evidence("episode", public, [ev])
+        with sqlite3.connect(path) as conn:
+            conn.execute("UPDATE episodes SET actor_id='fixture-reader' WHERE episode_id=?", (public,))
+        for mode in ("normal", "review"):
+            out = subprocess.run([sys.executable, "-c", reader, path, mode],
+                                 capture_output=True, text=True, check=True, timeout=15)
+            recalled = json.loads(out.stdout)
+            assert secret not in out.stdout, (field, mode, recalled)
+            assert not set(ids).intersection(_ids(recalled)), (field, mode, recalled)
+            assert public in _ids(recalled), (field, mode, recalled)
+            item = next(item for item in recalled["items"] if item.get("episode_id") == public)
+            assert ev in item["evidence_ids"], item
+        with sqlite3.connect(path) as conn:
+            assert conn.execute("SELECT source_ref FROM evidence WHERE evidence_id=?", (ev,)).fetchone() == ("fixture:compression-reader",)
+    return "restricted second-process normal/review recall hides refused sources and returns readable control with durable evidence"
+
+
 def run_all() -> List[Dict[str, Any]]:
     results: List[Dict[str, Any]] = []
 
@@ -1019,6 +1129,8 @@ def run_all() -> List[Dict[str, Any]]:
     check("decay_rejects_stale_selection", check_decay_rejects_stale_selection)
     check("decay_persistence", check_decay_persistence)
     check("decay_transaction_ownership", check_decay_transaction_ownership)
+    check("compression_scope_lock", check_compression_scope_lock)
+    check("compression_restricted_reader", check_compression_restricted_reader)
     check("compression_fresh_mixed_scope", check_compression_fresh_mixed_scope)
     check("compression_trust_isolation", check_compression_trust_isolation)
     check("compression_source_status_failure", check_compression_source_status_failure)

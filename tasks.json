@@ -8,6 +8,13 @@
   },
   "tasks": [
     {
+      "id": "COMPRESSION-CONCURRENCY-READ-COVERAGE",
+      "status": "done",
+      "evidence": ["tests/test_memory_architecture.py", "PROJECT_STATE.md"],
+      "result": "No new runtime defect: permanent competing-process regression proves writer exclusion after compression scope read under owned/reused transactions and recovery after commit. Restricted fresh-process normal/review recall excludes refused sources with readable evidence-linked control. Baseline23/23; initial24/25 test helper typo corrected; final25/25. All31 gate steps succeeded with two intentional live-chat environmental skips. Runtime unchanged; no historical repair or later-trigger guarantees.",
+      "next": "Reproduce silent episode_compressed audit INSERT suppression during automatic compression on an invented database."
+    },
+    {
       "id": "COMPRESSION-TRUST-ISOLATION",
       "status": "done",
       "evidence": ["tests/test_memory_architecture.py", "PROJECT_STATE.md", "DECISIONS.md"],

@@ -3,6 +3,33 @@
 Updated 2026-10-31. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
 
+## Autonomous maintenance — compression concurrency/read coverage, 2026-10-31
+
+Started clean at `7c4d3fd7c2c933f5b64f58890dd3743eada3b6e3`; fetched origin/main
+remains an ancestor. Closed the prior shift's compression verification gaps without
+changing runtime behavior. A competing Python process is blocked after the fresh
+scope read in both owned and reused transactions, remains blocked until the outer
+commit, then successfully updates the source. Compressed source statuses, summary
+scope and source references are checked before that recovery write.
+
+Restricted second-process normal/review recall excludes refused quarantined,
+other-actor and internal/private/restricted sources. Sensitivity cases share the
+reader's actor to avoid substituting actor denial; a readable control with an exact
+evidence ID and durable source reference prevents vacuous empty-recall success.
+No new runtime defect reproduced. First expanded run was 24/25 due to a test-only
+incorrect evidence-helper name; corrected to existing `link_evidence`, then 25/25.
+Baseline was 23/23. All 31 gate steps succeeded with the unchanged temporary-XDG
+chat-offline wrapper; two live-chat checks SKIP/ENVIRONMENTAL, not live-model PASS.
+Gate includes MCP16/16, CLI, durable recall, ingestion, trust/security, migrations,
+backup/integrity, vectors, Hippo-Pot and clean wheel installation. Gate ran only the
+test changes over starting SHA; Python3.14.7, Linux7.2.5-3-omarchy x86_64,
+Ryzen9 9950X3D /32 logical CPUs. No live memory/plugin/config/main changes.
+
+This establishes the tested writer exclusion and reader boundaries, not historical
+summary repair, later-trigger integrity or silent compression audit persistence.
+Next: reproduce suppressed episode_compressed audit insertion during automatic
+compression on an invented database before considering a runtime fix.
+
 ## Autonomous maintenance — compression trust isolation, 2026-10-31
 
 Started clean at `519910914b7979e233799dfa5e21959600f533d9`; fetched origin/main
