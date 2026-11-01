@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional
 from . import db as _db
 from . import policy as _policy
 from . import trust as _trust
+from .limits import redact
 
 VALID_OUTCOMES = {"success", "failure", "mixed", "unknown", "unexpected"}
 
@@ -264,7 +265,9 @@ class EpisodicMemory:
         via derived_from-style source_refs. Original evidence is never altered.
         Only active primary/unclassified/nonquarantined sources are supported;
         other scopes are left intact rather than widened into default summaries.
-        Summary creation and source status changes share one writer transaction.
+        Summary creation, source status changes and verified source audit rows
+        share one writer transaction. Summary-creation audit persistence is not
+        checked here; source audits are verified after all source transitions.
         A failed standalone compression returns an error without partial progress;
         failures under caller ownership propagate and poison that transaction.
         """
@@ -305,6 +308,10 @@ class EpisodicMemory:
             **summary_episode,
         )
         updated = []
+        # Summary creation has its own audit; verify the subsequent source audits
+        # as a fresh batch under this same writer lock, never via historical matches.
+        previous_audit = self.db._run(lambda conn: conn.execute(
+            "SELECT COALESCE(MAX(id), 0) FROM mutation_log").fetchone()[0])
         if merged.get("episode_id"):
             for eid in episode_ids:
                 updated.append(self.update_status(
@@ -317,6 +324,16 @@ class EpisodicMemory:
                 raise RuntimeError("compression summary did not persist")
             if not all(updated):
                 raise RuntimeError("compression source update refused")
+            audits = conn.execute(
+                "SELECT action,target_kind,target_id,detail,session_id,ts "
+                "FROM mutation_log WHERE id > ? ORDER BY id", (previous_audit,),
+            ).fetchall()
+            detail = redact(f"compressed into {merged['episode_id']}")[:2000]
+            expected = [("episode_compressed", "episode", eid, detail, session_id)
+                        for eid in episode_ids]
+            if ([tuple(row)[:5] for row in audits] != expected
+                    or any(not row["ts"] for row in audits)):
+                raise RuntimeError("compression source audits did not persist")
             for eid in episode_ids:
                 row = conn.execute("SELECT status FROM episodes WHERE episode_id=?",
                                    (eid,)).fetchone()

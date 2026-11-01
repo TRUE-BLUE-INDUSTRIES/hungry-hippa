@@ -1,5 +1,24 @@
 # Engineering decisions
 
+## Compression source-audit batch verification (2026-11-01)
+
+After summary creation, snapshot max mutation_log ID under the existing writer
+transaction, then verify the complete ordered source-audit batch after all source
+transitions. Require exact action/kind/target/redacted capped detail/session plus
+nonempty timestamps. This catches ignored inserts, corrupt/extra rows and later
+source effects removing earlier audits, without changing standalone status helpers
+or inventing a logging subsystem. Route verification through _run to poison caught
+caller-owned failures; preserve standalone group rollback and retry behavior.
+
+RED25/26 on IGNORE; GREEN26/26 covers both ownership modes, complete tracked-table
+snapshots, historical exact match, field faults, extra/deleted audits and retry.
+QA independently repeated architecture26/26 and MCP16/16; security found no blocker.
+First full gate failed demo ordering, unchanged demo and full-gate retries passed;
+two live-chat environmental skips remain. Summary remember_episode audit persistence,
+later caller effects, nonempty timestamp corruption and historical repair are not
+claimed. The separate intermittent demo ordering failure remains unresolved.
+
+
 ## Conservative compression source scope (2026-10-31)
 
 Compression's summary currently defaults to primary/unclassified/nonquarantined.

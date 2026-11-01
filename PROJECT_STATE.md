@@ -1,7 +1,39 @@
 # Project state
 
-Updated 2026-10-31. Git is authoritative for code; no live store or deployed MCP
+Updated 2026-11-01. Git is authoritative for code; no live store or deployed MCP
 configuration was changed during this implementation cycle.
+
+## Autonomous maintenance — compression source audits, 2026-11-01
+
+Started clean at `64a4353d8e973f8dc4698d6883028fcb56a3b576`; origin/main remains
+an ancestor and all-ref history had no existing source-audit fix. Silent refusal
+of episode_compressed INSERT reproduced false automatic compression success
+(RED25/26). Final in-transaction readback now requires the fresh ordered source-audit
+batch with exact redacted/capped fields and nonempty timestamps. Missing, changed
+or extra rows roll back the group; caught caller-owned failures poison commit.
+Standalone status helpers and summary-creation audit behavior remain unchanged.
+
+Architecture baseline25/25, RED25/26, GREEN26/26. QA independently repeated26/26
+and MCP16/16; security static review found no blocker. Added QA-requested deletion
+of an earlier source audit by a later source audit trigger, under both ownership
+modes. Coverage includes matching historical audit, IGNORE/ABORT, all checked fields,
+extra rows, complete tracked-table rollback, exact fresh retry audits and repeat.
+
+First full gate FAILED only demo transcript ordering (E-0001/E-0002 swapped);
+unchanged standalone demo retry matched, and unchanged full-gate retry succeeded
+all31 steps. Do not erase that intermittent failure or regenerate its golden file.
+Two live-chat checks SKIP/ENVIRONMENTAL via temporary XDG chat-offline configuration.
+Gate covers durable cross-process recall/evidence, CLI, MCP, ingestion, trust/security,
+limits, migrations, vectors, Hippo-Pot, backups and wheel installation. Python3.14.7,
+Linux7.2.5-3-omarchy x86_64, Ryzen9 9950X3D/32 logical CPUs. Gate ran runtime/tests
+over starting SHA before documentation-only updates. No live store/plugin/config/main
+changes. Demo ordering nondeterminism remains unresolved, not attributed to this fix.
+
+This is source-audit persistence at final compression verification, not summary
+creation audit persistence, later caller mutations or historical repair. Next:
+reproduce suppressed summary remember_episode audit during compression on invented
+stores before extending the guarantee.
+
 
 ## Autonomous maintenance — compression concurrency/read coverage, 2026-10-31
 

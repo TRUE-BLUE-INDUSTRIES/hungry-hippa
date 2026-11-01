@@ -1,12 +1,19 @@
 {
   "schema_version": 1,
-  "updated": "2026-10-31",
+  "updated": "2026-11-01",
   "branch": "automation/hh-maintenance",
   "released": {
     "version": "1.0.0",
     "sha": "9b9593f62b76c044470f9bc5684656aadb3f07d9"
   },
   "tasks": [
+    {
+      "id": "COMPRESSION-SOURCE-AUDIT-PERSISTENCE",
+      "status": "done",
+      "evidence": ["tests/test_memory_architecture.py", "PROJECT_STATE.md", "DECISIONS.md"],
+      "result": "Silent episode_compressed INSERT refusal reproduced false success (RED25/26). Final writer-transaction audit batch readback now requires fresh exact source audits; failure rolls back and poisons caller ownership. GREEN26/26; QA repeated26/26 and MCP16/16; security no blocker. Added later-source deletion coverage. First full gate failed demo E1/E2 ordering; unchanged demo and full31-step retries passed, two intentional live-chat environmental skips. Demo nondeterminism remains unresolved; no summary audit or later caller integrity claim.",
+      "next": "Reproduce summary remember_episode audit suppression during compression on invented stores."
+    },
     {
       "id": "COMPRESSION-CONCURRENCY-READ-COVERAGE",
       "status": "done",
