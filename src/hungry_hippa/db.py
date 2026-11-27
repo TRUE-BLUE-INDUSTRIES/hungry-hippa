@@ -89,6 +89,12 @@ class Database:
                 fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
                 os.close(fd)
                 return
+            # Windows has no POSIX mode bits: os.stat() reports a fabricated
+            # 0666 regardless of the file's real ACL. Warning here would be
+            # misleading (and `fix-permissions` cannot tighten it), so defer to
+            # the OS ACL instead. See docs/SECURITY.md.
+            if os.name != "posix":
+                return
             mode = stat.S_IMODE(os.stat(self.path).st_mode)
             if mode & 0o077:
                 self.permissions_lax = True

@@ -19,7 +19,10 @@ from __future__ import annotations
 import json
 import logging
 import os
-import resource
+try:  # POSIX-only; unused on Windows. Kept for the appliance diagnostics below.
+    import resource  # noqa: F401
+except ImportError:
+    resource = None
 import shutil
 import subprocess
 import sys

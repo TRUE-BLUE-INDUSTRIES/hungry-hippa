@@ -336,9 +336,13 @@ def test_implicit_open_backs_up_before_upgrading():
             os.chmod(p2, 0o600)
             db2 = Database(p2)
             assert db2.last_backup, "no backup on the permission check"
-            mode = os.stat(db2.last_backup).st_mode & 0o777
-            assert mode & 0o077 == 0, f"backup is readable by others: {oct(mode)}"
-            assert mode == 0o600, oct(mode)
+            # POSIX mode bits do not exist on Windows (ACLs govern access and
+            # os.stat reports a fabricated 0666). The backup-exists guarantee
+            # above is platform-independent; only the 0600 assertion is POSIX.
+            if os.name == "posix":
+                mode = os.stat(db2.last_backup).st_mode & 0o777
+                assert mode & 0o077 == 0, f"backup is readable by others: {oct(mode)}"
+                assert mode == 0o600, oct(mode)
 
         conn = sqlite3.connect(db.last_backup)
         try:

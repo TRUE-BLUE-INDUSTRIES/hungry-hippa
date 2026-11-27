@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Windows support (stdlib-only, no dependencies added)
+- Guard the POSIX-only `resource` import in the Hippo-Pot diagnostics module so
+  the package imports on Windows.
+- Add a Windows implementation of the ingest archive copy. Windows has no
+  `O_DIRECTORY`, `dir_fd` or `getuid`, so the new branch keeps the same
+  guarantees (no symlink/reparse-point destination, `O_EXCL` creation,
+  byte-for-byte reuse check, no path from imported data ever opened) using
+  resolved absolute paths and the OS ACL instead of POSIX mode bits.
+- Suppress the misleading 0600 permission warning on Windows, where `os.stat`
+  reports a fabricated 0666 and `fix-permissions` cannot tighten ACLs.
+- Guard POSIX-only assertions in the ingest-integrity and migration tests so
+  the full suite runs on both platforms; the backup and byte-integrity
+  guarantees remain asserted everywhere.
+- Verified on Windows: 47 tests pass (plus 7 subtests) and a real ChatGPT
+  export ingests into a fresh SQLite memory database.
+
 ### Safe historical-import increment
 - Integrate existing canonical ChatGPT ingestion work without enabling model extraction.
 - Bound hostile JSON, regular-file reads, graph depth and expanded lineage; reject

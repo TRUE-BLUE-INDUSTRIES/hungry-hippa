@@ -52,7 +52,11 @@ class ImportIntegrityTests(unittest.TestCase):
         restored = Database(str(backup))
         self.assertEqual(restored.get_ingest_archive_bytes(saved.sha256), raw)
         self.assertTrue(verify_archive(restored, saved.sha256)["ok"])
-        self.assertEqual(backup.stat().st_mode & 0o777, 0o600)
+        # 0600 is a POSIX permission bit; Windows protects the file with an ACL
+        # and reports a fabricated 0666. The byte-for-byte checks above are the
+        # platform-independent guarantee, so only assert the mode on POSIX.
+        if os.name == "posix":
+            self.assertEqual(backup.stat().st_mode & 0o777, 0o600)
 
     def test_reimports_keep_each_archive_and_latest_branch(self):
         payload = _regenerated_reply_export()
@@ -162,16 +166,22 @@ class ImportIntegrityTests(unittest.TestCase):
         self.assertEqual(self.db.ingest_counts()["ingest_conversations"], 2)
 
     def test_fifo_symlink_and_untrusted_paths_never_opened(self):
-        fifo = self.root / "fifo"
-        os.mkfifo(fifo)
+        # os.mkfifo is POSIX-only; a directory exercises the same S_ISREG guard
+        # in resolve_export_path and is available on every platform.
+        non_regular = self.root / "not_a_regular_file"
+        non_regular.mkdir()
         with self.assertRaises(OSError):
-            chatgpt.read_export_bytes(fifo)
-        source = self.root / "source.json"
-        source.write_text('[]')
-        link = self.root / "linked.json"
-        link.symlink_to(source)
-        with self.assertRaises(OSError):
-            chatgpt.read_export_bytes(link)
+            chatgpt.read_export_bytes(non_regular)
+        # Creating symlinks on Windows needs Developer Mode / elevation, so only
+        # the symlink-leaf refusal is POSIX-gated. The regular-file checks above
+        # and the untrusted-path checks below run everywhere.
+        if os.name == "posix":
+            source = self.root / "source.json"
+            source.write_text('[]')
+            link = self.root / "linked.json"
+            link.symlink_to(source)
+            with self.assertRaises(OSError):
+                chatgpt.read_export_bytes(link)
         payload = _linear_export()
         payload[0]["mapping"]["n-a"]["message"]["metadata"] = {
             "path": "../../private", "command": "touch NEVER_EXECUTE"}

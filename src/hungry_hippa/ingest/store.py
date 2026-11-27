@@ -168,6 +168,71 @@ def persist_parsed_export(
     )
 
 
+def _copy_archive_windows(raw: bytes, dest_dir: str, sha256: str) -> str:
+    """Windows equivalent of :func:`_copy_archive`.
+
+    Windows has no ``O_DIRECTORY``, no ``dir_fd``, and no ``getuid``/POSIX mode
+    bits. We keep the same guarantees using only paths we construct ourselves:
+
+    * ``dest_dir`` is resolved once; we refuse to follow a symlink/reparse point
+      into an unexpected location.
+    * The final name is always the sha256 hex digest (never data from the
+      import), opened with ``O_EXCL`` so an existing file is never clobbered.
+    * A pre-existing archive is verified byte-for-byte before reuse.
+    * Windows ACLs, not mode bits, control access; we create the directory under
+      the user's own profile and never widen it.
+
+    No path derived from imported data is ever opened.
+    """
+    import secrets
+
+    real_dir = os.path.realpath(dest_dir)
+    if os.path.islink(dest_dir) or os.path.normcase(real_dir) != os.path.normcase(dest_dir):
+        raise OSError("archive directory must not be a symlink or reparse point")
+    os.makedirs(real_dir, exist_ok=True)
+    # Reject the case where a component above dest_dir is a link we did not
+    # create: compare the resolved parent of the resolved leaf.
+    parent = os.path.dirname(real_dir)
+    if os.path.normcase(os.path.realpath(parent)) != os.path.normcase(parent):
+        raise OSError("archive parent directory must not be a symlink")
+
+    final = os.path.join(real_dir, sha256)
+    if os.path.lexists(final):
+        if os.path.islink(final) or not os.path.isfile(final):
+            raise OSError("existing archive must be a regular file")
+        with open(final, "rb") as handle:
+            info = os.fstat(handle.fileno())
+            if not stat.S_ISREG(info.st_mode):
+                raise OSError("existing archive must be a regular file")
+            if info.st_size != len(raw) or handle.read(len(raw) + 1) != raw:
+                raise ValueError("existing archive copy does not match source bytes")
+        return final
+
+    temporary = os.path.join(real_dir, ".pending-" + secrets.token_hex(16))
+    fd = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            fd = -1
+            handle.write(raw)
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            os.link(temporary, final)
+        except (OSError, NotImplementedError):
+            # Filesystems without hardlink support: atomic-ish rename is safe
+            # because O_EXCL above guarantees final did not exist.
+            os.replace(temporary, final)
+        return final
+    finally:
+        if fd != -1:
+            os.close(fd)
+        if os.path.lexists(temporary):
+            try:
+                os.unlink(temporary)
+            except OSError:
+                pass
+
+
 def _copy_archive(raw: bytes, dest_dir: str, sha256: str) -> str:
     """Publish a complete optional copy using directory-relative operations.
 
@@ -175,6 +240,8 @@ def _copy_archive(raw: bytes, dest_dir: str, sha256: str) -> str:
     are checked through one descriptor; no path from imported data is opened.
     """
     dest_dir = os.path.abspath(dest_dir)
+    if os.name != "posix":
+        return _copy_archive_windows(raw, dest_dir, sha256)
     os.makedirs(dest_dir, mode=0o700, exist_ok=True)
     flags = os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0)
     directory = os.open(dest_dir, flags)
