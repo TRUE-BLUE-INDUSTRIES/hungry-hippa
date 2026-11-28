@@ -472,6 +472,7 @@ These repos are one body of work joined by a shared JSONL trace format. An agent
 - [hungry-hippa](https://github.com/TRUE-BLUE-INDUSTRIES/hungry-hippa) — local-first MCP memory runtime
 - [stableboy](https://github.com/TRUE-BLUE-INDUSTRIES/stableboy) — offline tamper-evident receipts for economic commitments
 - [specclerk](https://github.com/TRUE-BLUE-INDUSTRIES/specclerk) — as-of-date authority resolution for versioned construction documents
+- [changewake](https://github.com/TRUE-BLUE-INDUSTRIES/changewake) — deterministic revision-impact and decision-revalidation engine
 
 ## License
 
